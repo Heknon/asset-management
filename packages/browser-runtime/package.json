@@ -1,0 +1,37 @@
+{
+  "name": "@am/browser-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Runs the four services inside the browser (service worker + PGlite).",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "@am/core": "workspace:*",
+    "@am/files": "workspace:*",
+    "@am/identity": "workspace:*",
+    "@am/platform": "workspace:*",
+    "@am/registry": "workspace:*",
+    "@am/scheduler": "workspace:*",
+    "@electric-sql/pglite": "0.5.17",
+    "@noble/hashes": "2.4.0",
+    "kysely": "0.28.20",
+    "pino": "^9.14.0",
+    "zod": "3.25.76",
+    "@am/demo-seed": "workspace:*",
+    "jose": "^6.2.18"
+  },
+  "devDependencies": {
+    "@fastify/cookie": "^11.1.5",
+    "fastify": "~5.6.2",
+    "esbuild": "0.25.12"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./accounts": "./src/accounts.ts"
+  }
+}

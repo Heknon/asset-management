@@ -4,8 +4,10 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Toaster } from 'sonner';
 import { applyTheme, readThemePref } from './components/app-shell';
+import { RuntimeGate } from './components/runtime-gate';
 import { TooltipProvider } from './components/ui/overlay';
 import { ApiError } from './lib/api';
+import { inBrowser } from './lib/run-mode';
 import { createAppRouter } from './router';
 import './styles.css';
 
@@ -28,7 +30,13 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <RouterProvider router={router} />
+        {inBrowser ? (
+          <RuntimeGate>
+            <RouterProvider router={router} />
+          </RuntimeGate>
+        ) : (
+          <RouterProvider router={router} />
+        )}
         <Toaster position="bottom-right" toastOptions={{ className: '!bg-surface !text-fg !border-border !shadow-pop !text-[13px]' }} />
       </TooltipProvider>
     </QueryClientProvider>

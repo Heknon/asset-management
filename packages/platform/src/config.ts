@@ -38,7 +38,8 @@ export const baseConfigShape = {
 const baseSchema = z.object(baseConfigShape);
 export type BaseConfig = z.infer<typeof baseSchema>;
 
-export function loadConfig<S extends z.ZodRawShape>(shape: S, env: NodeJS.ProcessEnv = process.env): BaseConfig & z.infer<z.ZodObject<S>> {
+/** Validates settings from the environment (or, in the browser runtime, a fixed object). */
+export function loadConfig<S extends z.ZodRawShape>(shape: S, env: Record<string, string | undefined> = globalThis.process?.env ?? {}): BaseConfig & z.infer<z.ZodObject<S>> {
   const result = baseSchema.extend(shape).safeParse(env);
   if (!result.success) {
     const lines = result.error.issues.map((i) => `  ${i.path.join('.')}: ${i.message}`).join('\n');

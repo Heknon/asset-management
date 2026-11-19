@@ -1,27 +1,27 @@
-import { randomBytes, scrypt as scryptCb, timingSafeEqual, type ScryptOptions } from 'node:crypto';
-import { principalToClaims } from '@am/platform';
+import { constantTimeEqual, fromBase64Url, principalToClaims, toBase64Url } from '@am/platform';
 import { calculateJwkThumbprint, exportJWK, generateKeyPair, importPKCS8, SignJWT, type CryptoKey, type JWK } from 'jose';
-import { createPublicKey, createPrivateKey } from 'node:crypto';
 import type { PasswordHasher, TokenIssuer } from '../application/ports.js';
 
-const scrypt = (password: string, salt: Buffer, keylen: number, opts: ScryptOptions) =>
-  new Promise<Buffer>((resolve, reject) => scryptCb(password, salt, keylen, opts, (err, key) => (err ? reject(err) : resolve(key))));
+/** scrypt key derivation: Node's native one on the server, a JavaScript one in the browser. Same output. */
+export type ScryptFn = (password: string, salt: Uint8Array, keylen: number, opts: { N: number; r: number; p: number }) => Promise<Uint8Array>;
 
 /** scrypt with a per-password salt; format `scrypt$N$r$p$salt$hash`. No native modules required. */
 export class ScryptHasher implements PasswordHasher {
+  constructor(private readonly scrypt: ScryptFn) {}
+
   async hash(password: string): Promise<string> {
-    const salt = randomBytes(16);
+    const salt = globalThis.crypto.getRandomValues(new Uint8Array(16));
     const N = 16384, r = 8, p = 1;
-    const key = await scrypt(password, salt, 32, { N, r, p, maxmem: 64 * 1024 * 1024 });
-    return `scrypt$${N}$${r}$${p}$${salt.toString('base64url')}$${key.toString('base64url')}`;
+    const key = await this.scrypt(password, salt, 32, { N, r, p });
+    return ['scrypt', N, r, p, toBase64Url(salt), toBase64Url(key)].join('$');
   }
 
   async verify(password: string, stored: string): Promise<boolean> {
     const [alg, N, r, p, salt, hash] = stored.split('$');
     if (alg !== 'scrypt' || !N || !r || !p || !salt || !hash) return false;
-    const expected = Buffer.from(hash, 'base64url');
-    const actual = await scrypt(password, Buffer.from(salt, 'base64url'), expected.length || 32, { N: +N, r: +r, p: +p, maxmem: 64 * 1024 * 1024 });
-    return expected.length === actual.length && timingSafeEqual(expected, actual);
+    const expected = fromBase64Url(hash);
+    const actual = await this.scrypt(password, fromBase64Url(salt), expected.length || 32, { N: +N, r: +r, p: +p });
+    return constantTimeEqual(expected, actual);
   }
 }
 
@@ -37,8 +37,10 @@ export class JwtIssuer implements TokenIssuer {
     let privateKey: CryptoKey;
     let publicJwk: JWK;
     if (pem) {
-      privateKey = await importPKCS8(pem, 'ES256');
-      publicJwk = await exportJWK(createPublicKey(createPrivateKey(pem)));
+      privateKey = await importPKCS8(pem, 'ES256', { extractable: true });
+      // The public half of the configured key: its JWK without the private scalar.
+      const { d: _private, ...pub } = await exportJWK(privateKey);
+      publicJwk = pub;
     } else {
       if (!opts.allowEphemeral) throw new Error('AUTH_SIGNING_KEY is required outside development');
       const pair = await generateKeyPair('ES256', { extractable: true });

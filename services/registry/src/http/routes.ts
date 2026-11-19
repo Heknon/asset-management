@@ -23,8 +23,7 @@ import {
   workflowSchema,
 } from '@am/core';
 import { AppError, subjectKinds } from '@am/core';
-import { metrics, parse, requirePrincipal } from '@am/platform';
-import { Readable } from 'node:stream';
+import { metrics, parse, requirePrincipal, textStream } from '@am/platform';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { AssetService } from '../application/asset-service.js';
@@ -164,7 +163,7 @@ export function registerRoutes(app: FastifyInstance, { types, variants, assets, 
       .header('content-type', 'text/csv; charset=utf-8')
       .header('content-disposition', `attachment; filename="${filename.replace(/[^\x20-\x7e]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(filename)}`)
       .header('cache-control', 'no-store')
-      .send(Readable.from(csv));
+      .send(textStream(csv));
   });
   app.post(`${PREFIX}/assets`, async (req, reply) => {
     const asset = await assets.create(requirePrincipal(req), parse(assetCreateSchema, req.body));

@@ -1,6 +1,5 @@
-import { randomBytes } from 'node:crypto';
 import { AppError, addDuration, type CatalogChanged, type Permission, type EventMap, type EventName, type IsoDate, type ObligationQuery, type RenewalRequestRef, type TrackedDate, type Visibility } from '@am/core';
-import { catalogSharePermissions, enqueue, inSubtree, visibleFilter } from '@am/platform';
+import { catalogSharePermissions, enqueue, inSubtree, randomToken, visibleFilter } from '@am/platform';
 import { sql, type Kysely, type Selectable, type SqlBool } from 'kysely';
 import type { ObligationWithAsset, SchedulerStore, UserRef } from '../application/ports.js';
 import type { AssetRef, ObligationRecord, RenewalCheckRecord } from '../domain/obligation.js';
@@ -406,7 +405,7 @@ export class PgSchedulerStore implements SchedulerStore {
     const row = await this.db.selectFrom('users_ref').select('calendar_token').where('id', '=', userId).executeTakeFirst();
     if (!row) throw new AppError('unavailable', 'Your profile is still being set up; try again in a moment');
     if (row.calendar_token && !rotate) return row.calendar_token;
-    const token = randomBytes(24).toString('base64url');
+    const token = randomToken(24);
     await this.db.updateTable('users_ref').set({ calendar_token: token }).where('id', '=', userId).execute();
     return token;
   }

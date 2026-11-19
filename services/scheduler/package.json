@@ -20,5 +20,8 @@
   },
   "devDependencies": {
     "@types/nodemailer": "^7.0.12"
+  },
+  "exports": {
+    "./service": "./src/service.ts"
   }
 }

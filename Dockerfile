@@ -13,6 +13,8 @@ RUN corepack enable
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY packages/core/package.json packages/core/
 COPY packages/platform/package.json packages/platform/
+COPY packages/browser-runtime/package.json packages/browser-runtime/
+COPY packages/demo-seed/package.json packages/demo-seed/
 COPY services/identity/package.json services/identity/
 COPY services/registry/package.json services/registry/
 COPY services/files/package.json services/files/

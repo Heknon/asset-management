@@ -1,11 +1,15 @@
-import cookie from '@fastify/cookie';
 import { AppError, effectivePermissions, permissionMeta, type AccessScope, type ErrorBody, type Permission, type Principal } from '@am/core';
-import Fastify, { type FastifyBaseLogger, type FastifyInstance, type FastifyRequest } from 'fastify';
-import type { Logger } from 'pino';
+import type { FastifyRequest } from 'fastify';
+// Route handlers use cookies (req.cookies, reply.setCookie) in every runtime.
+import type {} from '@fastify/cookie';
 import { ZodError, type ZodType, type ZodTypeDef } from 'zod';
 import { extractToken, type TokenVerifier } from './auth.js';
-import { trace } from '@opentelemetry/api';
-import { platformMetrics, registry } from './telemetry/metrics.js';
+
+/**
+ * HTTP request policy shared by every runtime: the Fastify server
+ * (`@am/platform/node`) and the in-browser router (`@am/browser-runtime`).
+ * Route handlers are written against Fastify's request/reply types.
+ */
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -13,115 +17,41 @@ declare module 'fastify' {
   }
 }
 
-export interface HttpOptions {
-  logger: Logger;
-  verifier: TokenVerifier;
-  readiness: () => Promise<void>;
-  cookieSecret?: string;
-  bodyLimit?: number;
-  /** Record request metrics and serve GET /metrics. */
-  metrics?: boolean;
-}
-
-export function createHttpServer(opts: HttpOptions): FastifyInstance {
-  const app = Fastify({
-    loggerInstance: opts.logger as FastifyBaseLogger,
-    trustProxy: true,
-    bodyLimit: opts.bodyLimit ?? 1_048_576,
-    disableRequestLogging: false,
-    genReqId: (req) => (req.headers['x-request-id'] as string) || globalThis.crypto.randomUUID(),
-  });
-
-  app.register(cookie, { secret: opts.cookieSecret });
-  app.decorateRequest('principal', null);
-
-  // Bodies are JSON only; text/plain is a CORS "simple" type that would allow cross-site form posts.
-  app.removeContentTypeParser('text/plain');
-  // Empty JSON bodies (e.g. action endpoints) are treated as "no body" instead of a 400.
-  app.removeContentTypeParser('application/json');
-  app.addContentTypeParser('application/json', { parseAs: 'string' }, (_req, body, done) => {
-    const text = (body as string).trim();
-    if (!text) return done(null, undefined);
-    try {
-      done(null, JSON.parse(text));
-    } catch {
-      done(Object.assign(new Error('Body is not valid JSON'), { statusCode: 400 }), undefined);
-    }
-  });
-
-  app.addHook('onRequest', async (req) => {
-    // Name the server span after the route template ("GET /api/registry/assets/:id"); no-op without tracing.
-    const span = trace.getActiveSpan();
-    if (span && req.routeOptions.url) {
-      span.updateName(`${req.method} ${req.routeOptions.url}`);
-      span.setAttribute('http.route', req.routeOptions.url);
-    }
-    // CSRF defence in depth (cookies are SameSite too): browsers cannot set custom
-    // headers cross-origin without a preflight, which this API never approves.
-    const unsafe = req.method !== 'GET' && req.method !== 'HEAD' && req.method !== 'OPTIONS';
-    const bearer = typeof req.headers.authorization === 'string' && req.headers.authorization.startsWith('Bearer ');
-    if (unsafe && !bearer && req.headers['x-requested-with'] !== 'asset-management') {
-      throw AppError.forbidden('Missing X-Requested-With header');
-    }
-    const token = extractToken(req.headers, req.cookies ?? {});
-    if (!token) return;
-    try {
-      req.principal = await opts.verifier.verify(token);
-    } catch {
-      // An invalid token is treated as anonymous; protected routes reject it via requirePrincipal().
-      req.principal = null;
-    }
-  });
-
-  app.addHook('onSend', async (_req, reply) => {
-    reply.header('x-content-type-options', 'nosniff');
-    reply.header('cache-control', reply.getHeader('cache-control') ?? 'no-store');
-  });
-
-  app.setErrorHandler((err, req, reply) => {
-    const body = toErrorBody(err);
-    const status = err instanceof AppError ? err.status : body.error.code === 'validation' ? 400 : ((err as { statusCode?: number }).statusCode ?? 500);
-    if (status >= 500) req.log.error({ err }, 'request failed');
-    reply.status(status).send(status >= 500 ? { error: { code: 'unavailable', message: 'Internal error' } } : body);
-  });
-
-  app.setNotFoundHandler((_req, reply) => {
-    reply.status(404).send({ error: { code: 'not_found', message: 'Route not found' } } satisfies ErrorBody);
-  });
-
-  if (opts.metrics) {
-    app.addHook('onResponse', async (req, reply) => {
-      // Route templates (/api/registry/assets/:id), never raw URLs, keep label cardinality bounded.
-      const route = req.routeOptions.url ?? 'unmatched';
-      if (route === '/metrics' || route === '/healthz' || route === '/readyz') return;
-      platformMetrics.http.observe({ method: req.method, route, status_code: String(reply.statusCode) }, reply.elapsedTime / 1000);
-    });
-    app.get('/metrics', { logLevel: 'silent' }, async (_req, reply) => {
-      reply.header('content-type', registry.contentType);
-      return registry.metrics();
-    });
+/**
+ * CSRF defence in depth (cookies are SameSite too): browsers cannot set custom
+ * headers cross-origin without a preflight, which this API never approves.
+ * Then resolves the caller from the bearer token or session cookie; an invalid
+ * token is anonymous (protected routes reject it via requirePrincipal()).
+ */
+export async function authenticate(method: string, headers: Record<string, unknown>, cookies: Record<string, string | undefined>, verifier: TokenVerifier): Promise<Principal | null> {
+  const unsafe = method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS';
+  const bearer = typeof headers.authorization === 'string' && headers.authorization.startsWith('Bearer ');
+  if (unsafe && !bearer && headers['x-requested-with'] !== 'asset-management') throw AppError.forbidden('Missing X-Requested-With header');
+  const token = extractToken(headers, cookies);
+  if (!token) return null;
+  try {
+    return await verifier.verify(token);
+  } catch {
+    return null;
   }
-
-  app.get('/healthz', { logLevel: 'silent' }, async () => ({ status: 'ok' }));
-  app.get('/readyz', { logLevel: 'silent' }, async (_req, reply) => {
-    try {
-      await opts.readiness();
-      return { status: 'ready' };
-    } catch {
-      return reply.status(503).send({ status: 'not ready' });
-    }
-  });
-
-  return app;
 }
 
-function toErrorBody(err: unknown): ErrorBody {
+export function toErrorBody(err: unknown): ErrorBody {
   if (err instanceof AppError) return { error: { code: err.code, message: err.message, details: err.details } };
   if (err instanceof ZodError) return { error: { code: 'validation', message: 'Invalid request', details: { issues: err.issues } } };
   const e = err as { validation?: unknown; message?: string; statusCode?: number };
   if (e.validation || (e.statusCode && e.statusCode >= 400 && e.statusCode < 500)) return { error: { code: 'validation', message: e.message ?? 'Invalid request' } };
   return { error: { code: 'unavailable', message: e.message ?? 'Error' } };
 }
+
+/** The status and body for a failed request; internal errors never leak their message. */
+export function errorResponse(err: unknown): { status: number; body: ErrorBody } {
+  const body = toErrorBody(err);
+  const status = err instanceof AppError ? err.status : body.error.code === 'validation' ? 400 : ((err as { statusCode?: number }).statusCode ?? 500);
+  return { status, body: status >= 500 ? { error: { code: 'unavailable', message: 'Internal error' } } : body };
+}
+
+export const notFoundBody: ErrorBody = { error: { code: 'not_found', message: 'Route not found' } };
 
 /** Parses input with a zod schema, turning failures into a 400 with field paths. */
 export function parse<Out, In = Out>(schema: ZodType<Out, ZodTypeDef, In>, value: unknown): Out {
@@ -152,4 +82,20 @@ export function authorize(principal: Principal, required: Permission, scope: Acc
   if (!perms.has('view')) throw AppError.notFound('Resource');
   if (!perms.has(required)) throw AppError.forbidden(`This needs the “${permissionMeta[required].label}” permission`);
   return perms;
+}
+
+/** A text body produced piece by piece (large exports), as a web stream every runtime can send. */
+export function textStream(chunks: AsyncIterable<string>): ReadableStream<Uint8Array> {
+  const it = chunks[Symbol.asyncIterator]();
+  const encoder = new TextEncoder();
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      const { value, done } = await it.next();
+      if (done) controller.close();
+      else controller.enqueue(encoder.encode(value));
+    },
+    async cancel() {
+      await it.return?.();
+    },
+  });
 }

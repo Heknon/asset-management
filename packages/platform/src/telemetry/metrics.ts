@@ -1,25 +1,67 @@
-import client, { type CounterConfiguration, type GaugeConfiguration, type HistogramConfiguration } from 'prom-client';
-
 /**
- * Prometheus metrics, scraped from GET /metrics by Prometheus, VictoriaMetrics
- * (vmagent / VMServiceScrape) or OpenShift user-workload monitoring.
- * Every service gets the same baseline (process, HTTP, events, outbox, DB pool);
- * services add their own business metrics through `metrics`.
+ * Business and platform metrics through a small facade. Instruments can be
+ * declared anywhere (module scope included); they record into whichever
+ * backend the runtime installs: Prometheus on the server
+ * (`@am/platform/node`), nothing in the browser.
  */
-export const registry = new client.Registry();
+type Labels<L extends string> = Partial<Record<L, string | number>>;
 
-let initialised = false;
-export function initMetrics(service: string): void {
-  if (initialised) return;
-  initialised = true;
-  registry.setDefaultLabels({ service });
-  client.collectDefaultMetrics({ register: registry });
+export interface CounterConfig<L extends string> {
+  name: string;
+  help: string;
+  labelNames?: readonly L[];
+}
+export interface HistogramConfig<L extends string> extends CounterConfig<L> {
+  buckets?: number[];
+}
+
+export interface Counter<L extends string> {
+  inc(labels?: Labels<L>, value?: number): void;
+}
+export interface Gauge<L extends string> {
+  set(labels: Labels<L>, value: number): void;
+}
+export interface Histogram<L extends string> {
+  observe(labels: Labels<L>, seconds: number): void;
+  /** Returns a function that records the elapsed time. */
+  startTimer(labels?: Labels<L>): () => void;
+}
+
+export interface MetricsBackend {
+  counter<L extends string>(c: CounterConfig<L>): Counter<L>;
+  gauge<L extends string>(c: CounterConfig<L>): Gauge<L>;
+  histogram<L extends string>(c: HistogramConfig<L>): Histogram<L>;
+}
+
+let backend: MetricsBackend | null = null;
+
+/** Installed once by the runtime (Prometheus on the server). Without one, instruments are no-ops. */
+export function setMetricsBackend(b: MetricsBackend): void {
+  backend = b;
+}
+
+/** Creates the real instrument on first use, so declaring one never depends on start-up order. */
+function lazy<T>(make: (b: MetricsBackend) => T): () => T | null {
+  let made: T | null = null;
+  return () => (made ??= backend ? make(backend) : null);
 }
 
 export const metrics = {
-  counter: <T extends string>(c: Omit<CounterConfiguration<T>, 'registers'>) => new client.Counter<T>({ ...c, registers: [registry] }),
-  gauge: <T extends string>(c: Omit<GaugeConfiguration<T>, 'registers'>) => new client.Gauge<T>({ ...c, registers: [registry] }),
-  histogram: <T extends string>(c: Omit<HistogramConfiguration<T>, 'registers'>) => new client.Histogram<T>({ ...c, registers: [registry] }),
+  counter<L extends string>(c: CounterConfig<L>): Counter<L> {
+    const get = lazy((b) => b.counter(c));
+    return { inc: (labels, value) => get()?.inc(labels, value) };
+  },
+  gauge<L extends string>(c: CounterConfig<L>): Gauge<L> {
+    const get = lazy((b) => b.gauge(c));
+    return { set: (labels, value) => get()?.set(labels, value) };
+  },
+  histogram<L extends string>(c: HistogramConfig<L>): Histogram<L> {
+    const get = lazy((b) => b.histogram(c));
+    return {
+      observe: (labels, seconds) => get()?.observe(labels, seconds),
+      startTimer: (labels) => get()?.startTimer(labels) ?? (() => undefined),
+    };
+  },
 };
 
 /** Baseline instruments shared by every service. */

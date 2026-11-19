@@ -70,3 +70,26 @@ export function extractToken(headers: Record<string, unknown>, cookies: Record<s
   if (typeof auth === 'string' && auth.startsWith('Bearer ')) return auth.slice(7);
   return cookies[ACCESS_COOKIE] ?? null;
 }
+
+/** base64url without padding, as used in tokens and stored hashes. */
+export const toBase64Url = (bytes: Uint8Array) => btoa(Array.from(bytes, (b) => String.fromCharCode(b)).join('')).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+export const fromBase64Url = (text: string) => Uint8Array.from(atob(text.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
+
+/** An unguessable token (sessions, calendar feeds), base64url, from the platform CSPRNG. */
+export function randomToken(bytes = 32): string {
+  return toBase64Url(globalThis.crypto.getRandomValues(new Uint8Array(bytes)));
+}
+
+/** SHA-256 of a string as lowercase hex (how session tokens are stored). */
+export async function sha256Hex(text: string): Promise<string> {
+  const digest = new Uint8Array(await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)));
+  return Array.from(digest, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** Compares secrets in time independent of where they differ. */
+export function constantTimeEqual(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a[i]! ^ b[i]!;
+  return diff === 0;
+}

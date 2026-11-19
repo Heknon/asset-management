@@ -1,8 +1,7 @@
 import { DeleteObjectsCommand, GetObjectCommand, HeadObjectCommand, S3Client, type S3ClientConfig } from '@aws-sdk/client-s3';
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { AppError, type AccessCheck } from '@am/core';
-import type { AssetAccess, ObjectStorage, PresignedUpload } from '../application/ports.js';
+import type { ObjectStorage, PresignedUpload } from '../application/ports.js';
 
 export interface S3Settings {
   bucket: string;
@@ -78,22 +77,5 @@ export class S3ObjectStorage implements ObjectStorage {
       const chunk = keys.slice(i, i + 1000);
       await this.internal.send(new DeleteObjectsCommand({ Bucket: this.s.bucket, Delete: { Objects: chunk.map((Key) => ({ Key })), Quiet: true } }));
     }
-  }
-}
-
-/** Forwards the caller's token to the registry, which owns asset authorisation. */
-export class RegistryAssetAccess implements AssetAccess {
-  constructor(private readonly baseUrl: string) {}
-
-  async check(token: string, assetId: string): Promise<AccessCheck | null> {
-    const res = await fetch(`${this.baseUrl.replace(/\/$/, '')}/api/registry/assets/${encodeURIComponent(assetId)}/access`, {
-      headers: { authorization: `Bearer ${token}` },
-      signal: AbortSignal.timeout(5000),
-    }).catch(() => null);
-    if (!res) throw new AppError('unavailable', 'The asset registry is not reachable');
-    if (res.status === 404 || res.status === 403) return null;
-    if (res.status === 401) throw AppError.unauthenticated();
-    if (!res.ok) throw new AppError('unavailable', 'The asset registry is not reachable');
-    return (await res.json()) as AccessCheck;
   }
 }

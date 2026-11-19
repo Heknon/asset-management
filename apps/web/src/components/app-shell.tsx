@@ -15,6 +15,7 @@ import {
   KeyRound,
   LayoutTemplate,
   LogOut,
+  Mail,
   Menu as MenuIcon,
   Monitor,
   Moon,
@@ -24,6 +25,7 @@ import {
   Shapes,
   ShoppingCart,
   Sun,
+  Trash2,
   User,
   Users,
   Workflow,
@@ -41,7 +43,8 @@ import { HitIcon, hitLink } from './search-hit';
 import { NewRequestProvider, useNewRequest } from './request-form';
 import { TypeIcon } from './type-icon';
 import { Avatar, Kbd } from './ui/display';
-import { Menu, MenuItem, MenuSeparator } from './ui/overlay';
+import { ConfirmDialog, Menu, MenuItem, MenuSeparator } from './ui/overlay';
+import { inBrowser, localServer } from '@/lib/run-mode';
 
 export type ThemePref = 'light' | 'dark' | 'system';
 
@@ -112,6 +115,12 @@ function Sidebar({ me, onSearch, onNavigate }: { me: Me; onSearch: () => void; o
   const typeParam = (location.search as { type?: string }).type;
   const requestBadge = counts.data ? (counts.data.handle ? counts.data.unassigned || counts.data.handle : 0) : 0;
 
+  const [resetting, setResetting] = useState(false);
+  const reset = async () => {
+    await localServer.reset();
+    qc.clear();
+    window.location.assign('/login');
+  };
   const logout = async () => {
     await api.post('/api/identity/auth/logout');
     qc.clear();
@@ -156,6 +165,11 @@ function Sidebar({ me, onSearch, onNavigate }: { me: Me; onSearch: () => void; o
         <NavItem to="/calendar" icon={<CalendarDays />} active={path === '/calendar'}>
           Calendar
         </NavItem>
+        {inBrowser && (
+          <NavItem to="/mailbox" icon={<Mail />} active={path === '/mailbox'}>
+            Sent emails
+          </NavItem>
+        )}
 
         {mine.length > 0 && (
           <>
@@ -258,8 +272,24 @@ function Sidebar({ me, onSearch, onNavigate }: { me: Me; onSearch: () => void; o
           <MenuItem icon={<LogOut />} onSelect={() => void logout()}>
             Sign out
           </MenuItem>
+          {inBrowser && (
+            <MenuItem icon={<Trash2 />} danger onSelect={() => setResetting(true)}>
+              Reset this browser’s data…
+            </MenuItem>
+          )}
         </Menu>
       </div>
+      {inBrowser && (
+        <ConfirmDialog
+          open={resetting}
+          onOpenChange={setResetting}
+          danger
+          title="Reset this browser’s data?"
+          description="Deletes everything Assets stored in this browser: items, people, requests, documents and sent emails. It starts again empty. This cannot be undone."
+          confirmLabel="Delete everything"
+          onConfirm={() => void reset()}
+        />
+      )}
     </div>
   );
 }

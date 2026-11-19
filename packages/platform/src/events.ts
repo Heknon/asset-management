@@ -1,7 +1,6 @@
 import type { EventMap, EventName } from '@am/core';
 import { sql, type Kysely, type Migration } from 'kysely';
 import type { Logger } from 'pino';
-import PgBoss from 'pg-boss';
 import { platformMetrics } from './telemetry/metrics.js';
 import { currentTraceCarrier, withSpan, type TraceCarrier } from './telemetry/tracing.js';
 
@@ -51,74 +50,69 @@ export async function outboxBacklog(db: Kysely<OutboxTable>): Promise<number> {
 export type EventHandler<E extends EventName> = (payload: EventMap[E]) => Promise<void>;
 
 /**
- * Queue setup takes table locks; when every replica of every service starts at
- * once (fresh install, cluster restart) these can deadlock. Retry with jitter.
+ * Delivers integration events to every subscribed consumer (fan-out), at least
+ * once. On the server: pg-boss queues in Postgres (`@am/platform/node`).
+ * In the browser: an in-memory queue (`@am/browser-runtime`).
  */
-async function withDeadlockRetry<T>(fn: () => Promise<T>, attempts = 8): Promise<T> {
-  for (let i = 1; ; i++) {
-    try {
-      return await fn();
-    } catch (err) {
-      const code = (err as { code?: string }).code;
-      if (i >= attempts || (code !== '40P01' && code !== '40001' && code !== '23505')) throw err;
-      await new Promise((r) => setTimeout(r, 100 * i + Math.random() * 400));
+export interface EventBus {
+  publish<E extends EventName>(event: E, payload: EventMap[E]): Promise<void>;
+  /** `consumer` names the durable queue, so each service gets its own copy of the event. */
+  subscribe<E extends EventName>(consumer: string, event: E, handler: EventHandler<E>): Promise<void>;
+  /** Runs `handler` once per cron tick across all replicas. */
+  schedule(queue: string, cron: string, handler: () => Promise<void>): Promise<void>;
+}
+
+/** Strips the trace context off an event and runs one consumer on it, with a span and metrics. Throws to request a retry. */
+export async function handleEvent<E extends EventName>(
+  consumer: string,
+  event: E,
+  data: unknown,
+  handler: EventHandler<E>,
+  logger: Logger,
+  attributes: Record<string, string | number> = {},
+): Promise<void> {
+  const { [TRACE_KEY]: parent, ...payload } = data as EventMap[E] & { [TRACE_KEY]?: TraceCarrier };
+  const stop = platformMetrics.eventDuration.startTimer({ consumer, event });
+  try {
+    await withSpan(`${event} process`, { kind: 'consumer', parent, attributes }, () => handler(payload as unknown as EventMap[E]));
+    platformMetrics.eventsHandled.inc({ consumer, event, outcome: 'success' });
+  } catch (err) {
+    platformMetrics.eventsHandled.inc({ consumer, event, outcome: 'failure' });
+    logger.error({ err, consumer, event, ...attributes }, 'event handler failed');
+    throw err;
+  } finally {
+    stop();
+  }
+}
+
+/** Runs one scheduled job tick, with a span and metrics. */
+export async function runJob(queue: string, handler: () => Promise<void>): Promise<void> {
+  try {
+    await withSpan(`job ${queue}`, {}, handler);
+    platformMetrics.jobRuns.inc({ job: queue, outcome: 'success' });
+    platformMetrics.jobLastSuccess.set({ job: queue }, Date.now() / 1000);
+  } catch (err) {
+    platformMetrics.jobRuns.inc({ job: queue, outcome: 'failure' });
+    throw err;
+  }
+}
+
+/** Publishes committed outbox rows (up to 100). Safe to run in several replicas (SKIP LOCKED). Returns how many it sent. */
+export async function relayOutbox(db: Kysely<OutboxTable>, bus: EventBus): Promise<number> {
+  return db.transaction().execute(async (trx) => {
+    const rows = await trx.selectFrom('outbox').selectAll().where('published_at', 'is', null).orderBy('id').limit(100).forUpdate().skipLocked().execute();
+    for (const row of rows) {
+      await bus.publish(row.event as EventName, row.payload as never);
+      platformMetrics.eventsPublished.inc({ event: row.event });
     }
-  }
+    if (rows.length) {
+      await trx.updateTable('outbox').set({ published_at: new Date() }).where('id', 'in', rows.map((r) => r.id)).execute();
+    }
+    return rows.length;
+  });
 }
 
-export class EventBus {
-  constructor(
-    private readonly boss: PgBoss,
-    private readonly logger: Logger,
-  ) {}
-
-  publish<E extends EventName>(event: E, payload: EventMap[E]): Promise<void> {
-    return this.boss.publish(event, payload as object);
-  }
-
-  /** Each consumer gets its own durable queue subscribed to the event (fan-out). */
-  async subscribe<E extends EventName>(consumer: string, event: E, handler: EventHandler<E>): Promise<void> {
-    const queue = `${consumer}.${event}`;
-    await withDeadlockRetry(() => this.boss.createQueue(queue, { name: queue, retryLimit: 10, retryBackoff: true, retryDelay: 5 }));
-    await withDeadlockRetry(() => this.boss.subscribe(event, queue));
-    await this.boss.work<EventMap[E]>(queue, { batchSize: 25, pollingIntervalSeconds: 1 }, async (jobs) => {
-      for (const job of jobs) {
-        const { [TRACE_KEY]: parent, ...payload } = job.data as EventMap[E] & { [TRACE_KEY]?: TraceCarrier };
-        const stop = platformMetrics.eventDuration.startTimer({ consumer, event });
-        try {
-          await withSpan(`${event} process`, { kind: 'consumer', parent, attributes: { 'messaging.system': 'pg-boss', 'messaging.destination.name': queue, 'messaging.message.id': job.id } }, () =>
-            handler(payload as EventMap[E]),
-          );
-          platformMetrics.eventsHandled.inc({ consumer, event, outcome: 'success' });
-        } catch (err) {
-          platformMetrics.eventsHandled.inc({ consumer, event, outcome: 'failure' });
-          this.logger.error({ err, queue, jobId: job.id }, 'event handler failed');
-          throw err;
-        } finally {
-          stop();
-        }
-      }
-    });
-  }
-
-  /** Cron job that runs once per tick across all replicas (pg-boss singleton queue). */
-  async schedule(queue: string, cron: string, handler: () => Promise<void>): Promise<void> {
-    await withDeadlockRetry(() => this.boss.createQueue(queue, { name: queue, policy: 'singleton', retryLimit: 0 }));
-    await withDeadlockRetry(() => this.boss.schedule(queue, cron, {}, { tz: 'UTC' }));
-    await this.boss.work(queue, async () => {
-      try {
-        await withSpan(`job ${queue}`, {}, handler);
-        platformMetrics.jobRuns.inc({ job: queue, outcome: 'success' });
-        platformMetrics.jobLastSuccess.set({ job: queue }, Date.now() / 1000);
-      } catch (err) {
-        platformMetrics.jobRuns.inc({ job: queue, outcome: 'failure' });
-        throw err;
-      }
-    });
-  }
-}
-
-/** Moves committed outbox rows to the bus. Safe to run in several replicas (SKIP LOCKED). */
+/** Relays the outbox on an interval until stopped. */
 export function startOutboxRelay(db: Kysely<OutboxTable>, bus: EventBus, logger: Logger, intervalMs = 1000): () => Promise<void> {
   let running = false;
   let stopped = false;
@@ -126,16 +120,7 @@ export function startOutboxRelay(db: Kysely<OutboxTable>, bus: EventBus, logger:
     if (running || stopped) return;
     running = true;
     try {
-      await db.transaction().execute(async (trx) => {
-        const rows = await trx.selectFrom('outbox').selectAll().where('published_at', 'is', null).orderBy('id').limit(100).forUpdate().skipLocked().execute();
-        for (const row of rows) {
-          await bus.publish(row.event as EventName, row.payload as never);
-          platformMetrics.eventsPublished.inc({ event: row.event });
-        }
-        if (rows.length) {
-          await trx.updateTable('outbox').set({ published_at: new Date() }).where('id', 'in', rows.map((r) => r.id)).execute();
-        }
-      });
+      while ((await relayOutbox(db, bus)) === 100 && !stopped);
     } catch (err) {
       logger.error({ err }, 'outbox relay failed');
     } finally {
@@ -150,4 +135,3 @@ export function startOutboxRelay(db: Kysely<OutboxTable>, bus: EventBus, logger:
   };
 }
 
-export { PgBoss };

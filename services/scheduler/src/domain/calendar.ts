@@ -18,15 +18,18 @@ const compactDate = (d: IsoDate) => d.replaceAll('-', '');
 const stamp = (d: Date) => d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
 
 /** Lines longer than 75 octets are folded, as required by RFC 5545 §3.1. */
+const utf8 = new TextEncoder();
+const fromUtf8 = new TextDecoder();
+
 function fold(line: string): string {
-  const bytes = Buffer.from(line, 'utf8');
+  const bytes = utf8.encode(line);
   if (bytes.length <= 75) return line;
   const parts: string[] = [];
   let start = 0;
   while (start < bytes.length) {
     let end = Math.min(start + (parts.length ? 74 : 75), bytes.length);
     while (end < bytes.length && (bytes[end]! & 0xc0) === 0x80) end--; // never split a UTF-8 sequence
-    parts.push(bytes.subarray(start, end).toString('utf8'));
+    parts.push(fromUtf8.decode(bytes.subarray(start, end)));
     start = end;
   }
   return parts.join('\r\n ');

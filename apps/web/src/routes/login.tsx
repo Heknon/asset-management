@@ -4,9 +4,12 @@ import { useNavigate, useSearch } from '@tanstack/react-router';
 import { Building2, Shapes } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/display';
 import { Field, Input, Segmented } from '@/components/ui/form';
 import { api, ApiError, isUnreachable } from '@/lib/api';
 import { keys, useProviders } from '@/lib/queries';
+import { inBrowser } from '@/lib/run-mode';
+import { LocalSignIn } from '@/components/local-sign-in';
 
 export function LoginPage() {
   const providers = useProviders();
@@ -36,7 +39,7 @@ export function LoginPage() {
   const error = login.error instanceof ApiError ? login.error.message : login.error ? 'Sign-in failed' : search.error;
 
   return (
-    <div className="flex min-h-full items-center justify-center bg-bg px-4">
+    <div className="flex min-h-full items-center justify-center bg-bg px-4 py-10">
       <div className="w-full max-w-sm">
         <div className="mb-8 flex flex-col items-center text-center">
           <div className="mb-4 flex size-11 items-center justify-center rounded-xl bg-accent text-white shadow-pop">
@@ -50,6 +53,8 @@ export function LoginPage() {
             Can’t reach the Assets server, so signing in won’t work right now. It may be restarting, or this address serves only the web app.
           </p>
         )}
+        {/* In the browser, one-click sign-in comes first; the form below is for any other account. */}
+        {inBrowser && <LocalSignIn busy={login.isPending} onSignIn={(u, p) => login.mutate({ provider: 'local', username: u, password: p })} />}
         <div className="space-y-4 rounded-2xl border border-border bg-surface p-6 shadow-pop">
           {redirect && (
             <a href={`/api/identity/auth/oidc/start?returnTo=${encodeURIComponent(returnTo)}`} className="block">
@@ -79,6 +84,11 @@ export function LoginPage() {
             </form>
           )}
           {providers.isSuccess && !providers.data.length && <p className="text-center text-[13px] text-muted">No sign-in method is configured.</p>}
+          {providers.isLoading && (
+            <div className="flex justify-center py-6">
+              <Spinner />
+            </div>
+          )}
         </div>
       </div>
     </div>

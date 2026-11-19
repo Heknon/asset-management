@@ -1,3 +1,4 @@
+/** Runtime-independent building blocks; the server runtime is `@am/platform/node`. */
 export * from './config.js';
 export * from './db.js';
 export * from './auth.js';

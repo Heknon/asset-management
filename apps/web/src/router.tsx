@@ -14,6 +14,8 @@ import { CalendarPage } from './routes/calendar';
 import { CatalogPage, CatalogsPage } from './routes/catalogs';
 import { ImportPage } from './routes/import';
 import { LoginPage } from './routes/login';
+import { MailboxPage } from './routes/mailbox';
+import { inBrowser } from './lib/run-mode';
 import { OrganizationPage } from './routes/organization';
 import { RequestDetailPage, RequestsPage } from './routes/requests';
 import { SearchPage } from './routes/search';
@@ -123,6 +125,7 @@ const routeTree = root.addChildren([
     createRoute({ getParentRoute: () => app, path: '/catalogs', component: CatalogsPage }),
     createRoute({ getParentRoute: () => app, path: '/catalogs/$catalogId', component: CatalogPage }),
     createRoute({ getParentRoute: () => app, path: '/profile', component: ProfilePage }),
+    ...(inBrowser ? [createRoute({ getParentRoute: () => app, path: '/mailbox', component: MailboxPage })] : []),
     createRoute({ getParentRoute: () => app, path: '/templates', component: orgManagers(TemplatesPage) }),
     createRoute({ getParentRoute: () => app, path: '/templates/$typeId', component: orgManagers(TemplateBuilderPage) }),
     // Team variants are managed by the unit's managers (checked by the server), not only template managers.

@@ -89,7 +89,7 @@ pnpm install
 docker compose up -d                  # Postgres, MinIO, Mailpit, OpenLDAP
 cp .env.example .env
 pnpm dev                              # services on :4001-4004, web on http://localhost:5173
-node scripts/seed-demo.mjs            # optional demo data
+pnpm seed                             # optional demo data
 ```
 
 Sign in as `admin` / `admin-change-me` (local break-glass account from `.env`). The seed builds a company of about 150 units, 60 people and 400 assets. Try it as different people (password `password-1234`):
@@ -106,6 +106,36 @@ Sign in as `admin` / `admin-change-me` (local break-glass account from `.env`). 
 pnpm typecheck && pnpm test           # strict TypeScript across all packages + unit tests
 docker compose --profile app up -d    # the production images, on http://localhost:8080
 ```
+
+## Run modes: server or entirely in the browser
+
+The same services run in two ways. Nothing is duplicated: each service is a definition (migrations, routes, event handlers) plus a few adapters for what differs between runtimes.
+
+| | Server (production) | Browser |
+|---|---|---|
+| Where | OpenShift / Docker, one container per service | One service worker inside the user's browser |
+| Database | Postgres, a schema per service | [PGlite](https://pglite.dev) (Postgres compiled to WebAssembly) in IndexedDB, the same schemas and migrations |
+| Events | pg-boss queues with a transactional outbox | In-memory queue, same outbox, same retries |
+| HTTP | Fastify | An in-process router with Fastify's request/reply shape; the same routes and request policy |
+| Documents | S3 / MinIO, presigned URLs | IndexedDB, short-lived links served by the worker |
+| Email | SMTP (Exchange / Office 365) | Kept in the browser: **Sent emails** page |
+| Sign-in | Local, LDAP / AD, ADFS (OIDC) | Local accounts (one-click Administrator, demo personas) |
+
+```bash
+pnpm --filter web dev:browser         # browser mode on http://localhost:5173 (no Docker, no services)
+pnpm --filter web build:browser       # static site + service worker in apps/web/dist (what Vercel deploys)
+```
+
+In browser mode the web app registers `/sw.js`, which starts the four services on first use (a few seconds the first time: it downloads Postgres and runs every migration; about a second afterwards). The service worker answers every `/api/*` request, so the web app, its links, downloads, previews and uploads are unchanged. The sign-in page offers **Continue as Administrator** and **Load the demo company** (the same seed as `pnpm seed`, run inside the browser in about half a minute), then one-click sign-in as each persona.
+
+What to expect in browser mode:
+
+- Data lives in this browser only (per device and browser profile); **user menu → Reset this browser's data** wipes it. Clearing site data does too.
+- Reminders and the daily renewal checks run while the app is open in a tab.
+- No directory sign-in (LDAP / ADFS) and no outgoing email: messages are listed under **Sent emails**.
+- Private windows and browsers without service workers cannot run it; the app says so.
+
+Code: `packages/browser-runtime` (PGlite dialect, router, bus, storage, mailbox, service worker), `packages/platform` (portable building blocks; `@am/platform/node` is the server runtime), each service's `src/service.ts` (its definition) and `src/main.ts` (the server entry point with Node adapters).
 
 ## Deploying to OpenShift
 

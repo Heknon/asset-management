@@ -4,6 +4,7 @@ import { assertValidParent, planImport, unitKey } from './domain/org.js';
 import { normalizeUsername } from './domain/model.js';
 import { safeReturnTo } from './http/routes.js';
 import { ScryptHasher } from './infrastructure/crypto.js';
+import { nodeScrypt } from './infrastructure/node-scrypt.js';
 import { groupNameFrom } from './infrastructure/pg-identity-store.js';
 import { escapeLdapFilter } from './infrastructure/providers.js';
 
@@ -32,7 +33,7 @@ describe('identity', () => {
   });
 
   it('hashes and verifies passwords', async () => {
-    const h = new ScryptHasher();
+    const h = new ScryptHasher(nodeScrypt);
     const hash = await h.hash('correct horse battery staple');
     expect(hash.startsWith('scrypt$')).toBe(true);
     expect(await h.verify('correct horse battery staple', hash)).toBe(true);

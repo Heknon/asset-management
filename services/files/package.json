@@ -18,5 +18,8 @@
     "kysely": "0.28.20",
     "pino": "^9.14.0",
     "zod": "3.25.76"
+  },
+  "exports": {
+    "./service": "./src/service.ts"
   }
 }

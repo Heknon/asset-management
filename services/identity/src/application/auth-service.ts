@@ -1,5 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto';
-import { metrics } from '@am/platform';
+import { metrics, randomToken, sha256Hex } from '@am/platform';
 import { AppError, type AuthProviderInfo, type Me, type PasswordLogin } from '@am/core';
 import { isAdministrator, type ExternalIdentity, type UserRecord } from '../domain/model.js';
 import type { IdentityStore, PasswordProvider, RedirectProvider, RedirectState, TokenIssuer } from './ports.js';
@@ -13,7 +12,7 @@ export interface IssuedSession {
 
 const logins = metrics.counter({ name: 'am_logins_total', help: 'Sign-in attempts by provider and outcome', labelNames: ['provider', 'outcome'] });
 
-const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
+const hashToken = (token: string) => sha256Hex(token);
 
 export class AuthService {
   constructor(
@@ -60,21 +59,21 @@ export class AuthService {
 
   /** Exchanges a refresh token for a new access token (with freshly computed grants) and rotates it. */
   async refresh(refreshToken: string): Promise<IssuedSession> {
-    const session = await this.store.findSessionByTokenHash(hashToken(refreshToken));
+    const session = await this.store.findSessionByTokenHash(await hashToken(refreshToken));
     if (!session || session.expiresAt.getTime() < Date.now()) throw AppError.unauthenticated('Session expired');
     const user = await this.store.findUserById(session.userId);
     if (!user?.active) {
       await this.store.revokeSession(session.id);
       throw AppError.unauthenticated('Account disabled');
     }
-    const next = randomBytes(32).toString('base64url');
-    await this.store.rotateSession(session.id, hashToken(next), session.expiresAt);
+    const next = randomToken(32);
+    await this.store.rotateSession(session.id, await hashToken(next), session.expiresAt);
     return { accessToken: await this.accessTokenFor(user), refreshToken: next, refreshExpiresAt: session.expiresAt, user };
   }
 
   async logout(refreshToken: string | undefined): Promise<void> {
     if (!refreshToken) return;
-    const session = await this.store.findSessionByTokenHash(hashToken(refreshToken));
+    const session = await this.store.findSessionByTokenHash(await hashToken(refreshToken));
     if (session) await this.store.revokeSession(session.id);
   }
 
@@ -107,9 +106,9 @@ export class AuthService {
       return u;
     });
     if (!user.active) throw AppError.forbidden('This account has been disabled');
-    const refreshToken = randomBytes(32).toString('base64url');
+    const refreshToken = randomToken(32);
     const refreshExpiresAt = new Date(Date.now() + this.sessionTtlMs);
-    await this.store.createSession(user.id, hashToken(refreshToken), refreshExpiresAt, userAgent);
+    await this.store.createSession(user.id, await hashToken(refreshToken), refreshExpiresAt, userAgent);
     return { accessToken: await this.accessTokenFor(user), refreshToken, refreshExpiresAt, user };
   }
 
