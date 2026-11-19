@@ -32,6 +32,8 @@ export const shortcutHelp: ShortcutHelp[] = [
   { keys: ['J'], label: 'Next row', group: 'Lists' },
   { keys: ['K'], label: 'Previous row', group: 'Lists' },
   { keys: ['↵'], label: 'Open the row', group: 'Lists' },
+  { keys: ['X'], label: 'Select the row', group: 'Lists' },
+  { keys: ['⇧', 'Click'], label: 'Select a range of rows', group: 'Lists' },
   ...goTo.map((g) => ({ keys: ['G', g.key.toUpperCase()], label: g.label, group: 'Go to' as const })),
 ];
 

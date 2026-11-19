@@ -1,5 +1,5 @@
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
-import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight, Download } from 'lucide-react';
+import { ArrowDown, ArrowUp, ArrowUpDown, Check, ChevronLeft, ChevronRight, Download, Minus } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { downloadCsv } from '@/lib/download';
 import { useFeatures } from '@/lib/queries';
@@ -55,6 +55,7 @@ export function DataTable<T>({
   page,
   empty,
   rowKey,
+  selection,
 }: {
   columns: Array<DataColumn<T>>;
   data: T[];
@@ -65,6 +66,8 @@ export function DataTable<T>({
   page?: { offset: number; limit: number; total: number; onChange: (offset: number) => void };
   empty?: ReactNode;
   rowKey: (row: T) => string;
+  /** Checkboxes on rows (Shift-click for a range, X for the highlighted row); the caller acts on what is selected. */
+  selection?: { selected: ReadonlySet<string>; onChange: (next: Set<string>) => void };
 }) {
   const serverMode = !!onSortChange;
   const [localSort, setLocalSort] = useState<SortState | undefined>(sort);
@@ -107,17 +110,46 @@ export function DataTable<T>({
   useShortcut('k', keyboard && rows.length ? () => moveCursor(-1) : null);
   useShortcut('enter', keyboard && cursor !== null ? () => rows[cursor] && onRowClick(rows[cursor]) : null);
   useEffect(() => setCursor(null), [data]);
+  const lastToggled = useRef<number | null>(null);
+  const toggle = (i: number, range = false) => {
+    if (!selection) return;
+    const next = new Set(selection.selected);
+    const on = !next.has(rowKey(rows[i]!));
+    const [a, b] = range && lastToggled.current !== null ? [Math.min(lastToggled.current, i), Math.max(lastToggled.current, i)] : [i, i];
+    for (let k = a; k <= b; k++) (on ? next.add(rowKey(rows[k]!)) : next.delete(rowKey(rows[k]!)));
+    lastToggled.current = i;
+    selection.onChange(next);
+  };
+  useShortcut('x', selection && cursor !== null ? () => toggle(cursor) : null);
+  const pageKeys = rows.map(rowKey);
+  const allOnPage = !!selection && pageKeys.length > 0 && pageKeys.every((k) => selection.selected.has(k));
+  const someOnPage = !!selection && pageKeys.some((k) => selection.selected.has(k));
+  const selectCell = 'w-10 border-b border-border px-0 pl-4 sm:pl-6';
 
   return (
     <div className="flex min-h-0 flex-col">
       {phone ? (
-        <PhoneList table={table} columns={columns} loading={loading} empty={empty} onRowClick={onRowClick} activeSort={activeSort} sortable={sortable} onSort={(key, order) => (serverMode ? onSortChange({ sort: key, order }) : setLocalSort({ sort: key, order }))} />
+        <PhoneList table={table} columns={columns} loading={loading} empty={empty} onRowClick={onRowClick} selection={selection} activeSort={activeSort} sortable={sortable} onSort={(key, order) => (serverMode ? onSortChange({ sort: key, order }) : setLocalSort({ sort: key, order }))} />
       ) : (
       <div className="min-h-0 overflow-auto">
         <table className="w-full border-separate border-spacing-0 text-[13px]">
           <thead className="sticky top-0 z-10 bg-bg">
             {table.getHeaderGroups().map((hg) => (
               <tr key={hg.id}>
+                {selection && (
+                  <th className={cn('h-9 bg-bg text-left', selectCell)}>
+                    <RowCheck
+                      label="Select all on this page"
+                      checked={allOnPage}
+                      mixed={someOnPage && !allOnPage}
+                      onChange={() => {
+                        const next = new Set(selection.selected);
+                        pageKeys.forEach((k) => (allOnPage ? next.delete(k) : next.add(k)));
+                        selection.onChange(next);
+                      }}
+                    />
+                  </th>
+                )}
                 {hg.headers.map((h) => {
                   const meta = (h.column.columnDef as DataColumn<T>).meta;
                   const active = !!activeSort && meta?.sortKey === activeSort.sort;
@@ -152,6 +184,7 @@ export function DataTable<T>({
             {loading && !rows.length
               ? Array.from({ length: 6 }, (_, i) => (
                   <tr key={i}>
+                    {selection && <td className={selectCell} />}
                     {columns.map((_, j) => (
                       <td key={j} className="h-11 border-b border-border px-3 first:pl-4 last:pr-4 sm:first:pl-6 sm:last:pr-6">
                         <Skeleton className="h-3.5 w-3/4" />
@@ -160,11 +193,16 @@ export function DataTable<T>({
                   </tr>
                 ))
               : table.getRowModel().rows.map((row, i) => (
-                  <tr key={row.id} onClick={onRowClick ? () => onRowClick(row.original) : undefined} data-cursor={cursor === i || undefined} className={cn('group', onRowClick && 'cursor-pointer')}>
+                  <tr key={row.id} onClick={onRowClick ? () => onRowClick(row.original) : undefined} data-cursor={cursor === i || undefined} data-selected={selection?.selected.has(row.id) || undefined} className={cn('group', onRowClick && 'cursor-pointer')}>
+                    {selection && (
+                      <td className={cn('h-11 transition-colors group-hover:bg-surface-2/60 group-data-[selected]:bg-accent-soft/40', selectCell)} onMouseDown={(e) => e.shiftKey && e.preventDefault()} onClick={(e) => (e.stopPropagation(), toggle(i, e.shiftKey))}>
+                        <RowCheck label="Select" checked={selection.selected.has(row.id)} onChange={() => undefined} />
+                      </td>
+                    )}
                     {row.getVisibleCells().map((cell) => {
                       const meta = (cell.column.columnDef as DataColumn<T>).meta;
                       return (
-                        <td key={cell.id} className={cn('h-11 border-b border-border px-3 whitespace-nowrap transition-colors max-lg:first:sticky max-lg:first:left-0 max-lg:first:z-[1] max-lg:first:max-w-[62vw] max-lg:first:overflow-hidden max-lg:first:bg-bg max-lg:first:shadow-[1px_0_0_var(--border)] first:pl-4 last:pr-4 sm:first:pl-6 sm:last:pr-6 group-hover:bg-surface-2/60 group-data-[cursor]:bg-accent-soft/50 group-data-[cursor]:first:shadow-[inset_2px_0_0_var(--accent)]', meta?.align === 'right' && 'text-right tabular-nums')}>
+                        <td key={cell.id} className={cn('h-11 border-b border-border px-3 whitespace-nowrap transition-colors max-lg:first:sticky max-lg:first:left-0 max-lg:first:z-[1] max-lg:first:max-w-[62vw] max-lg:first:overflow-hidden max-lg:first:bg-bg max-lg:first:shadow-[1px_0_0_var(--border)] first:pl-4 last:pr-4 sm:first:pl-6 sm:last:pr-6 group-hover:bg-surface-2/60 group-data-[selected]:bg-accent-soft/40 group-data-[cursor]:bg-accent-soft/50 group-data-[cursor]:first:shadow-[inset_2px_0_0_var(--accent)]', meta?.align === 'right' && 'text-right tabular-nums')}>
                           {flexRender(cell.column.columnDef.cell, cell.getContext())}
                         </td>
                       );
@@ -225,7 +263,9 @@ function PhoneList<T>({
   activeSort,
   sortable,
   onSort,
+  selection,
 }: {
+  selection?: { selected: ReadonlySet<string>; onChange: (next: Set<string>) => void };
   table: Table<T>;
   columns: Array<DataColumn<T>>;
   loading?: boolean;
@@ -237,11 +277,27 @@ function PhoneList<T>({
 }) {
   const sortColumns = columns.filter((c) => sortable(c.meta) && typeof c.header === 'string');
   const rows = table.getRowModel().rows;
+  // Phones: "Select" turns taps into ticks; it ends when nothing is selected any more.
+  const [picking, setPicking] = useState(false);
+  const selecting = !!selection && (picking || selection.selected.size > 0);
+  const tick = (id: string) => {
+    const next = new Set(selection!.selected);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    if (!next.size) setPicking(false);
+    selection!.onChange(next);
+  };
   return (
     <div>
-      {sortColumns.length > 0 && (
+      {(sortColumns.length > 0 || selection) && (
         <div className="flex items-center gap-2 border-b border-border px-4 py-2 text-xs text-muted">
+          {selection && rows.length > 0 && (
+            <button type="button" className="order-last ml-auto h-8 rounded-md px-2 text-[13px] font-medium text-accent-fg" onClick={() => (selecting ? (setPicking(false), selection.onChange(new Set())) : setPicking(true))}>
+              {selecting ? 'Cancel' : 'Select'}
+            </button>
+          )}
           <span>Sort by</span>
+          {sortColumns.length > 0 && (
           <Select
             aria-label="Sort by"
             className="w-auto"
@@ -261,6 +317,7 @@ function PhoneList<T>({
               </option>,
             ])}
           </Select>
+          )}
         </div>
       )}
       {loading && !rows.length ? (
@@ -277,10 +334,13 @@ function PhoneList<T>({
                 <div
                   role={onRowClick ? 'button' : undefined}
                   tabIndex={onRowClick ? 0 : undefined}
-                  onClick={onRowClick ? () => onRowClick(row.original) : undefined}
+                  onClick={selecting ? () => tick(row.id) : onRowClick ? () => onRowClick(row.original) : undefined}
                   onKeyDown={onRowClick ? (e) => e.key === 'Enter' && onRowClick(row.original) : undefined}
-                  className={cn('space-y-1 px-4 py-3 text-[13px]', onRowClick && 'cursor-pointer active:bg-surface-2')}
+                  aria-pressed={selecting ? selection!.selected.has(row.id) : undefined}
+                  className={cn('flex gap-3 px-4 py-3 text-[13px]', (onRowClick || selecting) && 'cursor-pointer active:bg-surface-2', selecting && selection!.selected.has(row.id) && 'bg-accent-soft/40')}
                 >
+                  {selecting && <RowCheck label="Select" checked={selection!.selected.has(row.id)} onChange={() => undefined} className="mt-0.5" />}
+                  <div className="min-w-0 flex-1 space-y-1">
                   {title && <div className="min-w-0 font-medium [&_*]:max-w-full">{flexRender(title.column.columnDef.cell, title.getContext())}</div>}
                   <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
                     {rest.slice(0, PHONE_DETAILS).map((c) => {
@@ -295,6 +355,7 @@ function PhoneList<T>({
                       );
                     })}
                   </div>
+                  </div>
                 </div>
               </li>
             );
@@ -302,5 +363,21 @@ function PhoneList<T>({
         </ul>
       )}
     </div>
+  );
+}
+
+/** A row's tick box. The row handles the click, so this only shows the state. */
+function RowCheck({ checked, mixed, onChange, label, className }: { checked: boolean; mixed?: boolean; onChange: () => void; label: string; className?: string }) {
+  return (
+    <span
+      role="checkbox"
+      aria-checked={mixed ? 'mixed' : checked}
+      aria-label={label}
+      tabIndex={-1}
+      onClick={onChange}
+      className={cn('flex size-4 shrink-0 cursor-pointer items-center justify-center rounded border transition-colors touch:size-5', checked || mixed ? 'border-accent bg-accent text-white' : 'border-border-strong bg-surface', className)}
+    >
+      {checked ? <Check className="size-3" strokeWidth={3} /> : mixed ? <Minus className="size-3" strokeWidth={3} /> : null}
+    </span>
   );
 }

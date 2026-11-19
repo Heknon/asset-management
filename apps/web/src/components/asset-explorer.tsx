@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { api, ApiError, withQuery } from '@/lib/api';
 import { useDebounced } from '@/lib/hooks';
-import { keys, useAssets, useLookups } from '@/lib/queries';
+import { keys, useAssets, useLookups, usePeople } from '@/lib/queries';
 import { formatDateTime } from '@/lib/utils';
 import { AttributeValue } from './attribute';
 import { StatusBadge } from './badges';
@@ -15,7 +15,8 @@ import { Highlight } from './highlight';
 import { PersonName, UnitPath, UnitPicker, AssetTypeSelect } from './pickers';
 import { TypeIcon } from './type-icon';
 import { Button } from './ui/button';
-import { DataTable, ExportButton, type DataColumn, type SortState } from './ui/data-table';
+import { BulkActions } from './bulk-actions';
+import { DataTable, ExportButton, exportRows, type DataColumn, type SortState } from './ui/data-table';
 import { downloadUrl } from '@/lib/download';
 import { EmptyState } from './ui/display';
 import { Checkbox, Field, Input, Select } from './ui/form';
@@ -41,14 +42,14 @@ function columnsFor(type: AssetType | undefined, variant: TypeVariant | undefine
     .map((f: FieldDefinition) => ({
       id: f.key,
       header: f.label,
-      meta: { sortKey: `attributes.${f.key}`, align: f.kind === 'currency' || f.kind === 'number' ? ('right' as const) : undefined },
+      meta: { sortKey: `attributes.${f.key}`, align: f.kind === 'currency' || f.kind === 'number' ? ('right' as const) : undefined, csvValue: (a: Asset) => csvText(a.attributes[f.key]) },
       cell: ({ row }: { row: { original: Asset } }) => <AttributeValue field={f} value={row.original.attributes[f.key]} compact />,
     }));
   return [
     {
       id: 'name',
       header: 'Name',
-      meta: { sortKey: 'name' },
+      meta: { sortKey: 'name', csvValue: (a: Asset) => `${a.name} (${a.reference})` },
       cell: ({ row }) => {
         const t = lookups.typeById.get(row.original.assetTypeId);
         return (
@@ -67,16 +68,24 @@ function columnsFor(type: AssetType | undefined, variant: TypeVariant | undefine
     },
     ...(type
       ? []
-      : [{ id: 'type', header: 'Type', meta: { sortKey: 'type' }, cell: ({ row }: { row: { original: Asset } }) => <span className="text-muted">{lookups.schemaOf(row.original.assetTypeId, row.original.variantId)?.name}</span> }]),
+      : [{ id: 'type', header: 'Type', meta: { sortKey: 'type', csvValue: (a: Asset) => lookups.schemaOf(a.assetTypeId, a.variantId)?.name }, cell: ({ row }: { row: { original: Asset } }) => <span className="text-muted">{lookups.schemaOf(row.original.assetTypeId, row.original.variantId)?.name}</span> }]),
     ...(type && !variant && lookups.variants.some((v) => v.assetTypeId === type.id)
       ? [{ id: 'kind', header: 'Kind', cell: ({ row }: { row: { original: Asset } }) => <span className="text-muted">{row.original.variantId ? lookups.variantById.get(row.original.variantId)?.name : 'Standard'}</span> }]
       : []),
-    { id: 'status', header: 'Status', meta: { sortKey: 'status' }, cell: ({ row }) => <StatusBadge type={lookups.typeById.get(row.original.assetTypeId)} status={row.original.status} /> },
+    { id: 'status', header: 'Status', meta: { sortKey: 'status', csvValue: (a: Asset) => lookups.typeById.get(a.assetTypeId)?.statuses.find((x) => x.value === a.status)?.label ?? a.status }, cell: ({ row }) => <StatusBadge type={lookups.typeById.get(row.original.assetTypeId)} status={row.original.status} /> },
     ...fieldCols,
-    { id: 'unit', header: 'Team', meta: { sortKey: 'unit' }, cell: ({ row }) => <UnitPath id={row.original.unitId} className="max-w-56" /> },
+    { id: 'unit', header: 'Team', meta: { sortKey: 'unit', csvValue: (a: Asset) => (lookups.unitById.get(a.unitId)?.path ?? []).map((id) => lookups.unitById.get(id)?.name).join(' > ') }, cell: ({ row }) => <UnitPath id={row.original.unitId} className="max-w-56" /> },
     { id: 'owner', header: 'Owner', meta: { sortKey: 'owner' }, cell: ({ row }) => <PersonName id={row.original.ownerId} /> },
-    { id: 'updated', header: 'Updated', meta: { sortKey: 'updatedAt' }, cell: ({ row }) => <span className="text-muted">{formatDateTime(row.original.updatedAt)}</span> },
+    { id: 'updated', header: 'Updated', meta: { sortKey: 'updatedAt', csvValue: (a: Asset) => a.updatedAt }, cell: ({ row }) => <span className="text-muted">{formatDateTime(row.original.updatedAt)}</span> },
   ];
+}
+
+/** A field value as spreadsheet text. */
+function csvText(v: unknown): string {
+  if (v == null) return '';
+  if (Array.isArray(v)) return v.map(csvText).join('; ');
+  if (typeof v === 'object') return 'amount' in (v as object) ? `${(v as { amount: unknown }).amount} ${(v as { currency?: string }).currency ?? ''}`.trim() : JSON.stringify(v);
+  return String(v);
 }
 
 export interface ExplorerQuery extends Required<Pick<SavedQuery, 'filters'>> {
@@ -136,6 +145,10 @@ export function AssetExplorer({
   const [offset, setOffset] = useState(0);
   const [saving, setSaving] = useState(false);
   const [name, setName] = useState('');
+  // Selected items, kept across pages (by id, with the item as last seen).
+  const [picked, setPicked] = useState<Map<string, Asset>>(new Map());
+  // Everyone a selected item points at (owner and person fields), for the export.
+  const people = usePeople([...picked.values()].flatMap((a) => [a.ownerId, ...Object.values(a.attributes).filter((v): v is string => typeof v === 'string' && /^[0-9a-f-]{36}$/.test(v))]));
   const search = useDebounced(query.q);
   const key = JSON.stringify({ initial, fixed });
 
@@ -188,6 +201,19 @@ export function AssetExplorer({
   });
 
   const error = assets.error instanceof ApiError ? assets.error.message : null;
+  const pageItems = assets.data?.items ?? [];
+  const selection = {
+    selected: new Set(picked.keys()),
+    onChange: (ids: Set<string>) =>
+      setPicked((prev) => {
+        const next = new Map<string, Asset>();
+        for (const id of ids) {
+          const a = prev.get(id) ?? pageItems.find((x) => x.id === id);
+          if (a) next.set(id, a);
+        }
+        return next;
+      }),
+  };
 
   return (
     <>
@@ -254,6 +280,7 @@ export function AssetExplorer({
         data={assets.data?.items ?? []}
         loading={assets.isLoading}
         rowKey={(a) => a.id}
+        selection={selection}
         onRowClick={(a) => void navigate({ to: '/assets/$assetId', params: { assetId: a.id } })}
         sort={sort}
         onSortChange={(s) => update({ sort: s })}
@@ -266,6 +293,16 @@ export function AssetExplorer({
           )
         }
       />
+      {/* Room for the action bar, so it never covers the last rows. */}
+      {picked.size > 0 && <div className="h-20 shrink-0" />}
+      {picked.size > 0 && <BulkActions items={[...picked.values()]} onClear={() => setPicked(new Map())} onExport={() =>
+            exportRows(
+              `${exportTitle} (selected)`,
+              // People are stored by id: export their names.
+              columns.map((c) => (c.id === 'owner' ? { ...c, meta: { ...c.meta, csvValue: (a: Asset) => a.ownerId } } : c)).map((c) => (c.meta?.csvValue ? { ...c, meta: { ...c.meta, csvValue: (a: Asset) => { const v = c.meta!.csvValue!(a); return typeof v === 'string' && people.has(v) ? people.get(v)!.displayName : v; } } } : c)),
+              [...picked.values()],
+            )
+          } />}
       <Dialog
         open={saving}
         onOpenChange={setSaving}
