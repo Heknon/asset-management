@@ -5,7 +5,7 @@ import { Building2, Shapes } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { Field, Input, Segmented } from '@/components/ui/form';
-import { api, ApiError } from '@/lib/api';
+import { api, ApiError, isUnreachable } from '@/lib/api';
 import { keys, useProviders } from '@/lib/queries';
 
 export function LoginPage() {
@@ -45,6 +45,11 @@ export function LoginPage() {
           <h1 className="text-xl font-semibold tracking-tight">Sign in to Assets</h1>
           <p className="mt-1 text-[13px] text-muted">Licenses, contracts and everything you renew.</p>
         </div>
+        {isUnreachable(providers.error) && (
+          <p role="alert" className="mb-4 rounded-xl bg-warning-soft px-4 py-3 text-[13px] text-warning">
+            Can’t reach the Assets server, so signing in won’t work right now. It may be restarting, or this address serves only the web app.
+          </p>
+        )}
         <div className="space-y-4 rounded-2xl border border-border bg-surface p-6 shadow-pop">
           {redirect && (
             <a href={`/api/identity/auth/oidc/start?returnTo=${encodeURIComponent(returnTo)}`} className="block">

@@ -3,6 +3,7 @@ import type { QueryClient } from '@tanstack/react-query';
 import { createRootRouteWithContext, createRoute, createRouter, Navigate, Outlet, redirect, useNavigate, useRouterState } from '@tanstack/react-router';
 import { useEffect } from 'react';
 import { AppShell } from './components/app-shell';
+import { ErrorScreen } from './components/error-screen';
 import { Spinner } from './components/ui/display';
 import { api, ApiError, sessionEvents } from './lib/api';
 import { useMyOrg } from './lib/org';
@@ -61,11 +62,12 @@ function OrganizationManagers({ children }: { children: React.ReactNode }) {
   return canManageOrganization ? <>{children}</> : <Navigate to="/" />;
 }
 
-const root = createRootRouteWithContext<{ queryClient: QueryClient }>()({ component: Outlet });
+const root = createRootRouteWithContext<{ queryClient: QueryClient }>()({ component: Outlet, errorComponent: ({ error }) => <ErrorScreen error={error} /> });
 const app = createRoute({
   getParentRoute: () => root,
   id: 'app',
   component: Authenticated,
+  errorComponent: ({ error }) => <ErrorScreen error={error} />,
   /** Auth guard: resolve the session before rendering any protected page. */
   beforeLoad: async ({ context, location }) => {
     try {
