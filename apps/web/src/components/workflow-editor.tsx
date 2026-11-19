@@ -1,9 +1,10 @@
 import { statusCategories, statusCategoryMeta, validateWorkflow, type StatusCategory, type Workflow, type WorkflowStatus } from '@am/core';
-import { ArrowDown, ArrowUp, Flag, Plus, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, Flag, MoreHorizontal, Plus, Trash2 } from 'lucide-react';
 import { ColorPicker } from './pickers';
 import { Button } from './ui/button';
 import { Input, Select } from './ui/form';
-import { Popover } from './ui/overlay';
+import { Menu, MenuItem, Popover } from './ui/overlay';
+import { useMediaQuery } from '@/lib/hooks';
 import { cn, slugKey } from '@/lib/utils';
 
 const categoryColor: Record<StatusCategory, string> = { todo: '#6366f1', active: '#f59e0b', done: '#10b981', closed: '#94a3b8' };
@@ -15,6 +16,7 @@ const categoryColor: Record<StatusCategory, string> = { todo: '#6366f1', active:
  */
 export function WorkflowEditor({ value, onChange, lockedKeys = [] }: { value: Workflow; onChange: (w: Workflow) => void; lockedKeys?: string[] }) {
   const issues = validateWorkflow(value);
+  const phone = useMediaQuery('(max-width: 639px)');
   const set = (statuses: WorkflowStatus[], transitions = value.transitions) => onChange({ statuses, transitions: transitions.filter((t) => statuses.some((s) => s.key === t.from) && statuses.some((s) => s.key === t.to)) });
   const patch = (i: number, p: Partial<WorkflowStatus>) => set(value.statuses.map((s, j) => (j === i ? { ...s, ...p } : s)));
   const move = (i: number, d: -1 | 1) => {
@@ -50,7 +52,7 @@ export function WorkflowEditor({ value, onChange, lockedKeys = [] }: { value: Wo
                   </div>
                 </Popover>
                 <Input
-                  className="h-8 w-48"
+                  className="h-8 min-w-0 flex-1 sm:w-48 sm:flex-none"
                   value={s.label}
                   aria-label="Status name"
                   onChange={(e) => {
@@ -63,6 +65,8 @@ export function WorkflowEditor({ value, onChange, lockedKeys = [] }: { value: Wo
                     );
                   }}
                 />
+                {/* Phones: the meaning moves to its own line under the name. */}
+                <span className="order-last flex basis-full items-center gap-2 pl-7 sm:order-none sm:basis-auto sm:pl-0">
                 <Select className="h-8 w-36" value={s.category} title={statusCategoryMeta[s.category].description} aria-label="Meaning" onChange={(e) => patch(i, { category: e.target.value as StatusCategory })}>
                   {statusCategories.map((c) => (
                     <option key={c} value={c}>
@@ -75,11 +79,26 @@ export function WorkflowEditor({ value, onChange, lockedKeys = [] }: { value: Wo
                     <Flag className="size-3" /> Requests start here
                   </span>
                 )}
-                <span className="ml-auto flex items-center">
-                  <Button size="icon" variant="ghost" aria-label="Move up" disabled={i === 0} icon={<ArrowUp className="size-3.5" />} onClick={() => move(i, -1)} />
-                  <Button size="icon" variant="ghost" aria-label="Move down" disabled={i === value.statuses.length - 1} icon={<ArrowDown className="size-3.5" />} onClick={() => move(i, 1)} />
-                  <Button size="icon" variant="ghost" aria-label="Remove" disabled={value.statuses.length <= 3} icon={<Trash2 className="size-3.5" />} onClick={() => set(value.statuses.filter((_, j) => j !== i))} />
                 </span>
+                {phone ? (
+                  <Menu trigger={<Button size="icon" variant="ghost" aria-label={`More for ${s.label}`} icon={<MoreHorizontal className="size-4" />} />}>
+                    <MenuItem icon={<ArrowUp />} disabled={i === 0} onSelect={() => move(i, -1)}>
+                      Move up
+                    </MenuItem>
+                    <MenuItem icon={<ArrowDown />} disabled={i === value.statuses.length - 1} onSelect={() => move(i, 1)}>
+                      Move down
+                    </MenuItem>
+                    <MenuItem icon={<Trash2 />} danger disabled={value.statuses.length <= 3} onSelect={() => set(value.statuses.filter((_, j) => j !== i))}>
+                      Remove status
+                    </MenuItem>
+                  </Menu>
+                ) : (
+                  <span className="ml-auto flex items-center">
+                    <Button size="icon" variant="ghost" aria-label="Move up" disabled={i === 0} icon={<ArrowUp className="size-3.5" />} onClick={() => move(i, -1)} />
+                    <Button size="icon" variant="ghost" aria-label="Move down" disabled={i === value.statuses.length - 1} icon={<ArrowDown className="size-3.5" />} onClick={() => move(i, 1)} />
+                    <Button size="icon" variant="ghost" aria-label="Remove" disabled={value.statuses.length <= 3} icon={<Trash2 className="size-3.5" />} onClick={() => set(value.statuses.filter((_, j) => j !== i))} />
+                  </span>
+                )}
               </div>
               {s.category !== 'done' && s.category !== 'closed' ? (
                 <div className="flex flex-wrap items-center gap-1.5 sm:pl-7">

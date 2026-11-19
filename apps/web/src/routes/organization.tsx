@@ -8,7 +8,8 @@ import { ColorPicker, UnitPicker } from '@/components/pickers';
 import { Button } from '@/components/ui/button';
 import { Card, EmptyState, PageHeader } from '@/components/ui/display';
 import { Field, Input, Segmented, Switch, TagInput, Textarea } from '@/components/ui/form';
-import { Dialog, Menu, MenuItem } from '@/components/ui/overlay';
+import { Dialog, Drawer, Menu, MenuItem } from '@/components/ui/overlay';
+import { useMediaQuery } from '@/lib/hooks';
 import { api, ApiError } from '@/lib/api';
 import { keys, useLookups } from '@/lib/queries';
 import { cn, slugKey } from '@/lib/utils';
@@ -32,7 +33,8 @@ export function OrganizationPage() {
   const qc = useQueryClient();
 
   useEffect(() => {
-    if (selected === null && units.length) setSelected(units.find((u) => !u.parentId)?.id ?? null);
+    // Desktop shows the editor beside the tree; smaller screens open it when a unit is picked.
+    if (selected === null && units.length && matchMedia('(min-width: 1024px)').matches) setSelected(units.find((u) => !u.parentId)?.id ?? null);
     // Expand the first two levels on first load.
     if (!expanded.size && units.length) setExpanded(new Set(units.filter((u) => u.path.length <= 1).map((u) => u.id)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -101,6 +103,20 @@ export function OrganizationPage() {
     );
   };
 
+  const wide = useMediaQuery('(min-width: 1024px)');
+  const editor = (plain: boolean) => (
+    <UnitEditor
+      key={selected === 'new' ? `new-${newParent}` : selected}
+      plain={plain}
+      unit={selected === 'new' ? null : (unitById.get(selected ?? '') ?? null)}
+      parentId={selected === 'new' ? newParent : undefined}
+      onSaved={(u) => {
+        void qc.invalidateQueries({ queryKey: keys.units });
+        setSelected(wide ? u.id : null);
+        if (u.parentId) setExpanded((s) => new Set([...s, ...u.path.slice(0, -1)]));
+      }}
+    />
+  );
   return (
     <>
       <PageHeader
@@ -122,7 +138,7 @@ export function OrganizationPage() {
           </>
         }
       />
-      <div className="grid grid-cols-1 min-h-0 flex-1 gap-6 px-4 sm:px-6 py-6 lg:grid-cols-[380px_minmax(0,1fr)]">
+      <div className="grid grid-cols-1 gap-6 px-4 py-6 sm:px-6 lg:min-h-0 lg:flex-1 lg:grid-cols-[380px_minmax(0,1fr)]">
         <Card padded={false} className="flex min-h-0 flex-col lg:max-h-[calc(100vh-180px)]">
           <div className="border-b border-border p-2">
             <div className="relative">
@@ -144,17 +160,17 @@ export function OrganizationPage() {
             )}
           </div>
         </Card>
-        {selected && (
-          <UnitEditor
-            key={selected === 'new' ? `new-${newParent}` : selected}
-            unit={selected === 'new' ? null : (unitById.get(selected) ?? null)}
-            parentId={selected === 'new' ? newParent : undefined}
-            onSaved={(u) => {
-              void qc.invalidateQueries({ queryKey: keys.units });
-              setSelected(u.id);
-              if (u.parentId) setExpanded((s) => new Set([...s, ...u.path.slice(0, -1)]));
-            }}
-          />
+        {wide ? (
+          selected && editor(false)
+        ) : (
+          <Drawer
+            open={!!selected}
+            onOpenChange={(o) => !o && setSelected(null)}
+            title={selected === 'new' ? 'New unit' : (unitById.get(selected ?? '')?.name ?? 'Unit')}
+            description={selected && selected !== 'new' ? unitById.get(selected)?.kind : undefined}
+          >
+            {selected && editor(true)}
+          </Drawer>
         )}
       </div>
       <ImportDialog open={importing} onOpenChange={setImporting} />
@@ -162,7 +178,7 @@ export function OrganizationPage() {
   );
 }
 
-function UnitEditor({ unit, parentId, onSaved }: { unit: OrgUnit | null; parentId?: string | null; onSaved: (u: OrgUnit) => void }) {
+function UnitEditor({ unit, parentId, onSaved, plain = false }: { unit: OrgUnit | null; parentId?: string | null; onSaved: (u: OrgUnit) => void; /** Inside a drawer, which shows the name. */ plain?: boolean }) {
   const { unitById } = useLookups();
   const parent = parentId ? unitById.get(parentId) : undefined;
   const [d, setD] = useState<OrgUnitInput>(() =>
@@ -195,10 +211,11 @@ function UnitEditor({ unit, parentId, onSaved }: { unit: OrgUnit | null; parentI
   const set = (patch: Partial<OrgUnitInput>) => setD((x) => ({ ...x, ...patch }));
 
   return (
-    <Card className="space-y-5 self-start">
+    <Card className={cn('space-y-5 self-start', plain && 'border-0 bg-transparent p-0 shadow-none')}>
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h2 className="text-[15px] font-semibold">{unit ? unit.name : parent ? `New unit in ${parent.name}` : 'New top-level unit'}</h2>
+          {!plain && <h2 className="text-[15px] font-semibold">{unit ? unit.name : parent ? `New unit in ${parent.name}` : 'New top-level unit'}</h2>}
+          {plain && !unit && <p className="text-xs text-muted">{parent ? `In ${parent.name}` : 'At the top of the organization'}</p>}
           {unit && (
             <p className="mt-0.5 text-xs text-muted">
               {unit.memberCount} members · {unit.managerCount} managers ·{' '}

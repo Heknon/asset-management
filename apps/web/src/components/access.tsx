@@ -151,7 +151,7 @@ export function SubjectPicker({ value, onChange, kinds = ['user', 'unit', 'group
     );
   }
   return (
-    <div className="relative min-w-0 flex-1">
+    <div className="relative min-w-0 flex-1 basis-full sm:basis-0">
       <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-subtle" />
       <Input
         className="pl-8"

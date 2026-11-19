@@ -2,6 +2,7 @@ import { type AssetType } from '@am/core';
 import { accessLabel } from '@/components/access';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
+import { useMediaQuery } from '@/lib/hooks';
 import { FileUp, FolderOpen, MoreHorizontal, Pencil, Plus, Share2, Trash2, Users } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
@@ -85,6 +86,7 @@ export function CatalogPage() {
   const { types } = useLookups();
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const phone = useMediaQuery('(max-width: 639px)');
   const [sharing, setSharing] = useState(false);
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -136,7 +138,7 @@ export function CatalogPage() {
               {canManage ? 'Share' : 'Who has access'}
               {c.shares.length > 0 && <span className="ml-1 text-muted">{c.shares.length}</span>}
             </Button>
-            {canAdd && (
+            {canAdd && !phone && (
               <Link to="/import" search={{ unit: c.unitId, catalog: c.id }}>
                 <Button icon={<FileUp className="size-3.5" />}>Import</Button>
               </Link>
@@ -152,14 +154,23 @@ export function CatalogPage() {
                   ))}
               </Menu>
             )}
-            {canManage && (
+            {(canManage || (canAdd && phone)) && (
               <Menu trigger={<Button size="icon" aria-label="More" icon={<MoreHorizontal className="size-4" />} />}>
-                <MenuItem icon={<Pencil />} onSelect={() => setEditing(true)}>
-                  Edit catalog
-                </MenuItem>
-                <MenuItem danger icon={<Trash2 />} onSelect={() => setDeleting(true)}>
-                  Delete catalog
-                </MenuItem>
+                {canAdd && phone && (
+                  <MenuItem icon={<FileUp />} onSelect={() => void navigate({ to: '/import', search: { unit: c.unitId, catalog: c.id } })}>
+                    Import a spreadsheet
+                  </MenuItem>
+                )}
+                {canManage && (
+                  <>
+                    <MenuItem icon={<Pencil />} onSelect={() => setEditing(true)}>
+                      Edit catalog
+                    </MenuItem>
+                    <MenuItem danger icon={<Trash2 />} onSelect={() => setDeleting(true)}>
+                      Delete catalog
+                    </MenuItem>
+                  </>
+                )}
               </Menu>
             )}
           </>

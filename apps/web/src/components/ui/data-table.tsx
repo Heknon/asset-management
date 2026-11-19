@@ -6,6 +6,9 @@ import { useFeatures } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { Button } from './button';
 import { Skeleton } from './display';
+import { Select } from './form';
+import { useMediaQuery } from '@/lib/hooks';
+import type { Table } from '@tanstack/react-table';
 
 export interface SortState {
   sort: string;
@@ -21,7 +24,12 @@ export interface ColumnMeta<T> {
   csvValue?: (row: T) => unknown;
   align?: 'right';
   width?: number;
+  /** Phones show each row as a card: the first column is its title, the next few its details. `false` leaves a column off the card. */
+  phone?: boolean;
 }
+
+/** Details shown under a card's title on phones. */
+const PHONE_DETAILS = 3;
 export type DataColumn<T> = ColumnDef<T, unknown> & { meta?: ColumnMeta<T> };
 
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
@@ -83,9 +91,13 @@ export function DataTable<T>({
   };
 
   const table = useReactTable({ data: rows, columns, getCoreRowModel: getCoreRowModel(), manualSorting: true, getRowId: rowKey });
+  const phone = useMediaQuery('(max-width: 639px)');
 
   return (
     <div className="flex min-h-0 flex-col">
+      {phone ? (
+        <PhoneList table={table} columns={columns} loading={loading} empty={empty} onRowClick={onRowClick} activeSort={activeSort} sortable={sortable} onSort={(key, order) => (serverMode ? onSortChange({ sort: key, order }) : setLocalSort({ sort: key, order }))} />
+      ) : (
       <div className="min-h-0 overflow-auto">
         <table className="w-full border-separate border-spacing-0 text-[13px]">
           <thead className="sticky top-0 z-10 bg-bg">
@@ -148,6 +160,7 @@ export function DataTable<T>({
         </table>
         {!loading && !rows.length && empty}
       </div>
+      )}
       {page && page.total > page.limit && (
         <div className="flex items-center justify-between border-t border-border px-4 sm:px-6 py-2 text-xs text-muted">
           <span>
@@ -184,5 +197,95 @@ export function exportRows<T>(title: string, columns: Array<DataColumn<T>>, rows
     title,
     cols.map((c) => (typeof c.header === 'string' ? c.header : (c.id ?? ''))),
     rows.map((r) => cols.map((c) => (c.meta!.csvValue ?? c.meta!.sortValue)!(r))),
+  );
+}
+
+/** A table's rows as cards, for phones: title from the first column, a line of details from the next ones, and a sort menu. */
+function PhoneList<T>({
+  table,
+  columns,
+  loading,
+  empty,
+  onRowClick,
+  activeSort,
+  sortable,
+  onSort,
+}: {
+  table: Table<T>;
+  columns: Array<DataColumn<T>>;
+  loading?: boolean;
+  empty?: ReactNode;
+  onRowClick?: (row: T) => void;
+  activeSort?: SortState;
+  sortable: (meta?: ColumnMeta<T>) => boolean;
+  onSort: (key: string, order: SortState['order']) => void;
+}) {
+  const sortColumns = columns.filter((c) => sortable(c.meta) && typeof c.header === 'string');
+  const rows = table.getRowModel().rows;
+  return (
+    <div>
+      {sortColumns.length > 0 && (
+        <div className="flex items-center gap-2 border-b border-border px-4 py-2 text-xs text-muted">
+          <span>Sort by</span>
+          <Select
+            aria-label="Sort by"
+            className="w-auto"
+            value={activeSort ? `${activeSort.sort}:${activeSort.order}` : ''}
+            onChange={(e) => {
+              const [key, order] = e.target.value.split(':');
+              if (key) onSort(key, order as SortState['order']);
+            }}
+          >
+            {!activeSort && <option value="">Default</option>}
+            {sortColumns.flatMap((c) => [
+              <option key={`${c.meta!.sortKey}:asc`} value={`${c.meta!.sortKey}:asc`}>
+                {String(c.header)} ↑
+              </option>,
+              <option key={`${c.meta!.sortKey}:desc`} value={`${c.meta!.sortKey}:desc`}>
+                {String(c.header)} ↓
+              </option>,
+            ])}
+          </Select>
+        </div>
+      )}
+      {loading && !rows.length ? (
+        <div className="space-y-3 p-4">{Array.from({ length: 5 }, (_, i) => <Skeleton key={i} className="h-14" />)}</div>
+      ) : !rows.length ? (
+        empty
+      ) : (
+        <ul className="divide-y divide-border">
+          {rows.map((row) => {
+            const cells = row.getVisibleCells().filter((c) => (c.column.columnDef as DataColumn<T>).meta?.phone !== false);
+            const [title, ...rest] = cells;
+            return (
+              <li key={row.id}>
+                <div
+                  role={onRowClick ? 'button' : undefined}
+                  tabIndex={onRowClick ? 0 : undefined}
+                  onClick={onRowClick ? () => onRowClick(row.original) : undefined}
+                  onKeyDown={onRowClick ? (e) => e.key === 'Enter' && onRowClick(row.original) : undefined}
+                  className={cn('space-y-1 px-4 py-3 text-[13px]', onRowClick && 'cursor-pointer active:bg-surface-2')}
+                >
+                  {title && <div className="min-w-0 font-medium [&_*]:max-w-full">{flexRender(title.column.columnDef.cell, title.getContext())}</div>}
+                  <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
+                    {rest.slice(0, PHONE_DETAILS).map((c) => {
+                      const def = c.column.columnDef as DataColumn<T>;
+                      // Numbers mean nothing without their column's name.
+                      const label = def.meta?.align === 'right' && typeof def.header === 'string' ? def.header : null;
+                      return (
+                        <span key={c.id} className="inline-flex min-w-0 max-w-full items-center gap-1 [&>*]:min-w-0">
+                          {label && <span className="text-subtle">{label}</span>}
+                          <span className={label ? 'font-medium text-fg tabular-nums' : 'contents'}>{flexRender(def.cell, c.getContext())}</span>
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
   );
 }

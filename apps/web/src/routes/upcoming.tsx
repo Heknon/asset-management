@@ -49,7 +49,7 @@ export function UpcomingPage() {
         description="Renewals, deadlines and expiries that need attention."
         actions={
           <>
-            <Select className="w-44" value={kind} onChange={(e) => setKind(e.target.value)}>
+            <Select className="w-auto sm:w-44" value={kind} onChange={(e) => setKind(e.target.value)}>
               <option value="">All date kinds</option>
               {(kinds.data ?? [])
                 .filter((k) => k.behavior !== 'informational')
@@ -59,7 +59,7 @@ export function UpcomingPage() {
                   </option>
                 ))}
             </Select>
-            <Select className="w-44" value={check} onChange={(e) => setCheck(e.target.value as typeof check)} aria-label="Renewal checks">
+            <Select className="w-auto sm:w-44" value={check} onChange={(e) => setCheck(e.target.value as typeof check)} aria-label="Renewal checks">
               <option value="">Any renewal check</option>
               <option value="asked">Waiting for owner</option>
               <option value="answered">Owner answered</option>

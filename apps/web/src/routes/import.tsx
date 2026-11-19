@@ -28,7 +28,7 @@ import { CatalogSelect } from '@/components/catalogs';
 import { UnitPicker } from '@/components/pickers';
 import { TypeIcon } from '@/components/type-icon';
 import { Button } from '@/components/ui/button';
-import { Badge, Card, PageHeader } from '@/components/ui/display';
+import { Badge, Card, CompactSteps, PageHeader } from '@/components/ui/display';
 import { Field, Input, Segmented, Select, Textarea } from '@/components/ui/form';
 import { Dialog } from '@/components/ui/overlay';
 import { api, ApiError } from '@/lib/api';
@@ -109,7 +109,8 @@ export function ImportPage() {
     <>
       <PageHeader title="Import" description="Bring in what you already track in spreadsheets: CSV, TSV, Excel or Sheets (copy & paste), and Markdown tables." />
       <div className="mx-auto w-full max-w-5xl space-y-6 px-4 sm:px-6 py-6">
-        <ol className="flex flex-wrap items-center gap-2 text-[13px]" aria-label="Steps">
+        <CompactSteps className="sm:hidden" index={index} total={steps.length} label={steps[index]!.label} done={index === steps.length - 1} />
+        <ol className="hidden flex-wrap items-center gap-2 text-[13px] sm:flex" aria-label="Steps">
           {steps.map((s, i) => (
             <li key={s.key} className="flex items-center gap-2">
               <span className={cn('flex size-6 items-center justify-center rounded-full text-xs font-medium', i < index ? 'bg-success text-white' : i === index ? 'bg-accent text-white' : 'bg-surface-2 text-muted')}>{i < index ? <Check className="size-3.5" /> : i + 1}</span>
@@ -267,6 +268,7 @@ function SourceStep({
   onHeaderRow: (v: boolean) => void;
   onNext: () => void;
 }) {
+  const [pasted, setPasted] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
   const readFile = async (f: File | undefined) => {
@@ -297,9 +299,13 @@ function SourceStep({
             Choose a file
           </Button>
         </div>
-        <div className="p-4">
+        <div className="space-y-2 p-4">
           <Textarea
             rows={4}
+            wrap="off"
+            className="font-mono text-xs touch:text-sm"
+            value={pasted}
+            onChange={(e) => setPasted(e.target.value)}
             placeholder="…or paste a table here: cells copied from Excel or Google Sheets, CSV text, or a Markdown table"
             onPaste={(e) => {
               const text = e.clipboardData.getData('text');
@@ -310,6 +316,13 @@ function SourceStep({
             }}
             onBlur={(e) => e.target.value.trim() && onLoad(e.target.value, 'pasted table')}
           />
+          {pasted.trim() && (
+            <div className="flex justify-end">
+              <Button size="sm" variant="primary" onClick={() => onLoad(pasted, 'pasted table')}>
+                Use this table
+              </Button>
+            </div>
+          )}
         </div>
       </Card>
 

@@ -126,3 +126,20 @@ export function Stat({ label, value, hint, tone }: { label: string; value: React
     </Card>
   );
 }
+
+/** Where a multi-step flow stands, in one line: for phones, where the full row of steps does not fit. */
+export function CompactSteps({ index, total, label, color, done, className }: { index: number; total: number; label: string; color?: string; done?: boolean; className?: string }) {
+  const pct = done ? 100 : Math.round(((index + 1) / total) * 100);
+  return (
+    <div className={cn('space-y-1.5', className)}>
+      <p className="flex items-center justify-between text-xs text-muted">
+        <span>
+          {done ? 'Done' : `Step ${index + 1} of ${total}`} · <span className="font-medium text-fg">{label}</span>
+        </span>
+      </p>
+      <div className="h-1.5 overflow-hidden rounded-full bg-surface-3" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label={label}>
+        <div className={cn('h-full rounded-full transition-all', done ? 'bg-success' : !color && 'bg-accent')} style={{ width: `${pct}%`, ...(color && !done && { background: color }) }} />
+      </div>
+    </div>
+  );
+}

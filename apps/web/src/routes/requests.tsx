@@ -12,7 +12,7 @@ import { AssetTypeSelect, PersonName, PersonPicker, UnitPath } from '@/component
 import { RequestFormSheet, useNewRequest } from '@/components/request-form';
 import { TypeIcon } from '@/components/type-icon';
 import { Button } from '@/components/ui/button';
-import { Avatar, Badge, Card, EmptyState, PageHeader, Skeleton, Spinner, Tabs } from '@/components/ui/display';
+import { Avatar, Badge, Card, CompactSteps, EmptyState, PageHeader, Skeleton, Spinner, Tabs } from '@/components/ui/display';
 import { Field, Input, Segmented, Textarea } from '@/components/ui/form';
 import { Dialog } from '@/components/ui/overlay';
 import { api, ApiError } from '@/lib/api';
@@ -174,7 +174,9 @@ function Stepper({ r }: { r: PurchaseRequest }) {
   const at = steps.findIndex((s) => s.key === current.key);
   const finished = current.category === 'done';
   return (
-    <ol className="flex items-center gap-1 overflow-x-auto">
+    <>
+    <CompactSteps className="sm:hidden" index={Math.max(at, 0)} total={steps.length} label={current.label} color={current.color} done={finished} />
+    <ol className="hidden items-center gap-1 overflow-x-auto sm:flex">
       {steps.map((s, i) => (
         <li key={s.key} className="flex flex-1 items-center gap-1">
           <span
@@ -188,6 +190,7 @@ function Stepper({ r }: { r: PurchaseRequest }) {
         </li>
       ))}
     </ol>
+    </>
   );
 }
 

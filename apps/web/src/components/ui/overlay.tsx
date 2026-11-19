@@ -20,16 +20,28 @@ interface PanelProps {
 /**
  * Dialogs and side sheets share one implementation; only the placement differs.
  */
-function Panel({ open, onOpenChange, title, description, children, footer, className, placement }: PanelProps & { placement: 'center' | 'side' }) {
+function Panel({ open, onOpenChange, title, description, children, footer, className, placement }: PanelProps & { placement: 'center' | 'side' | 'drawer' }) {
   return (
     <RDialog.Root open={open} onOpenChange={onOpenChange}>
       <RDialog.Portal>
         <RDialog.Overlay className="animate-overlay fixed inset-0 z-40 bg-black/30 backdrop-blur-[1px] dark:bg-black/60" />
         <RDialog.Content
+          tabIndex={-1}
+          onOpenAutoFocus={(e) => {
+            // Not the close button (the first thing in the header). With a mouse or keyboard, the first field;
+            // on touch screens the panel itself, so the on-screen keyboard does not cover it.
+            e.preventDefault();
+            const panel = e.currentTarget as HTMLElement;
+            const field = matchMedia('(pointer: coarse)').matches ? null : panel.querySelector<HTMLElement>('input:not([type=hidden]):not([disabled]), textarea:not([disabled]), select:not([disabled])');
+            (field ?? panel).focus({ preventScroll: true });
+          }}
           className={cn(
             'fixed z-50 flex flex-col border border-border bg-surface shadow-pop focus:outline-none',
             // Phones: dialogs rise from the bottom, sheets take the whole screen.
-            placement === 'center'
+            placement === 'drawer'
+              ? // Editors next to a list: rise from the bottom on phones (the list stays visible above), slide in from the side on tablets.
+                'animate-dialog inset-x-0 bottom-0 max-h-[85dvh] rounded-t-2xl pb-[env(safe-area-inset-bottom)] sm:animate-sheet sm:inset-x-auto sm:inset-y-2 sm:right-2 sm:max-h-none sm:w-[min(28rem,calc(100vw-1rem))] sm:rounded-xl sm:pb-0'
+              : placement === 'center'
               ? 'animate-dialog inset-x-0 bottom-0 max-h-[92dvh] rounded-t-2xl pb-[env(safe-area-inset-bottom)] sm:inset-x-auto sm:top-[12vh] sm:bottom-auto sm:left-1/2 sm:max-h-[76vh] sm:w-[calc(100vw-2rem)] sm:max-w-lg sm:-translate-x-1/2 sm:rounded-xl sm:pb-0'
               : 'animate-sheet inset-0 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] sm:inset-y-2 sm:right-2 sm:left-auto sm:w-[calc(100vw-1rem)] sm:max-w-xl sm:rounded-xl sm:pt-0 sm:pb-0',
             className,
@@ -54,6 +66,8 @@ function Panel({ open, onOpenChange, title, description, children, footer, class
 
 export const Dialog = (p: PanelProps) => <Panel {...p} placement="center" />;
 export const Sheet = (p: PanelProps) => <Panel {...p} placement="side" />;
+/** A bottom sheet on phones, a side panel on tablets: for editing one item of a list that should stay in view. */
+export const Drawer = (p: PanelProps) => <Panel {...p} placement="drawer" />;
 
 export function ConfirmDialog({ open, onOpenChange, title, description, confirmLabel = 'Confirm', danger, onConfirm, loading }: { open: boolean; onOpenChange: (o: boolean) => void; title: string; description: ReactNode; confirmLabel?: string; danger?: boolean; onConfirm: () => void; loading?: boolean }) {
   return (

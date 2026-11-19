@@ -80,10 +80,18 @@ export function PersonPicker({ value, onChange, id, placeholder = 'Select a pers
 export function PersonName({ id, fallback = '—' }: { id: string | null | undefined; fallback?: string }) {
   const p = usePeople([id]).get(id ?? '');
   if (!id) return <span className="text-subtle">{fallback}</span>;
+  // Still loading: a quiet placeholder of about a name's size, not "?" and "…".
+  if (!p)
+    return (
+      <span className="inline-flex items-center gap-1.5" aria-busy="true">
+        <span className="size-[18px] animate-pulse rounded-full bg-surface-3" />
+        <span className="h-2.5 w-20 animate-pulse rounded bg-surface-3" />
+      </span>
+    );
   return (
     <span className="inline-flex min-w-0 items-center gap-1.5">
-      <Avatar name={p?.displayName ?? '?'} size={18} />
-      <span className="truncate">{p?.displayName ?? '…'}</span>
+      <Avatar name={p.displayName} size={18} />
+      <span className="truncate">{p.displayName}</span>
     </span>
   );
 }

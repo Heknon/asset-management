@@ -140,7 +140,7 @@ export function AssetFormSheet({
       }
     >
       <form id="asset-form" onSubmit={submit} className="space-y-6">
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Name" required className="col-span-2">
             {(id) => <Input id={id} autoFocus value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder={`e.g. ${type.name} for …`} />}
           </Field>
@@ -193,7 +193,7 @@ export function AssetFormSheet({
         {sections.map(([section, fields]) => (
           <fieldset key={section || '_'} className="space-y-4">
             {section && <legend className="mb-3 text-xs font-semibold tracking-wide text-subtle uppercase">{section}</legend>}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               {fields.map((f) => {
                 const restricted = isRestricted(f);
                 if (restricted && !canRestricted) {

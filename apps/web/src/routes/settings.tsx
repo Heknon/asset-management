@@ -363,8 +363,19 @@ export function AccessPage() {
         title="Access"
         description="Most access comes from the organization chart: members get their unit’s default role, managers are Admins of everything beneath their unit. Add access here for what spans the whole company — e.g. Procurement as Admin, Finance as Viewer. Access adds up; changes apply within 15 minutes."
       />
-      <div className="mx-auto w-full max-w-4xl space-y-6 px-4 sm:px-6 py-6">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-5">
+      <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-4 py-6 sm:px-6">
+        {/* The roles, as a legend: compact rows on phones (after the list), cards above it on wider screens. */}
+        <Card padded={false} className="order-last divide-y divide-border sm:hidden">
+          {roleKeys.map((r) => (
+            <div key={r} className="flex items-baseline gap-3 px-4 py-2.5">
+              <Badge tone={r === 'admin' ? 'accent' : 'neutral'} className="w-24 shrink-0 justify-center">
+                {roles[r].label}
+              </Badge>
+              <p className="text-xs text-muted">{roles[r].description}</p>
+            </div>
+          ))}
+        </Card>
+        <div className="hidden gap-3 sm:grid sm:grid-cols-5">
           {roleKeys.map((r) => (
             <Card key={r}>
               <Badge tone={r === 'admin' ? 'accent' : 'neutral'}>{roles[r].label}</Badge>

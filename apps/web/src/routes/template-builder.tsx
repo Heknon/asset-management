@@ -59,7 +59,8 @@ import { Button } from '@/components/ui/button';
 import { Badge, Card, EmptyState, PageHeader, SectionTitle, Spinner } from '@/components/ui/display';
 import { WorkflowEditor } from '@/components/workflow-editor';
 import { Checkbox, Field, Input, Segmented, Select, Switch, TagInput } from '@/components/ui/form';
-import { Menu, MenuItem, Popover, Sheet } from '@/components/ui/overlay';
+import { Drawer, Menu, MenuItem, Popover, Sheet } from '@/components/ui/overlay';
+import { useMediaQuery, WIDE } from '@/lib/hooks';
 import { api, ApiError } from '@/lib/api';
 import { keys, useAssetType, useDateKinds, useOrgWorkflow, useLookups, useVariants } from '@/lib/queries';
 import { useMyOrg } from '@/lib/org';
@@ -132,7 +133,8 @@ export function TemplateBuilderPage() {
       const { id: _id, createdAt: _c, updatedAt: _u, ...rest } = existing.data;
       setDraft(rest);
       setSavedKeys(new Set(existing.data.fields.map((f) => f.key)));
-      setSelected(existing.data.fields[0]?.id ?? null);
+      // Desktop shows the inspector beside the list; smaller screens open it when a field is picked.
+      setSelected(matchMedia(WIDE).matches ? (existing.data.fields[0]?.id ?? null) : null);
       setDirty(false);
     }
   }, [existing.data]);
@@ -223,6 +225,7 @@ export function TemplateBuilderPage() {
         selected={selected}
         onSelect={setSelected}
         onChange={(patch) => update(patch)}
+        infoSummary={isNew ? undefined : `${draft.name} · IDs like ${draft.refPrefix || defaultRefPrefix(draft.key || 'item')}-1`}
         info={
           <Card className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Name" required>
@@ -273,6 +276,7 @@ function SchemaWorkbench({
   onSelect,
   onChange,
   info,
+  infoSummary,
   extra,
   below,
   locked,
@@ -286,6 +290,8 @@ function SchemaWorkbench({
   onSelect: (id: string | null) => void;
   onChange: (patch: { fields?: FieldDefinition[]; sections?: string[] }) => void;
   info: React.ReactNode;
+  /** One line describing `info` (e.g. "Software license · LIC"): below desktop width the details collapse to it. */
+  infoSummary?: React.ReactNode;
   extra?: React.ReactNode;
   below?: React.ReactNode;
   locked?: { fields: FieldDefinition[]; sections: string[]; from: string };
@@ -298,10 +304,28 @@ function SchemaWorkbench({
     onChange({ fields: arrayMove(fields, fields.findIndex((f) => f.id === active.id), fields.findIndex((f) => f.id === over.id)) });
   };
   const allSections = [...(locked?.sections ?? []), ...sections.filter((x) => !locked?.sections.includes(x))];
+  const wide = useMediaQuery(WIDE);
+  const inspector = (plain: boolean) =>
+    field && (
+      <FieldInspector
+        key={field.id}
+        plain={plain}
+        field={field}
+        fields={[...(locked?.fields ?? []), ...fields]}
+        sections={allSections}
+        kinds={kinds}
+        keyLocked={savedKeys.has(field.key)}
+        onChange={(next) => onChange({ fields: fields.map((f) => (f.id === field.id ? next : f)) })}
+        onRemove={() => {
+          onChange({ fields: fields.filter((f) => f.id !== field.id) });
+          onSelect(null);
+        }}
+      />
+    );
   return (
-    <div className="grid grid-cols-1 min-h-0 flex-1 gap-6 px-4 sm:px-6 py-6 xl:grid-cols-[minmax(0,1fr)_420px]">
+    <div className="grid min-h-0 flex-1 grid-cols-1 gap-6 px-4 py-6 sm:px-6 xl:grid-cols-[minmax(0,1fr)_420px]">
       <div className="space-y-6">
-        {info}
+        {infoSummary && !wide ? <CollapsedDetails summary={infoSummary}>{info}</CollapsedDetails> : info}
         <Card padded={false}>
           <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
             <h2 className="text-[13px] font-semibold">{locked ? 'Fields' : 'Fields'}</h2>
@@ -348,27 +372,34 @@ function SchemaWorkbench({
         </div>
         {below}
       </div>
-      <div className="xl:sticky xl:top-6 xl:self-start">
-        {field ? (
-          <FieldInspector
-            key={field.id}
-            field={field}
-            fields={[...(locked?.fields ?? []), ...fields]}
-            sections={allSections}
-            kinds={kinds}
-            keyLocked={savedKeys.has(field.key)}
-            onChange={(next) => onChange({ fields: fields.map((f) => (f.id === field.id ? next : f)) })}
-            onRemove={() => {
-              onChange({ fields: fields.filter((f) => f.id !== field.id) });
-              onSelect(null);
-            }}
-          />
-        ) : (
-          <Card>
-            <EmptyState title="Select a field" description="Pick a field on the left to configure it." />
-          </Card>
-        )}
-      </div>
+      {wide ? (
+        <div className="sticky top-6 self-start">
+          {inspector(false) ?? (
+            <Card>
+              <EmptyState title="Select a field" description="Pick a field on the left to configure it." />
+            </Card>
+          )}
+        </div>
+      ) : (
+        <Drawer
+          open={!!field}
+          onOpenChange={(o) => !o && onSelect(null)}
+          title={field?.label || 'Field'}
+          description={field ? fieldKindMeta[field.kind].label : undefined}
+          footer={
+            <>
+              <Button variant="danger-ghost" className="mr-auto" icon={<Trash2 className="size-4" />} onClick={() => field && (onChange({ fields: fields.filter((f) => f.id !== field.id) }), onSelect(null))}>
+                Remove
+              </Button>
+              <Button variant="primary" onClick={() => onSelect(null)}>
+                Done
+              </Button>
+            </>
+          }
+        >
+          {inspector(true)}
+        </Drawer>
+      )}
     </div>
   );
 }
@@ -659,7 +690,10 @@ function FieldInspector({
   keyLocked,
   onChange,
   onRemove,
+  plain = false,
 }: {
+  /** Inside a drawer: no card or header (the drawer has its own). */
+  plain?: boolean;
   field: FieldDefinition;
   fields: FieldDefinition[];
   sections: string[];
@@ -673,8 +707,7 @@ function FieldInspector({
   const setConfig = (patch: Record<string, unknown>) => onChange({ ...field, config: { ...field.config, ...patch } } as FieldDefinition);
   const Icon = kindIcons[field.kind];
 
-  return (
-    <Card padded={false}>
+  const header = (
       <div className="flex items-center gap-2 border-b border-border px-4 py-3">
         <span className="flex size-7 items-center justify-center rounded-md bg-surface-2 text-muted">
           <Icon className="size-4" />
@@ -685,7 +718,9 @@ function FieldInspector({
         </div>
         <Button size="icon" variant="danger-ghost" aria-label="Remove field" icon={<Trash2 className="size-4" />} onClick={onRemove} />
       </div>
-      <div className="space-y-4 p-4">
+  );
+  const body = (
+      <div className={cn('space-y-4', !plain && 'p-4')}>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Label">
             {(id) => <Input id={id} value={field.label} onChange={(e) => set({ label: e.target.value, ...(autoKey && { key: slugKey(e.target.value) }) })} />}
@@ -732,6 +767,13 @@ function FieldInspector({
 
         <KindConfig field={field} fields={fields} kinds={kinds} setConfig={setConfig} />
       </div>
+  );
+  return plain ? (
+    body
+  ) : (
+    <Card padded={false}>
+      {header}
+      {body}
     </Card>
   );
 }
@@ -1147,5 +1189,26 @@ function RequestWorkflowCard({ value, saved, onChange }: { value: Workflow | nul
       />
       {value && <WorkflowEditor value={value} onChange={onChange} lockedKeys={saved?.statuses.map((s) => s.key)} />}
     </Card>
+  );
+}
+
+/** The details card folded into one tappable line, so the field list is what you see first on smaller screens. */
+function CollapsedDetails({ summary, children }: { summary: React.ReactNode; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return open ? (
+    <div className="space-y-2">
+      {children}
+      <button type="button" onClick={() => setOpen(false)} className="text-xs text-accent-fg">
+        Hide details
+      </button>
+    </div>
+  ) : (
+    <button type="button" onClick={() => setOpen(true)} className="flex w-full items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3 text-left shadow-sm transition-colors active:bg-surface-2">
+      <span className="min-w-0 flex-1">
+        <span className="block text-xs text-muted">Details</span>
+        <span className="block truncate text-[13px] font-medium">{summary}</span>
+      </span>
+      <span className="text-xs text-accent-fg">Edit</span>
+    </button>
   );
 }
