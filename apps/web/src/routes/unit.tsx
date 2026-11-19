@@ -307,7 +307,7 @@ export function RequestList({ items, title, empty }: { items: import('@am/core')
                     {r.number} · {r.requesterName} · {relativeDays(r.createdAt.slice(0, 10))}
                   </span>
                 </span>
-                <RequestStatusBadge status={r.status} />
+                <RequestStatusBadge status={r.statusInfo} />
               </Link>
             </li>
           ))}

@@ -1,13 +1,13 @@
 import { addDuration, type Obligation } from '@am/core';
 import { useMutation } from '@tanstack/react-query';
-import { Link } from '@tanstack/react-router';
-import { AlarmClock, Check, CircleHelp, MessageCircleQuestion, MoreHorizontal, RefreshCcw, RotateCcw, XCircle } from 'lucide-react';
+import { Link, useNavigate } from '@tanstack/react-router';
+import { AlarmClock, Check, CircleHelp, ShoppingCart, MessageCircleQuestion, MoreHorizontal, RefreshCcw, RotateCcw, XCircle } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { api, ApiError } from '@/lib/api';
 import { useInvalidateAssets, useLookups, useMe } from '@/lib/queries';
 import { cn, formatDate, formatMoney, todayIso } from '@/lib/utils';
-import { DateKindBadge, DueBadge } from './badges';
+import { DateKindBadge, DueBadge, RequestStatusBadge } from './badges';
 import { PersonName, UnitPath } from './pickers';
 import { AnswerDialog, AskOwnerDialog, CheckBadge } from './renewal-check';
 import { TypeIcon } from './type-icon';
@@ -41,7 +41,19 @@ export function useObligationActions() {
     onError,
   });
 
+  const navigate = useNavigate();
+  const renewal = useMutation({
+    mutationFn: (o: Obligation) => api.post<{ id: string; number: string }>(`/api/registry/assets/${o.assetId}/renewal-requests`, { fieldKey: o.fieldKey, obligationId: o.id }),
+    onSuccess: (r, o) => {
+      toast.success(`${r.number} opened`, { description: `Renewal of ${o.assetName}` });
+      invalidate(o.assetId);
+      void navigate({ to: '/requests/$requestId', params: { requestId: r.id } });
+    },
+    onError,
+  });
+
   return {
+    requestRenewal: (o: Obligation) => renewal.mutate(o),
     primary: (o: Obligation) => (o.recurring ? advance.mutate(o) : act.mutate({ o, body: { action: 'complete' } })),
     snooze: (o: Obligation, until: string) => act.mutate({ o, body: { action: 'snooze', until } }),
     dismiss: (o: Obligation) => act.mutate({ o, body: { action: 'dismiss' } }),
@@ -148,6 +160,11 @@ export function ObligationList({
                   {!showAsset && <DueBadge obligation={o} />}
                   {!showAsset && <DateKindBadge kind={o.dateKind} />}
                   <CheckBadge check={o.check} />
+                  {o.renewalRequest && (
+                    <Link to="/requests/$requestId" params={{ requestId: o.renewalRequest.id }} className="inline-flex items-center gap-1 hover:opacity-80" title={`Renewal request ${o.renewalRequest.number}`}>
+                      <RequestStatusBadge status={{ label: `${o.renewalRequest.number} · ${o.renewalRequest.label}`, color: o.renewalRequest.color }} />
+                    </Link>
+                  )}
                 </div>
               </div>
               {showAsset && <DueBadge obligation={o} />}
@@ -178,6 +195,11 @@ export function ObligationList({
                       <MenuItem icon={<CircleHelp />} onSelect={() => setAnswer(o)}>
                         {o.check && o.check.status !== 'asked' ? 'Change the answer…' : 'Answer for the owner…'}
                       </MenuItem>
+                      {!o.renewalRequest && (
+                        <MenuItem icon={<ShoppingCart />} onSelect={() => actions.requestRenewal(o)}>
+                          Open a renewal request
+                        </MenuItem>
+                      )}
                       <MenuSeparator />
                       <MenuItem icon={<AlarmClock />} onSelect={() => setSnoozing(o)}>
                         Snooze…

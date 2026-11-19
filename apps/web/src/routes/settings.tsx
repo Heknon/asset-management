@@ -1,4 +1,6 @@
 import {
+  validateWorkflow,
+  type Workflow,
   dateBehaviors,
   type DateBehavior,
   type DateKind,
@@ -18,11 +20,12 @@ import { GrantsEditor } from '@/components/access-grants';
 import { DurationInput, DurationListEditor } from '@/components/duration-editor';
 import { ColorPicker, PersonName, PersonPicker, UnitPath } from '@/components/pickers';
 import { Button } from '@/components/ui/button';
-import { Avatar, Badge, Card, EmptyState, PageHeader, Tabs } from '@/components/ui/display';
+import { Avatar, Badge, Card, EmptyState, PageHeader, Spinner, Tabs } from '@/components/ui/display';
+import { WorkflowEditor } from '@/components/workflow-editor';
 import { Field, Input, Segmented, Switch } from '@/components/ui/form';
 import { ConfirmDialog, Dialog } from '@/components/ui/overlay';
 import { api, ApiError } from '@/lib/api';
-import { keys, useDateKinds, useGroupMembers, useGroups, useLookups, useMe, useUsers } from '@/lib/queries';
+import { keys, useOrgWorkflow, useDateKinds, useGroupMembers, useGroups, useLookups, useMe, useUsers } from '@/lib/queries';
 import { useMyOrg } from '@/lib/org';
 import { formatDateTime, formatDurations, slugKey } from '@/lib/utils';
 
@@ -137,6 +140,34 @@ function DateKindDialog({ kind, onClose }: { kind: DateKind | null; onClose: () 
         {kind && <Switch checked={d.archived} onChange={(archived) => setD({ ...d, archived })} label="Archived" description="Hidden from the template builder; existing dates keep working" />}
       </div>
     </Dialog>
+  );
+}
+
+// ─── Request workflow ────────────────────────────────────────────────────────
+
+export function WorkflowsPage() {
+  const saved = useOrgWorkflow();
+  const [draft, setDraft] = useState<Workflow | null>(null);
+  const wf = draft ?? saved.data;
+  const save = useSave(() => api.put<Workflow>('/api/registry/workflows/default', wf), [keys.workflow, keys.requests], 'Workflow saved', () => setDraft(null));
+  return (
+    <>
+      <PageHeader
+        title="Request workflow"
+        description="The statuses purchase and renewal requests go through, and who moves them. Templates can have their own (Templates → a template → Requests)."
+        actions={
+          draft && (
+            <>
+              <Button onClick={() => setDraft(null)}>Discard</Button>
+              <Button variant="primary" loading={save.isPending} disabled={validateWorkflow(draft).length > 0} onClick={() => save.mutate(undefined)}>
+                Save workflow
+              </Button>
+            </>
+          )
+        }
+      />
+      <div className="mx-auto w-full max-w-4xl px-6 py-6">{wf ? <WorkflowEditor value={wf} onChange={setDraft} lockedKeys={saved.data?.statuses.map((s) => s.key)} /> : <Spinner />}</div>
+    </>
   );
 }
 

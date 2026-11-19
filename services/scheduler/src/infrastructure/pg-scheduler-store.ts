@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
-import { AppError, addDuration, type CatalogChanged, type Permission, type EventMap, type EventName, type IsoDate, type ObligationQuery, type TrackedDate, type Visibility } from '@am/core';
+import { AppError, addDuration, type CatalogChanged, type Permission, type EventMap, type EventName, type IsoDate, type ObligationQuery, type RenewalRequestRef, type TrackedDate, type Visibility } from '@am/core';
 import { catalogSharePermissions, enqueue, inSubtree, visibleFilter } from '@am/platform';
-import { sql, type Kysely, type Selectable } from 'kysely';
+import { sql, type Kysely, type Selectable, type SqlBool } from 'kysely';
 import type { ObligationWithAsset, SchedulerStore, UserRef } from '../application/ports.js';
 import type { AssetRef, ObligationRecord, RenewalCheckRecord } from '../domain/obligation.js';
 import type { SchedulerDB } from './schema.js';
@@ -42,6 +42,7 @@ const toObligation = (r: Row): ObligationRecord => ({
         note: r.check_note,
       }
     : null,
+  renewalRequest: r.renewal_request ?? null,
 });
 
 const toAsset = (r: Row): AssetRef => ({
@@ -135,7 +136,7 @@ export class PgSchedulerStore implements SchedulerStore {
   async createObligation(assetId: string, t: TrackedDate) {
     const r = await this.db
       .insertInto('obligations')
-      .values({ asset_id: assetId, field_key: t.fieldKey, ...this.trackedValues(t), state: 'open', snoozed_until: null, invites_synced_sequence: null, resolved_at: null, resolved_by: null, note: null })
+      .values({ asset_id: assetId, field_key: t.fieldKey, ...this.trackedValues(t), state: 'open', snoozed_until: null, invites_synced_sequence: null, resolved_at: null, resolved_by: null, note: null, renewal_request: json(null) })
       .returning('id')
       .executeTakeFirstOrThrow();
     return toObligation((await this.joined().where('obligations.id', '=', r.id).executeTakeFirstOrThrow()) as Row);
@@ -416,6 +417,25 @@ export class PgSchedulerStore implements SchedulerStore {
   }
 
   // ─── Renewal checks ──────────────────────────────────────────────────────
+
+  async setRenewalRequest(target: { obligationId: string | null; assetId: string; fieldKey: string }, ref: RenewalRequestRef) {
+    const open = ref.category === 'todo' || ref.category === 'active';
+    let q = this.db
+      .updateTable('obligations')
+      .set({ renewal_request: json(ref) })
+      // Keep the newest news: an older event of the same request, or a finished
+      // request arriving after a newer one was opened, changes nothing.
+      .where(
+        sql<SqlBool>`(renewal_request is null or jsonb_typeof(renewal_request) = 'null'
+          or (renewal_request->>'id' = ${ref.id} and renewal_request->>'at' <= ${ref.at})
+          or (renewal_request->>'id' <> ${ref.id} and (${open} or renewal_request->>'category' not in ('todo','active'))))`,
+      );
+    // The occurrence it was opened for; otherwise the date's current one.
+    q = target.obligationId
+      ? q.where('id', '=', target.obligationId)
+      : q.where('asset_id', '=', target.assetId).where('field_key', '=', target.fieldKey).where('state', 'in', ['open', 'snoozed']);
+    await q.execute();
+  }
 
   async setCheck(id: string, check: RenewalCheckRecord) {
     await this.db

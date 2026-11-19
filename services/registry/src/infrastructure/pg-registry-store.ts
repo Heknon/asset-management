@@ -26,6 +26,7 @@ import {
   type SavedView,
   type SavedViewInput,
   type Scope,
+  type StatusCategory,
 } from '@am/core';
 import { catalogSharePermissions, enqueue, inSubtree, scopeFilter, visibleFilter } from '@am/platform';
 import { sql, type Kysely, type Selectable, type SqlBool } from 'kysely';
@@ -65,6 +66,7 @@ const toType = (r: Selectable<RegistryDB['asset_types']>): AssetType => ({
   version: r.version,
   archived: r.archived,
   refPrefix: r.ref_prefix,
+  requestWorkflow: r.request_workflow ?? null,
   createdAt: r.created_at.toISOString(),
   updatedAt: r.updated_at.toISOString(),
 });
@@ -120,6 +122,9 @@ const toRequest = (r: RequestRowDb): RequestState & { snippet?: string } => ({
   requesterName: r.requester_name,
   assigneeId: r.assignee_id,
   status: r.status,
+  statusCategory: r.status_category,
+  kind: r.kind,
+  renewal: r.kind === 'renewal' && r.renewal_asset_id && r.renewal_field_key ? { assetId: r.renewal_asset_id, fieldKey: r.renewal_field_key, obligationId: r.renewal_obligation_id } : null,
   quantity: r.quantity,
   estimatedCost: r.estimated_amount !== null && r.estimated_currency ? { amount: Number(r.estimated_amount), currency: r.estimated_currency } : null,
   neededBy: r.needed_by,
@@ -254,6 +259,7 @@ export class PgRegistryStore implements RegistryStore {
     return {
       key: input.key,
       ref_prefix: input.refPrefix ?? defaultRefPrefix(input.key),
+      request_workflow: json(input.requestWorkflow ?? null),
       name: input.name,
       description: input.description ?? null,
       icon: input.icon,
@@ -640,10 +646,22 @@ export class PgRegistryStore implements RegistryStore {
     };
   }
 
-  async insertRequest(row: RequestRow, requester: { id: string; name: string }, searchText: string) {
+  async insertRequest(row: RequestRow, requester: { id: string; name: string }, searchText: string, status: { key: string; category: StatusCategory }) {
     const r = await this.db
       .insertInto('requests')
-      .values({ ...this.requestValues(row, searchText), requester_id: requester.id, requester_name: requester.name, assignee_id: null, status: 'submitted', asset_id: null })
+      .values({
+        ...this.requestValues(row, searchText),
+        requester_id: requester.id,
+        requester_name: requester.name,
+        assignee_id: null,
+        status: status.key,
+        status_category: status.category,
+        kind: row.kind ?? 'purchase',
+        renewal_asset_id: row.renewal?.assetId ?? null,
+        renewal_field_key: row.renewal?.fieldKey ?? null,
+        renewal_obligation_id: row.renewal?.obligationId ?? null,
+        asset_id: null,
+      })
       .returning('id')
       .executeTakeFirstOrThrow();
     return (await this.getRequest(r.id))!;
@@ -661,13 +679,52 @@ export class PgRegistryStore implements RegistryStore {
     return r ? toRequest(r as RequestRowDb) : null;
   }
 
-  async setRequestStatus(id: string, status: RequestStatus, assetId?: string | null) {
+  async setRequestStatus(id: string, status: { key: string; category: StatusCategory }, assetId?: string | null) {
     await this.db
       .updateTable('requests')
-      .set({ status, updated_at: sql`now()`, ...(assetId !== undefined && { asset_id: assetId }) })
+      .set({ status: status.key, status_category: status.category, updated_at: sql`now()`, ...(assetId !== undefined && { asset_id: assetId }) })
       .where('id', '=', id)
       .execute();
   }
+
+  async openRenewals(assetId: string, fieldKey: string) {
+    const rows = await this.requests()
+      .where('requests.kind', '=', 'renewal')
+      .where('requests.renewal_asset_id', '=', assetId)
+      .where('requests.renewal_field_key', '=', fieldKey)
+      .where('requests.status_category', 'in', ['todo', 'active'])
+      .forUpdate('requests')
+      .execute();
+    return rows.map((r) => toRequest(r as RequestRowDb));
+  }
+
+  async getSetting<T>(key: string) {
+    const r = await this.db.selectFrom('settings').select('value').where('key', '=', key).executeTakeFirst();
+    return (r?.value as T) ?? null;
+  }
+
+  async putSetting(key: string, value: unknown) {
+    await this.db
+      .insertInto('settings')
+      .values({ key, value: json(value) })
+      .onConflict((oc) => oc.column('key').doUpdateSet({ value: json(value), updated_at: sql`now()` }))
+      .execute();
+  }
+
+  async moveOpenRequests(from: string, to: { key: string; category: StatusCategory }, typeIds: string[] | 'default') {
+    let q = this.db
+      .updateTable('requests')
+      .set({ status: to.key, status_category: to.category, updated_at: sql`now()` })
+      .where('status', '=', from)
+      .where('status_category', 'in', ['todo', 'active']);
+    q =
+      typeIds === 'default'
+        ? q.where(sql<SqlBool>`(asset_type_id is null or asset_type_id in (select id from asset_types where request_workflow is null or request_workflow = 'null'::jsonb))`)
+        : q.where('asset_type_id', 'in', typeIds.length ? typeIds : ['00000000-0000-0000-0000-000000000000']);
+    const r = await q.executeTakeFirst();
+    return Number(r.numUpdatedRows);
+  }
+
 
   async setRequestAssignee(id: string, assigneeId: string | null) {
     await this.db.updateTable('requests').set({ assignee_id: assigneeId, updated_at: sql`now()` }).where('id', '=', id).execute();
@@ -694,9 +751,11 @@ export class PgRegistryStore implements RegistryStore {
   async queryRequests(q: RequestQuery, v: RequestVisibility) {
     const search = q.q ? textSearch('requests', q.q, this.fuzzy) : null;
     let base = this.db.selectFrom('requests').leftJoin('units_ref', 'units_ref.id', 'requests.unit_id').where(this.requestScope(q.scope, v));
-    if (q.status === 'open') base = base.where('requests.status', 'in', ['submitted', 'in_review', 'approved', 'ordered']);
-    else if (q.status === 'closed') base = base.where('requests.status', 'in', ['fulfilled', 'rejected', 'cancelled']);
+    if (q.status === 'open') base = base.where('requests.status_category', 'in', ['todo', 'active']);
+    else if (q.status === 'closed') base = base.where('requests.status_category', 'in', ['done', 'closed']);
     else if (q.status !== 'all') base = base.where('requests.status', '=', q.status);
+    if (q.kind) base = base.where('requests.kind', '=', q.kind);
+    if (q.renewalAssetId) base = base.where('requests.renewal_asset_id', '=', q.renewalAssetId);
     if (q.unitId) base = base.where(inSubtree(q.unitId, 'units_ref.path'));
     if (q.assigneeId) base = base.where('requests.assignee_id', '=', q.assigneeId);
     if (q.q) base = base.where(search ? search.where : sql<SqlBool>`false`);
@@ -716,7 +775,7 @@ export class PgRegistryStore implements RegistryStore {
   }
 
   async countRequests(v: RequestVisibility) {
-    const open = sql<SqlBool>`requests.status in ('submitted','in_review','approved','ordered')`;
+    const open = sql<SqlBool>`requests.status_category in ('todo','active')`;
     const r = await this.db
       .selectFrom('requests')
       .leftJoin('units_ref', 'units_ref.id', 'requests.unit_id')

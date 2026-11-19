@@ -203,7 +203,7 @@ function RequestsStrip() {
               <li key={r.id}>
                 <Link to="/requests/$requestId" params={{ requestId: r.id }} className="flex items-center gap-2 text-[13px] hover:underline">
                   <span className="min-w-0 flex-1 truncate">{r.title}</span>
-                  <RequestStatusBadge status={r.status} />
+                  <RequestStatusBadge status={r.statusInfo} />
                 </Link>
               </li>
             ))}

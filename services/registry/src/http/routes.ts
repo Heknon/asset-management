@@ -19,6 +19,8 @@ import {
   requestUpdateSchema,
   savedViewInputSchema,
   searchQuerySchema,
+  renewalRequestSchema,
+  workflowSchema,
 } from '@am/core';
 import { AppError, subjectKinds } from '@am/core';
 import { metrics, parse, requirePrincipal } from '@am/platform';
@@ -98,6 +100,15 @@ export function registerRoutes(app: FastifyInstance, { types, variants, assets, 
     const { version, ...input } = body;
     return types.updateType(parse(idParam, req.params).id, input, version);
   });
+  // ─── Request workflows ───────────────────────────────────────────────────
+  app.get(`${PREFIX}/workflows/default`, async (req) => {
+    requirePrincipal(req);
+    return types.organizationWorkflow();
+  });
+  app.put(`${PREFIX}/workflows/default`, async (req) => {
+    await types.assertCanManage(requirePrincipal(req));
+    return types.setOrganizationWorkflow(parse(workflowSchema, req.body));
+  });
   app.post(`${PREFIX}/asset-types/:id/archive`, async (req) => {
     await types.assertCanManage(requirePrincipal(req));
     const { archived } = parse(z.object({ archived: z.boolean() }), req.body);
@@ -171,6 +182,9 @@ export function registerRoutes(app: FastifyInstance, { types, variants, assets, 
   });
   app.get(`${PREFIX}/assets/:id/activity`, async (req) => assets.activity(requirePrincipal(req), parse(idParam, req.params).id));
   app.get(`${PREFIX}/assets/:id/access`, async (req) => assets.access(requirePrincipal(req), parse(idParam, req.params).id));
+  app.post(`${PREFIX}/assets/:id/renewal-requests`, async (req, reply) =>
+    reply.status(201).send(await requests.requestRenewal(requirePrincipal(req), parse(idParam, req.params).id, parse(renewalRequestSchema, req.body))),
+  );
   app.get(`${PREFIX}/assets/:id/request`, async (req) => (await requests.forAsset(requirePrincipal(req), parse(idParam, req.params).id)) ?? {});
 
   // ─── Imports ─────────────────────────────────────────────────────────────

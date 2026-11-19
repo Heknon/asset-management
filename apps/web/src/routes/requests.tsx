@@ -1,7 +1,7 @@
-import { requestStatusMeta, type PurchaseRequest, type RequestEvent, type RequestQuery, type RequestStatus } from '@am/core';
+import { type PurchaseRequest, type RequestEvent, type RequestQuery, type RequestStatusInfo } from '@am/core';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
-import { ArrowLeft, Check, CheckCircle2, CircleDot, ExternalLink, Inbox, MessageSquare, PackageCheck, Pencil, Plus, Search, ShoppingCart, UserRound, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, CheckCircle2, ExternalLink, RefreshCw, Inbox, MessageSquare, PackageCheck, Pencil, Plus, Search, ShoppingCart, UserRound, X } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { AssetFormSheet } from '@/components/asset-form';
@@ -27,11 +27,12 @@ export function RequestsPage() {
   const [scope, setScope] = useState<RequestQuery['scope'] | null>(null);
   const active = scope ?? (handles ? 'handle' : 'mine');
   const [status, setStatus] = useState<'open' | 'closed' | 'all'>('open');
+  const [kind, setKind] = useState<'all' | 'purchase' | 'renewal'>('all');
   const [q, setQ] = useState('');
   const search = useDebounced(q);
   const [unassigned, setUnassigned] = useState(false);
   const me = useMe().data!;
-  const requests = useRequests({ scope: active, status, q: search || undefined, limit: 100 });
+  const requests = useRequests({ scope: active, status, q: search || undefined, limit: 100, ...(kind !== 'all' && { kind }) });
   const newRequest = useNewRequest();
   const navigate = useNavigate();
   const items = (requests.data?.items ?? []).filter((r) => !unassigned || !r.assigneeId);
@@ -62,6 +63,7 @@ export function RequestsPage() {
           <Input className="pl-8" placeholder="Search requests…" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
         <Segmented value={status} onChange={setStatus} options={[{ value: 'open', label: 'Open' }, { value: 'closed', label: 'Closed' }, { value: 'all', label: 'All' }]} />
+        <Segmented value={kind} onChange={setKind} options={[{ value: 'all', label: 'Everything' }, { value: 'purchase', label: 'Purchases' }, { value: 'renewal', label: 'Renewals' }]} />
         {active === 'handle' && (
           <button type="button" onClick={() => setUnassigned((u) => !u)} className={cn('h-7 rounded-lg border px-2.5 text-xs font-medium', unassigned ? 'border-accent bg-accent-soft text-accent-fg' : 'border-border text-muted')}>
             Unassigned{counts.data?.unassigned ? ` · ${counts.data.unassigned}` : ''}
@@ -99,7 +101,11 @@ function RequestRow({ r, meId, onOpen }: { r: PurchaseRequest; meId: string; onO
   return (
     <li>
       <button type="button" onClick={onOpen} className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-surface-2/50">
-        {type ? (
+        {r.kind === 'renewal' ? (
+          <span className="flex size-[30px] items-center justify-center rounded-lg bg-accent-soft text-accent-fg" title="Renewal">
+            <RefreshCw className="size-4" />
+          </span>
+        ) : type ? (
           <TypeIcon icon={type.icon} color={type.color} size={30} />
         ) : (
           <span className="flex size-[30px] items-center justify-center rounded-lg bg-surface-2 text-muted">
@@ -136,7 +142,7 @@ function RequestRow({ r, meId, onOpen }: { r: PurchaseRequest; meId: string; onO
           </span>
         )}
         {r.assigneeId ? <AssigneeAvatar id={r.assigneeId} /> : <span className="w-[22px]" />}
-        <RequestStatusBadge status={r.status} />
+        <RequestStatusBadge status={r.statusInfo} />
       </button>
     </li>
   );
@@ -149,26 +155,32 @@ function AssigneeAvatar({ id }: { id: string }) {
 
 // ─── Detail ──────────────────────────────────────────────────────────────────
 
-const steps: RequestStatus[] = ['submitted', 'in_review', 'approved', 'ordered', 'fulfilled'];
-
-function Stepper({ status }: { status: RequestStatus }) {
-  if (status === 'rejected' || status === 'cancelled') {
+/** Progress through the request's own workflow: its open statuses, then its first done one. */
+function Stepper({ r }: { r: PurchaseRequest }) {
+  const current = r.statusInfo;
+  if (current.category === 'closed') {
     return (
-      <div className={cn('flex items-center gap-2 rounded-lg px-3 py-2 text-[13px] font-medium', status === 'rejected' ? 'bg-danger-soft text-danger' : 'bg-surface-2 text-muted')}>
-        <X className="size-4" /> {status === 'rejected' ? 'This request was declined' : 'This request was cancelled'}
+      <div className="flex items-center gap-2 rounded-lg bg-surface-2 px-3 py-2 text-[13px] font-medium text-muted">
+        <X className="size-4" style={{ color: current.color }} /> {current.label} — this request is closed
       </div>
     );
   }
-  const at = steps.indexOf(status);
+  const done = current.category === 'done' ? current : r.statuses.find((s) => s.category === 'done');
+  const steps = [...r.statuses.filter((s) => s.category === 'todo' || s.category === 'active'), ...(done ? [done] : [])];
+  const at = steps.findIndex((s) => s.key === current.key);
+  const finished = current.category === 'done';
   return (
-    <ol className="flex items-center gap-1">
+    <ol className="flex items-center gap-1 overflow-x-auto">
       {steps.map((s, i) => (
-        <li key={s} className="flex flex-1 items-center gap-1">
-          <span className={cn('flex size-5 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold', i < at || status === 'fulfilled' ? 'bg-success text-white' : i === at ? 'bg-accent text-white' : 'bg-surface-3 text-subtle')}>
-            {i < at || status === 'fulfilled' ? <Check className="size-3" strokeWidth={3} /> : i + 1}
+        <li key={s.key} className="flex flex-1 items-center gap-1">
+          <span
+            className={cn('flex size-5 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold', i < at || finished ? 'bg-success text-white' : i === at ? 'text-white' : 'bg-surface-3 text-subtle')}
+            style={i === at && !finished ? { background: s.color } : undefined}
+          >
+            {i < at || finished ? <Check className="size-3" strokeWidth={3} /> : i + 1}
           </span>
-          <span className={cn('text-xs whitespace-nowrap', i <= at ? 'font-medium text-fg' : 'text-subtle')}>{requestStatusMeta[s].label}</span>
-          {i < steps.length - 1 && <span className={cn('mx-1 h-px flex-1', i < at ? 'bg-success' : 'bg-border')} />}
+          <span className={cn('text-xs whitespace-nowrap', i <= at ? 'font-medium text-fg' : 'text-subtle')}>{s.label}</span>
+          {i < steps.length - 1 && <span className={cn('mx-1 h-px min-w-3 flex-1', i < at ? 'bg-success' : 'bg-border')} />}
         </li>
       ))}
     </ol>
@@ -179,9 +191,13 @@ function useAct(requestId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: Record<string, unknown>) => api.post<PurchaseRequest>(`/api/registry/requests/${requestId}/actions`, body),
-    onSuccess: (_r, body) => {
+    onSuccess: (r, body) => {
       void qc.invalidateQueries({ queryKey: keys.requests });
-      if (body.action === 'status') toast.success(`Marked as ${requestStatusMeta[body.status as RequestStatus].label.toLowerCase()}`);
+      if (body.action === 'status') {
+        toast.success(`Moved to “${r.statusInfo.label}”`);
+        // A finished renewal moved the item's date.
+        if (r.kind === 'renewal' && r.statusInfo.category === 'done') void qc.invalidateQueries();
+      }
     },
     onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Something went wrong'),
   });
@@ -195,7 +211,7 @@ export function RequestDetailPage() {
   const { typeById } = useLookups();
   const act = useAct(requestId);
   const [comment, setComment] = useState('');
-  const [declining, setDeclining] = useState(false);
+  const [closing, setClosing] = useState<RequestStatusInfo | null>(null);
   const [reason, setReason] = useState('');
   const [editing, setEditing] = useState(false);
   const [fulfilType, setFulfilType] = useState<string | null>(null);
@@ -208,26 +224,32 @@ export function RequestDetailPage() {
   const handler = r.access === 'handler';
   const mine = r.requesterId === me.userId;
   const type = r.assetTypeId ? typeById.get(r.assetTypeId) : undefined;
-  const open = r.status !== 'fulfilled' && r.status !== 'rejected' && r.status !== 'cancelled';
+  const open = r.statusInfo.category === 'todo' || r.statusInfo.category === 'active';
   const fulfilAs = fulfilType ? typeById.get(fulfilType) : undefined;
-  const status = (s: RequestStatus, note?: string) => act.mutate({ action: 'status', status: s, ...(note && { note }) });
+  const status = (s: string, note?: string) => act.mutate({ action: 'status', status: s, ...(note && { note }) });
 
+  // The buttons are the workflow's next statuses: forward moves first, then the ones that close it.
   const actions: ReactNode[] = [];
-  if (handler) {
-    if (r.status === 'submitted') actions.push(<Button key="rev" icon={<CircleDot className="size-3.5" />} onClick={() => status('in_review')}>Start review</Button>);
-    if (r.status === 'submitted' || r.status === 'in_review') actions.push(<Button key="ok" variant="primary" icon={<Check className="size-3.5" />} onClick={() => status('approved')}>Approve</Button>);
-    if (r.status === 'approved') actions.push(<Button key="ord" icon={<ShoppingCart className="size-3.5" />} onClick={() => status('ordered')}>Mark as ordered</Button>);
-    if (r.status === 'approved' || r.status === 'ordered')
-      actions.push(
-        <Button key="ful" variant="primary" icon={<PackageCheck className="size-3.5" />} onClick={() => (r.assetTypeId ? setFulfilType(r.assetTypeId) : setChoosingType(true))}>
-          Fulfil — add the asset
-        </Button>,
-      );
-    if (open && r.status !== 'ordered') actions.push(<Button key="no" variant="danger-ghost" icon={<X className="size-3.5" />} onClick={() => setDeclining(true)}>Decline</Button>);
-    if (r.status === 'rejected') actions.push(<Button key="re" onClick={() => status('in_review')}>Reopen review</Button>);
-  }
-  if (mine && open && r.status !== 'ordered') actions.push(<Button key="cx" variant="ghost" onClick={() => status('cancelled')}>Cancel request</Button>);
-
+  const forward = r.moves.filter((m) => m.category !== 'closed');
+  const primary = forward.find((m) => m.category === 'done') ?? forward.find((m) => m.category === 'active');
+  for (const m of forward)
+    actions.push(
+      <Button key={m.key} variant={m === primary ? 'primary' : 'secondary'} icon={m.category === 'done' ? <Check className="size-3.5" /> : <ArrowRight className="size-3.5" />} loading={act.isPending && act.variables?.status === m.key} onClick={() => status(m.key)}>
+        {r.kind === 'renewal' && m.category === 'done' ? `${m.label} — roll the date forward` : m.label}
+      </Button>,
+    );
+  if (handler && open && r.kind === 'purchase' && r.statusInfo.category === 'active')
+    actions.push(
+      <Button key="ful" variant={primary ? 'secondary' : 'primary'} icon={<PackageCheck className="size-3.5" />} onClick={() => (r.assetTypeId ? setFulfilType(r.assetTypeId) : setChoosingType(true))}>
+        Create the item — done
+      </Button>,
+    );
+  for (const m of r.moves.filter((x) => x.category === 'closed'))
+    actions.push(
+      <Button key={m.key} variant={handler ? 'danger-ghost' : 'ghost'} icon={<X className="size-3.5" />} onClick={() => (handler ? setClosing(m) : status(m.key))}>
+        {m.label}
+      </Button>,
+    );
   return (
     <>
       <PageHeader
@@ -238,15 +260,16 @@ export function RequestDetailPage() {
               <ArrowLeft className="size-3" /> Requests
             </Link>
             <span>{r.number}</span>
-            <RequestStatusBadge status={r.status} />
+            <RequestStatusBadge status={r.statusInfo} />
+            {r.kind === 'renewal' && <Badge tone="accent">Renewal</Badge>}
           </span>
         }
-        actions={(handler || (mine && (r.status === 'submitted' || r.status === 'in_review'))) && open && <Button icon={<Pencil className="size-3.5" />} onClick={() => setEditing(true)}>Edit</Button>}
+        actions={(handler || (mine && r.statusInfo.category === 'todo')) && open && <Button icon={<Pencil className="size-3.5" />} onClick={() => setEditing(true)}>Edit</Button>}
       />
       <div className="mx-auto grid w-full max-w-6xl gap-6 px-6 py-6 lg:grid-cols-[minmax(0,1fr)_340px]">
         <div className="space-y-6">
           <Card>
-            <Stepper status={r.status} />
+            <Stepper r={r} />
           </Card>
           <Card className="space-y-4">
             {r.description ? <p className="text-[14px] leading-relaxed whitespace-pre-wrap">{r.description}</p> : <p className="text-[13px] text-subtle">No details given.</p>}
@@ -261,7 +284,12 @@ export function RequestDetailPage() {
                 {new URL(r.link).host} <ExternalLink className="size-3" />
               </a>
             )}
-            {r.assetId && (
+            {r.renewal && (
+              <Link to="/assets/$assetId" params={{ assetId: r.renewal.assetId }} className="flex items-center gap-2 rounded-lg bg-accent-soft px-3 py-2 text-[13px] font-medium text-accent-fg">
+                <RefreshCw className="size-4" /> {r.statusInfo.category === 'done' ? 'Renewed — open the item' : 'Renewing an existing item — open it'}
+              </Link>
+            )}
+            {r.assetId && r.kind === 'purchase' && (
               <Link to="/assets/$assetId" params={{ assetId: r.assetId }} className="flex items-center gap-2 rounded-lg bg-success-soft px-3 py-2 text-[13px] font-medium text-success">
                 <CheckCircle2 className="size-4" /> Fulfilled — open the asset
               </Link>
@@ -269,7 +297,7 @@ export function RequestDetailPage() {
           </Card>
           <Card>
             <h2 className="mb-4 text-[13px] font-semibold">Activity</h2>
-            <Timeline events={events.data ?? []} />
+            <Timeline events={events.data ?? []} statuses={r.statuses} />
             <form
               className="mt-4 space-y-2"
               onSubmit={(e) => {
@@ -321,15 +349,15 @@ export function RequestDetailPage() {
 
       <RequestFormSheet open={editing} onOpenChange={setEditing} request={r} />
       <Dialog
-        open={declining}
-        onOpenChange={setDeclining}
-        title="Decline this request"
+        open={!!closing}
+        onOpenChange={(o) => !o && setClosing(null)}
+        title={`${closing?.label ?? 'Close'} — close this request`}
         description="Say why, so the requester knows what to do instead."
         footer={
           <>
-            <Button onClick={() => setDeclining(false)}>Cancel</Button>
-            <Button variant="danger" disabled={!reason.trim()} onClick={() => (status('rejected', reason.trim()), setDeclining(false), setReason(''))}>
-              Decline
+            <Button onClick={() => setClosing(null)}>Cancel</Button>
+            <Button variant="danger" disabled={!reason.trim()} onClick={() => (status(closing!.key, reason.trim()), setClosing(null), setReason(''))}>
+              {closing?.label}
             </Button>
           </>
         }
@@ -363,7 +391,8 @@ function Detail({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-function Timeline({ events }: { events: RequestEvent[] }) {
+function Timeline({ events, statuses }: { events: RequestEvent[]; statuses: RequestStatusInfo[] }) {
+  const label = (key: string) => statuses.find((s) => s.key === key) ?? { label: key.replace(/_/g, ' '), color: '#94a3b8' };
   const ids = events.filter((e) => e.kind === 'assigned' && e.body).map((e) => e.body!);
   const people = usePeople(ids);
   const line = (e: RequestEvent): ReactNode => {
@@ -373,7 +402,7 @@ function Timeline({ events }: { events: RequestEvent[] }) {
       case 'status':
         return (
           <>
-            moved it to <Badge tone={requestStatusMeta[e.toStatus!].tone}>{requestStatusMeta[e.toStatus!].label}</Badge>
+            moved it to <RequestStatusBadge status={label(e.toStatus!)} />
           </>
         );
       case 'assigned':
@@ -381,7 +410,7 @@ function Timeline({ events }: { events: RequestEvent[] }) {
       case 'edited':
         return 'edited the details';
       case 'fulfilled':
-        return 'fulfilled it by adding the asset';
+        return e.body ? <>finished it: <RequestStatusBadge status={label(e.toStatus!)} /></> : <>finished it by adding the item: <RequestStatusBadge status={label(e.toStatus!)} /></>;
       default:
         return null;
     }

@@ -235,7 +235,7 @@ function OriginRequest({ assetId }: { assetId: string }) {
           <p className="truncate text-[13px] font-medium">{r.data.title}</p>
           <p className="text-xs text-subtle">Requested by {r.data.requesterName}</p>
         </div>
-        <RequestStatusBadge status={r.data.status} />
+        <RequestStatusBadge status={r.data.statusInfo} />
       </Card>
     </Link>
   );

@@ -164,8 +164,8 @@ describe('messages', () => {
 
 describe('request emails', () => {
   it('describes status changes in plain words and escapes notes', () => {
-    const m = requestMessage({ number: 'REQ-1001', title: 'Miro seats', status: 'rejected', actorName: 'Dana', note: '<b>Use FigJam</b>', kind: 'status', url: 'https://a/requests/1' }, 'Tom');
-    expect(m.subject).toBe('REQ-1001 is declined: Miro seats');
+    const m = requestMessage({ number: 'REQ-1001', title: 'Miro seats', status: 'rejected', statusLabel: 'Declined', requestKind: 'purchase', actorName: 'Dana', note: '<b>Use FigJam</b>', kind: 'status', url: 'https://a/requests/1' }, 'Tom');
+    expect(m.subject).toBe('REQ-1001 is now “Declined”: Miro seats');
     expect(m.html).toContain('&lt;b&gt;Use FigJam');
     expect(m.text).toContain('Use FigJam');
   });

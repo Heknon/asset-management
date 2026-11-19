@@ -3,6 +3,7 @@ import {
   AppError,
   buildSearchText,
   effectivePermissions,
+  firstOfCategory,
   mergeAttributes,
   ownerPermissions,
   permissionList,
@@ -23,6 +24,7 @@ import { requestNumber } from '../domain/request.js';
 import type { AccessResolver } from './access.js';
 import type { RegistryStore } from './ports.js';
 import { itemSchema, referenceOf, type ItemSchema } from './schema.js';
+import { completeRenewals, requestChangedEvent, workflowFor } from './workflows.js';
 
 export class AssetService {
   constructor(
@@ -120,23 +122,12 @@ export class AssetService {
     if (!effectivePermissions(principal, { unitPath: request.unitPath, assetTypeId: request.assetTypeId ?? '' }).has('renew')) {
       throw AppError.forbidden('You cannot fulfil this request');
     }
-    if (request.status === 'fulfilled' || request.status === 'rejected' || request.status === 'cancelled') throw AppError.conflict('The request is already closed');
-    await tx.setRequestStatus(request.id, 'fulfilled', assetId);
-    await tx.addRequestEvent({ requestId: request.id, actorId: principal.userId, actorName: principal.displayName, kind: 'fulfilled', body: null, fromStatus: request.status, toStatus: 'fulfilled' });
-    await tx.publish('request.changed', {
-      requestId: request.id,
-      number: requestNumber(request.seq),
-      title: request.title,
-      unitId: request.unitId,
-      requesterId: request.requesterId,
-      assigneeId: request.assigneeId,
-      status: 'fulfilled',
-      previousStatus: request.status,
-      actorId: principal.userId,
-      actorName: principal.displayName,
-      note: null,
-      kind: 'fulfilled',
-    });
+    if (request.statusCategory === 'done' || request.statusCategory === 'closed') throw AppError.conflict('The request is already closed');
+    const wf = await workflowFor(tx, request.assetTypeId);
+    const done = firstOfCategory(wf, 'done')!;
+    await tx.setRequestStatus(request.id, done, assetId);
+    await tx.addRequestEvent({ requestId: request.id, actorId: principal.userId, actorName: principal.displayName, kind: 'fulfilled', body: null, fromStatus: request.status, toStatus: done.key });
+    await tx.publish('request.changed', requestChangedEvent({ ...request, status: done.key, statusCategory: 'done' }, wf, { id: principal.userId, name: principal.displayName }, 'fulfilled', request.status, null));
     return requestNumber(request.seq);
   }
 
@@ -188,9 +179,9 @@ export class AssetService {
     return store === this.store ? this.store.transaction(run) : run(store);
   }
 
-  /** "Renewed" / "Paid": rolls a recurring date forward by its interval. */
-  async advance(principal: Principal, id: string, fieldKey: string): Promise<Asset> {
-    return this.store.transaction(async (tx) => {
+  /** "Renewed" / "Paid": rolls a recurring date forward by its interval, and finishes its open renewal requests. */
+  async advance(principal: Principal, id: string, fieldKey: string, opts: { store?: RegistryStore; skipRequestId?: string } = {}): Promise<Asset> {
+    const run = async (tx: RegistryStore) => {
       const current = await tx.getAsset(id, { forUpdate: true });
       if (!current) throw AppError.notFound('Asset');
       const scope = await this.resolver.assetScope(principal, current, tx);
@@ -203,8 +194,10 @@ export class AssetService {
       await tx.addActivity({ assetId: id, actorId: principal.userId, actorName: principal.displayName, action: 'advanced', changes: diff(sch.schema, current, draft) });
       const affected = sch.schema.fields.filter((f) => f.kind === 'date' && current.values[f.key] !== values[f.key]).map((f) => f.key);
       await tx.publish('asset.changed', assetChangedEvent(saved, sch.schema, kinds, { fieldKey, from, to, by: principal.userId, affected }));
+      await completeRenewals(tx, id, fieldKey, { id: principal.userId, name: principal.displayName }, opts.skipRequestId);
       return this.present(principal, saved, sch, scope.shared);
-    });
+    };
+    return opts.store ? run(opts.store) : this.store.transaction(run);
   }
 
   async remove(principal: Principal, id: string): Promise<void> {

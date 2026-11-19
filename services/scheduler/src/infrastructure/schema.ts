@@ -1,4 +1,4 @@
-import { permissionsOfLevel, type Duration, type ObligationState, type TrackedDate } from '@am/core';
+import { permissionsOfLevel, type Duration, type ObligationState, type RenewalRequestRef, type TrackedDate } from '@am/core';
 import { outboxMigration, type OutboxTable } from '@am/platform';
 import { sql, type ColumnType, type Generated, type Migration } from 'kysely';
 
@@ -66,6 +66,7 @@ export interface SchedulerDB extends OutboxTable {
     check_answered_by: string | null;
     check_answered_by_name: string | null;
     check_note: string | null;
+    renewal_request: Json<RenewalRequestRef | null>;
     created_at: Timestamp;
     updated_at: Timestamp;
   };
@@ -218,6 +219,11 @@ export const migrations: Record<string, Migration> = {
       await sql`alter table catalog_shares alter column permissions set not null, drop column level`.execute(db);
       await sql`create index if not exists catalog_shares_subject_only on catalog_shares (subject_key)`.execute(db);
       await sql`alter table users_ref add column group_ids uuid[] not null default '{}'`.execute(db);
+    },
+  },
+  '0006_renewal_requests': {
+    async up(db) {
+      await sql`alter table obligations add column renewal_request jsonb`.execute(db);
     },
   },
 };

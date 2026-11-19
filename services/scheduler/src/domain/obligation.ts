@@ -8,6 +8,7 @@ import {
   type Obligation,
   type ObligationState,
   type RenewalCheck,
+  type RenewalRequestRef,
   type TrackedDate,
   type Urgency,
 } from '@am/core';
@@ -37,6 +38,7 @@ export interface ObligationRecord {
   /** Ask the owner this long before a recurring date (null: only on demand). */
   confirmBefore: Duration | null;
   check: RenewalCheckRecord | null;
+  renewalRequest?: RenewalRequestRef | null;
 }
 
 export interface RenewalCheckRecord {
@@ -194,6 +196,7 @@ export function present(o: ObligationRecord, asset: AssetRef, today: IsoDate): O
     nextReminder: nextReminderDate(o, today),
     check: o.check ? presentCheck(o.check) : null,
     confirmOn: confirmOn(o),
+    renewalRequest: o.renewalRequest && (o.renewalRequest.category === 'todo' || o.renewalRequest.category === 'active') ? o.renewalRequest : null,
   };
 }
 

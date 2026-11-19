@@ -15,6 +15,8 @@ import {
   type SelectOption,
   type TypeVariant,
   type TypeVariantInput,
+  defaultWorkflow,
+  type Workflow,
 } from '@am/core';
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
@@ -54,11 +56,12 @@ import { DurationInput, DurationListEditor } from '@/components/duration-editor'
 import { ColorPicker, IconPicker, AssetTypeSelect, UnitPath, UnitPicker } from '@/components/pickers';
 import { TypeIcon } from '@/components/type-icon';
 import { Button } from '@/components/ui/button';
-import { Badge, Card, EmptyState, PageHeader, Spinner } from '@/components/ui/display';
+import { Badge, Card, EmptyState, PageHeader, SectionTitle, Spinner } from '@/components/ui/display';
+import { WorkflowEditor } from '@/components/workflow-editor';
 import { Checkbox, Field, Input, Segmented, Select, Switch, TagInput } from '@/components/ui/form';
 import { Menu, MenuItem, Popover, Sheet } from '@/components/ui/overlay';
 import { api, ApiError } from '@/lib/api';
-import { keys, useAssetType, useDateKinds, useLookups, useVariants } from '@/lib/queries';
+import { keys, useAssetType, useDateKinds, useOrgWorkflow, useLookups, useVariants } from '@/lib/queries';
 import { useMyOrg } from '@/lib/org';
 import { cn, formatDurations, slugKey } from '@/lib/utils';
 
@@ -238,8 +241,17 @@ export function TemplateBuilderPage() {
             <Field label="Icon" className="sm:col-span-2">{() => <IconPicker value={draft.icon} color={draft.color} onChange={(icon) => update({ icon })} />}</Field>
           </Card>
         }
-        extra={<StatusesEditor value={draft.statuses} onChange={(statuses) => update({ statuses })} />}
-        below={!isNew && <TeamVariants typeId={typeId} />}
+        extra={
+          <>
+            <StatusesEditor value={draft.statuses} onChange={(statuses) => update({ statuses })} />
+          </>
+        }
+        below={
+          <>
+            <RequestWorkflowCard value={draft.requestWorkflow ?? null} saved={existing.data?.requestWorkflow ?? null} onChange={(requestWorkflow) => update({ requestWorkflow })} />
+            {!isNew && <TeamVariants typeId={typeId} />}
+          </>
+        }
       />
       <FormPreview open={previewOpen} onOpenChange={setPreviewOpen} draft={draft} kinds={kinds.data ?? []} />
     </>
@@ -1019,7 +1031,7 @@ function StatusesEditor({ value, onChange }: { value: AssetStatus[]; onChange: (
   return (
     <Card>
       <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-[13px] font-semibold">Statuses</h2>
+        <h2 className="text-[13px] font-semibold">Item statuses</h2>
         <Button size="xs" variant="ghost" icon={<Plus className="size-3" />} onClick={() => onChange([...value, { value: `status_${value.length + 1}`, label: 'New status', color: '#64748b', active: true }])}>
           Add
         </Button>
@@ -1121,3 +1133,19 @@ function FormPreview({ open, onOpenChange, draft, kinds }: { open: boolean; onOp
   );
 }
 
+/** Purchases and renewals of this template follow the organization's workflow, or one of its own. */
+function RequestWorkflowCard({ value, saved, onChange }: { value: Workflow | null; saved: Workflow | null; onChange: (w: Workflow | null) => void }) {
+  const org = useOrgWorkflow();
+  return (
+    <Card className="space-y-3">
+      <SectionTitle>Requests</SectionTitle>
+      <Switch
+        checked={!!value}
+        onChange={(own) => onChange(own ? structuredClone(org.data ?? defaultWorkflow) : null)}
+        label="Own request workflow"
+        description={value ? 'Purchases and renewals of this template go through these statuses.' : <>Requests follow the organization’s workflow: {(org.data?.statuses ?? []).map((s) => s.label).join(' → ')}.</>}
+      />
+      {value && <WorkflowEditor value={value} onChange={onChange} lockedKeys={saved?.statuses.map((s) => s.key)} />}
+    </Card>
+  );
+}

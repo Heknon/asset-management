@@ -1,4 +1,4 @@
-import { AppError, requestTransitions, type RequestAccess, type RequestStatus } from '@am/core';
+import { allowedMoves, AppError, statusIn, type RequestAccess, type RequestKind, type RequestStatus, type StatusCategory, type Workflow } from '@am/core';
 
 /** Pure rules of the request workflow. */
 
@@ -14,6 +14,9 @@ export interface RequestState {
   requesterName: string;
   assigneeId: string | null;
   status: RequestStatus;
+  statusCategory: StatusCategory;
+  kind: RequestKind;
+  renewal: { assetId: string; fieldKey: string; obligationId: string | null } | null;
   quantity: number | null;
   estimatedCost: { amount: number; currency: string } | null;
   neededBy: string | null;
@@ -26,18 +29,16 @@ export interface RequestState {
 
 export const requestNumber = (seq: number) => `REQ-${seq}`;
 
-/** Requester and handler can each make only their own moves (see requestTransitions). */
-export function assertTransition(from: RequestStatus, to: RequestStatus, actor: { isHandler: boolean; isRequester: boolean }): void {
-  if (from === to) throw AppError.validation(`The request is already ${to.replace('_', ' ')}`);
-  const who = requestTransitions[from][to];
-  if (!who) throw AppError.validation(`A request cannot go from ${from.replace('_', ' ')} to ${to.replace('_', ' ')}`);
-  if (who === 'handler' && !actor.isHandler) throw AppError.forbidden('Only people who handle requests for this team can do that');
-  if (who === 'requester' && !actor.isRequester && !actor.isHandler) throw AppError.forbidden('Only the requester can cancel this request');
+/** Requesters and handlers can each make only the moves their workflow gives them. */
+export function assertMove(wf: Workflow, from: RequestStatus, to: RequestStatus, actor: { isHandler: boolean; isRequester: boolean }): void {
+  if (from === to) throw AppError.validation(`The request is already ${statusIn(wf, to).label.toLowerCase()}`);
+  if (allowedMoves(wf, from, actor).some((s) => s.key === to)) return;
+  const exists = wf.transitions.some((x) => x.from === from && x.to === to);
+  if (!exists) throw AppError.validation(`A request cannot go from ${statusIn(wf, from).label} to ${statusIn(wf, to).label}`);
+  throw AppError.forbidden('Only people who handle requests for this team can do that');
 }
 
-export function isOpen(status: RequestStatus): boolean {
-  return status === 'submitted' || status === 'in_review' || status === 'approved' || status === 'ordered';
-}
+export const isOpen = (r: Pick<RequestState, 'statusCategory'>) => r.statusCategory === 'todo' || r.statusCategory === 'active';
 
 export function accessOf(isHandler: boolean, isRequester: boolean): RequestAccess {
   return isHandler ? 'handler' : isRequester ? 'requester' : 'viewer';

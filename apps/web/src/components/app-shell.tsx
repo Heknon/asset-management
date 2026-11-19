@@ -23,6 +23,7 @@ import {
   Sun,
   User,
   Users,
+  Workflow,
 } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { api } from '@/lib/api';
@@ -175,6 +176,9 @@ function Sidebar({ me, onSearch }: { me: Me; onSearch: () => void }) {
             </NavItem>
             <NavItem to="/settings/date-kinds" icon={<CalendarDays />} active={path === '/settings/date-kinds'}>
               Date kinds
+            </NavItem>
+            <NavItem to="/settings/workflow" icon={<Workflow />} active={path === '/settings/workflow'}>
+              Request workflow
             </NavItem>
             {me.isAdmin && (
               <NavItem to="/settings/people" icon={<Users />} active={path === '/settings/people'}>

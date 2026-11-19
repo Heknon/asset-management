@@ -4,6 +4,7 @@
  */
 import { z } from 'zod';
 import { durationSchema, isoDateSchema, type Duration, type IsoDate } from './duration.js';
+import type { StatusCategory } from './workflow.js';
 import { fieldKeySchema } from './fields.js';
 import { accessSchema, roleKeys, subjectKinds, type Grant, type Permission, type Principal, type RoleKey, type SubjectKind, type UnitRole } from './permissions.js';
 import type { Attributes } from './attributes.js';
@@ -484,6 +485,19 @@ export interface Obligation {
   check: RenewalCheck | null;
   /** When the owner is asked automatically (from the date's settings), if not asked yet. */
   confirmOn: IsoDate | null;
+  /** The open renewal request for this date, if any: where the buying stands. */
+  renewalRequest: RenewalRequestRef | null;
+}
+
+export interface RenewalRequestRef {
+  id: string;
+  number: string;
+  status: string;
+  label: string;
+  color: string;
+  category: StatusCategory;
+  /** When the request last changed (projections keep the newest). */
+  at: string;
 }
 
 export const renewalDecisions = ['renew', 'change', 'cancel'] as const;
@@ -559,32 +573,20 @@ export interface UnitRollup {
 
 /**
  * Anyone can ask for something on behalf of their team or any unit above it;
- * people with edit access to that unit (e.g. Procurement) handle it.
+ * people who handle requests for that unit ("Handle renewals", e.g.
+ * Procurement) move it through its workflow (see workflow.ts) to done.
+ * Renewals are requests too, opened when an owner answers "renew".
  */
-export const requestStatuses = ['submitted', 'in_review', 'approved', 'ordered', 'fulfilled', 'rejected', 'cancelled'] as const;
-export type RequestStatus = (typeof requestStatuses)[number];
-export const openRequestStatuses: RequestStatus[] = ['submitted', 'in_review', 'approved', 'ordered'];
+export type RequestStatus = string;
+export type RequestKind = 'purchase' | 'renewal';
 
-export const requestStatusMeta: Record<RequestStatus, { label: string; tone: 'neutral' | 'accent' | 'warning' | 'success' | 'danger' }> = {
-  submitted: { label: 'Submitted', tone: 'accent' },
-  in_review: { label: 'In review', tone: 'warning' },
-  approved: { label: 'Approved', tone: 'success' },
-  ordered: { label: 'Ordered', tone: 'accent' },
-  fulfilled: { label: 'Fulfilled', tone: 'success' },
-  rejected: { label: 'Rejected', tone: 'danger' },
-  cancelled: { label: 'Cancelled', tone: 'neutral' },
-};
-
-/** Which status moves are allowed, and who may make them. */
-export const requestTransitions: Record<RequestStatus, Partial<Record<RequestStatus, 'handler' | 'requester'>>> = {
-  submitted: { in_review: 'handler', approved: 'handler', rejected: 'handler', cancelled: 'requester' },
-  in_review: { approved: 'handler', rejected: 'handler', submitted: 'handler', cancelled: 'requester' },
-  approved: { ordered: 'handler', rejected: 'handler', cancelled: 'requester' },
-  ordered: { approved: 'handler' },
-  fulfilled: {},
-  rejected: { in_review: 'handler' },
-  cancelled: {},
-};
+/** A status as a request shows it. */
+export interface RequestStatusInfo {
+  key: string;
+  label: string;
+  color: string;
+  category: StatusCategory;
+}
 
 export type RequestAccess = 'viewer' | 'requester' | 'handler';
 
@@ -599,7 +601,15 @@ export interface PurchaseRequest {
   requesterId: string;
   requesterName: string;
   assigneeId: string | null;
+  kind: RequestKind;
   status: RequestStatus;
+  statusInfo: RequestStatusInfo;
+  /** Statuses the caller may move it to now. */
+  moves: RequestStatusInfo[];
+  /** Every status of its workflow, in order (the progress bar shows the open and done ones). */
+  statuses: RequestStatusInfo[];
+  /** For renewals: what is being renewed. */
+  renewal: { assetId: string; fieldKey: string; obligationId: string | null } | null;
   quantity: number | null;
   estimatedCost: { amount: number; currency: string } | null;
   neededBy: IsoDate | null;
@@ -629,7 +639,11 @@ export type RequestUpdate = z.infer<typeof requestUpdateSchema>;
 export const requestQuerySchema = pageQuerySchema.extend({
   /** mine: I asked · team: my units' requests · handle: requests I can process · all: everything I can see */
   scope: z.enum(['mine', 'team', 'handle', 'all']).default('mine'),
-  status: z.enum(['open', 'closed', 'all', ...requestStatuses]).default('open'),
+  /** open / closed / all, or one status key. */
+  status: z.union([z.enum(['open', 'closed', 'all']), fieldKeySchema]).default('open'),
+  kind: z.enum(['purchase', 'renewal']).optional(),
+  /** Renewal requests of one item. */
+  renewalAssetId: uuid.optional(),
   unitId: uuid.optional(),
   assigneeId: uuid.optional(),
   q: z.string().max(200).optional(),
@@ -638,7 +652,7 @@ export type RequestQuery = z.infer<typeof requestQuerySchema>;
 
 export const requestActionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('comment'), body: z.string().trim().min(1).max(4000) }),
-  z.object({ action: z.literal('status'), status: z.enum(requestStatuses), note: z.string().max(4000).optional() }),
+  z.object({ action: z.literal('status'), status: fieldKeySchema, note: z.string().max(4000).optional() }),
   z.object({ action: z.literal('assign'), assigneeId: uuid.nullable() }),
 ]);
 export type RequestAction = z.infer<typeof requestActionSchema>;
@@ -654,6 +668,14 @@ export interface RequestEvent {
   toStatus: RequestStatus | null;
   at: string;
 }
+
+/** Start a renewal request for an item's date (owners, or anyone who can see it). */
+export const renewalRequestSchema = z.object({
+  fieldKey: fieldKeySchema,
+  obligationId: uuid.nullable().default(null),
+  note: z.string().trim().max(4000).default(''),
+});
+export type RenewalRequestInput = z.infer<typeof renewalRequestSchema>;
 
 export interface RequestCounts {
   mine: number;

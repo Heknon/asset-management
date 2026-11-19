@@ -32,7 +32,7 @@ main(() =>
       const store = new PgRegistryStore(database.db, fuzzy);
       const access = new AccessResolver(store);
       const assets = new AssetService(store, access);
-      const requests = new RequestService(store);
+      const requests = new RequestService(store, assets);
       const comments = new CommentService(store, assets);
       registerRoutes(
         app,
@@ -57,7 +57,10 @@ main(() =>
         if (prev && (prev.name !== e.name || prev.path.join() !== e.path.join())) await assets.reindex({ unitIds: [e.unitId] });
       });
       await bus.subscribe('registry', 'group.changed', (e) => store.upsertGroupRef({ id: e.groupId, name: e.name, source: e.source, memberCount: e.memberCount }));
-      await bus.subscribe('registry', 'renewal.check', (e) => comments.onRenewalCheck(e));
+      await bus.subscribe('registry', 'renewal.check', async (e) => {
+        await comments.onRenewalCheck(e);
+        await requests.onRenewalCheck(e);
+      });
       await bus.subscribe('registry', 'user.changed', async (e) => {
         const { renamed } = await store.upsertUserRef({ id: e.userId, displayName: e.displayName, active: e.active, groupIds: e.groupIds });
         if (renamed) await assets.reindex({ userIds: [e.userId] });

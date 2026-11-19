@@ -1,4 +1,4 @@
-import type { CatalogChanged, Permission, EventMap, EventName, IsoDate, ObligationQuery, ObligationSummary, TrackedDate, UnitRollup, Visibility } from '@am/core';
+import type { CatalogChanged, Permission, EventMap, EventName, IsoDate, ObligationQuery, ObligationSummary, RenewalRequestRef, TrackedDate, UnitRollup, Visibility } from '@am/core';
 import type { AssetRef, ObligationRecord, RenewalCheckRecord } from '../domain/obligation.js';
 
 export interface UserRef {
@@ -56,6 +56,8 @@ export interface SchedulerStore {
   userByCalendarToken(token: string): Promise<UserRef | null>;
 
   setCheck(id: string, check: RenewalCheckRecord): Promise<void>;
+  /** Projection of a renewal request's status onto the date it renews. */
+  setRenewalRequest(target: { obligationId: string | null; assetId: string; fieldKey: string }, ref: RenewalRequestRef): Promise<void>;
   /** Active recurring obligations with an automatic "still needed?" that nobody has asked yet. */
   confirmable(today: IsoDate): Promise<ObligationWithAsset[]>;
   /** Replaces a catalog's shares; false when the event is older than what we hold. */

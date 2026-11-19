@@ -15,6 +15,7 @@ import type {
   RequestEvent,
   RequestQuery,
   RequestStatus,
+  StatusCategory,
   SavedView,
   SavedViewInput,
   Scope,
@@ -42,6 +43,8 @@ export interface SearchOptions {
 }
 
 export interface RequestRow {
+  kind?: 'purchase' | 'renewal';
+  renewal?: { assetId: string; fieldKey: string; obligationId: string | null } | null;
   title: string;
   description: string;
   unitId: string;
@@ -110,10 +113,16 @@ export interface RegistryStore {
   userNames(ids: string[]): Promise<Map<string, string>>;
   upsertUserRef(ref: { id: string; displayName: string; active: boolean; groupIds?: string[] }): Promise<{ renamed: boolean }>;
 
-  insertRequest(row: RequestRow, requester: { id: string; name: string }, searchText: string): Promise<RequestState>;
+  insertRequest(row: RequestRow, requester: { id: string; name: string }, searchText: string, status: { key: string; category: StatusCategory }): Promise<RequestState>;
   updateRequest(id: string, row: RequestRow, searchText: string): Promise<RequestState>;
   getRequest(id: string, opts?: { forUpdate?: boolean }): Promise<RequestState | null>;
-  setRequestStatus(id: string, status: RequestStatus, assetId?: string | null): Promise<void>;
+  setRequestStatus(id: string, status: { key: string; category: StatusCategory }, assetId?: string | null): Promise<void>;
+  /** Open renewal requests of one item's date. */
+  openRenewals(assetId: string, fieldKey: string): Promise<RequestState[]>;
+  getSetting<T>(key: string): Promise<T | null>;
+  putSetting(key: string, value: unknown): Promise<void>;
+  /** Moves open requests out of a status a workflow no longer has ('default': requests following the organization's workflow). */
+  moveOpenRequests(from: string, to: { key: string; category: StatusCategory }, typeIds: string[] | 'default'): Promise<number>;
   setRequestAssignee(id: string, assigneeId: string | null): Promise<void>;
   queryRequests(
     q: RequestQuery,

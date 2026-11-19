@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { fieldDefinitionSchema, fieldKeySchema, type FieldDefinition } from './fields.js';
+import { workflowSchema } from './workflow.js';
 
 export const statusSchema = z.object({
   value: fieldKeySchema,
@@ -25,6 +26,8 @@ export const assetTypeInputSchema = z.object({
   statuses: z.array(statusSchema).min(1).default(defaultStatuses),
   sections: z.array(z.string().min(1).max(60)).default([]),
   fields: z.array(fieldDefinitionSchema).max(200),
+  /** Purchases and renewals of this template follow this workflow (null: the organization's default). */
+  requestWorkflow: workflowSchema.nullable().optional(),
   /** Item IDs are PREFIX-number ("LIC-42"); defaults from the key. */
   refPrefix: z
     .string()

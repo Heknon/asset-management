@@ -1,6 +1,11 @@
 import {
   AppError,
   canManageTemplates,
+  firstOfCategory,
+  initialStatus,
+  validateWorkflow,
+  workflowSchema,
+  type Workflow,
   type Principal,
   assetTypeInputSchema,
   dateKindInputSchema,
@@ -14,6 +19,7 @@ import {
 } from '@am/core';
 import { assetChangedEvent } from '../domain/asset.js';
 import type { RegistryStore } from './ports.js';
+import { DEFAULT_WORKFLOW_KEY, organizationWorkflow } from './workflows.js';
 import { itemSchema } from './schema.js';
 
 export interface TemplateSummary {
@@ -80,7 +86,13 @@ export class TypeService {
    * longer fit surface as validation errors the next time the asset is edited.
    */
   async updateType(id: string, input: AssetTypeInput, expectedVersion: number): Promise<AssetType> {
-    const parsed = await this.validated(input);
+    const current = await this.store.getType(id);
+    if (!current) throw AppError.notFound('Asset type');
+    // Older clients do not send the workflow: keep the one it has.
+    const parsed = await this.validated(input.requestWorkflow === undefined ? { ...input, requestWorkflow: current.requestWorkflow ?? null } : input);
+    const before = current.requestWorkflow ?? (await organizationWorkflow(this.store));
+    const after = parsed.requestWorkflow ?? (await organizationWorkflow(this.store));
+
     // A field added to the template must not clash with a team variant's own field.
     const variants = await this.store.listVariants({ assetTypeId: id, includeArchived: true });
     const issues = parsed.fields.flatMap((f, i) =>
@@ -89,10 +101,44 @@ export class TypeService {
     if (issues.length) throw AppError.validation('The template has problems', { issues });
     return this.store.transaction(async (tx) => {
       const type = await tx.updateType(id, parsed, expectedVersion);
+      await this.moveOpenRequests(tx, before, after, [id]);
       await republishAssets(tx, { typeIds: [id] });
       return type;
     });
   }
+
+  /** The organization's default request workflow, which templates without their own follow. */
+  organizationWorkflow() {
+    return organizationWorkflow(this.store);
+  }
+
+  async setOrganizationWorkflow(input: Workflow): Promise<Workflow> {
+    const wf = workflowSchema.parse(input);
+    const issues = validateWorkflow(wf);
+    if (issues.length) throw AppError.validation('The workflow has problems', { issues });
+    const before = await organizationWorkflow(this.store);
+    await this.store.transaction(async (tx) => {
+      await tx.putSetting(DEFAULT_WORKFLOW_KEY, wf);
+      await this.moveOpenRequests(tx, before, wf, 'default');
+    });
+    return wf;
+  }
+
+  /**
+   * Open requests in a status the new workflow no longer has (or whose meaning
+   * changed) move to its first status of the same kind, else to its start.
+   * Finished requests keep the status they ended in, as history.
+   */
+  private async moveOpenRequests(store: RegistryStore, before: Workflow, after: Workflow, typeIds: string[] | 'default'): Promise<void> {
+    for (const s of before.statuses) {
+      if (s.category === 'done' || s.category === 'closed') continue;
+      const same = after.statuses.find((x) => x.key === s.key);
+      if (same && same.category === s.category) continue;
+      const to = same?.category === 'todo' || same?.category === 'active' ? same : (firstOfCategory(after, s.category) ?? initialStatus(after));
+      await store.moveOpenRequests(s.key, to, typeIds);
+    }
+  }
+
 
   async setArchived(id: string, archived: boolean): Promise<AssetType> {
     return this.store.setTypeArchived(id, archived);
@@ -125,7 +171,10 @@ export class TypeService {
   private async validated(input: AssetTypeInput): Promise<AssetTypeInput> {
     const parsed = assetTypeInputSchema.parse(input);
     const kinds = await this.store.listDateKinds();
-    const issues = validateTypeStructure(parsed, new Set(kinds.map((k) => k.id)));
+    const issues = [
+      ...validateTypeStructure(parsed, new Set(kinds.map((k) => k.id))),
+      ...(parsed.requestWorkflow ? validateWorkflow(parsed.requestWorkflow).map((i) => ({ ...i, path: `requestWorkflow.${i.path}` })) : []),
+    ];
     if (issues.length) throw AppError.validation('The template has problems', { issues });
     return parsed;
   }

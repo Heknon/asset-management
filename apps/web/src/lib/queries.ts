@@ -27,6 +27,7 @@ import type {
   UnitRollup,
   User,
   UserSummary,
+  Workflow,
 } from '@am/core';
 import { withVariant } from '@am/core';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -40,6 +41,7 @@ export const keys = {
   assetTypes: ['asset-types'] as const,
   assetType: (id: string) => ['asset-types', id] as const,
   dateKinds: ['date-kinds'] as const,
+  workflow: ['workflow'] as const,
   templates: ['templates'] as const,
   units: ['units'] as const,
   unitPeople: (id: string) => ['units', id, 'people'] as const,
@@ -93,6 +95,7 @@ export const useProviders = () => useQuery({ queryKey: keys.providers, queryFn: 
 export const useAssetTypes = () => useQuery({ queryKey: keys.assetTypes, queryFn: () => api.get<AssetType[]>('/api/registry/asset-types'), staleTime: 30_000 });
 export const useAssetType = (id: string | undefined) =>
   useQuery({ queryKey: keys.assetType(id ?? ''), queryFn: () => api.get<AssetType>(`/api/registry/asset-types/${id}`), enabled: !!id });
+export const useOrgWorkflow = () => useQuery({ queryKey: keys.workflow, queryFn: () => api.get<Workflow>('/api/registry/workflows/default'), staleTime: 60_000 });
 export const useDateKinds = () => useQuery({ queryKey: keys.dateKinds, queryFn: () => api.get<DateKind[]>('/api/registry/date-kinds'), staleTime: 60_000 });
 export const useUnits = () => useQuery({ queryKey: keys.units, queryFn: () => api.get<OrgUnit[]>('/api/identity/units'), staleTime: 60_000 });
 export const useUnitPeople = (id: string | null) =>

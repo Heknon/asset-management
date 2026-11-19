@@ -1,4 +1,4 @@
-import { defaultRefPrefix, permissionsOfLevel, type Permission } from '@am/core';
+import { defaultRefPrefix, defaultWorkflow, permissionsOfLevel, type Permission, type StatusCategory, type Workflow } from '@am/core';
 import { defaultDateKinds, type AssetStatus, type Attributes, type DateBehavior, type Duration, type FieldDefinition, type RequestEvent, type RequestStatus, type SavedQuery } from '@am/core';
 import { outboxMigration, trySavepoint, type OutboxTable } from '@am/platform';
 import { sql, type ColumnType, type Generated, type Migration } from 'kysely';
@@ -32,6 +32,8 @@ export interface RegistryDB extends OutboxTable {
     version: number;
     archived: Generated<boolean>;
     ref_prefix: string;
+    /** Own request workflow; null follows the organization's default. */
+    request_workflow: Json<Workflow | null>;
     /** Last item number handed out ("LIC-42"). */
     ref_seq: Generated<number>;
     created_at: Timestamp;
@@ -110,6 +112,12 @@ export interface RegistryDB extends OutboxTable {
     requester_name: string;
     assignee_id: string | null;
     status: RequestStatus;
+    /** The status's category in its workflow (open = todo/active), kept with it so lists work for any workflow. */
+    status_category: StatusCategory;
+    kind: 'purchase' | 'renewal';
+    renewal_asset_id: string | null;
+    renewal_field_key: string | null;
+    renewal_obligation_id: string | null;
     quantity: number | null;
     estimated_amount: number | null;
     estimated_currency: string | null;
@@ -178,6 +186,7 @@ export interface RegistryDB extends OutboxTable {
     created_at: Timestamp;
     undone_at: Timestamp | null;
   };
+  settings: { key: string; value: Json<unknown>; updated_at: Timestamp };
   saved_views: {
     id: Generated<string>;
     owner_id: string;
@@ -482,6 +491,30 @@ export const migrations: Record<string, Migration> = {
       await db.schema.createIndex('import_batches_creator').on('import_batches').columns(['created_by', 'created_at']).execute();
       await sql`alter table assets add column import_batch_id uuid references import_batches(id)`.execute(db);
       await db.schema.createIndex('assets_import_batch').on('assets').column('import_batch_id').execute();
+    },
+  },
+  '0009_workflows_renewals': {
+    async up(db) {
+      await sql`alter table asset_types add column request_workflow jsonb`.execute(db);
+      await db.schema
+        .createTable('settings')
+        .addColumn('key', 'text', (c) => c.primaryKey())
+        .addColumn('value', 'jsonb', (c) => c.notNull())
+        .addColumn('updated_at', 'timestamptz', (c) => c.notNull().defaultTo(sql`now()`))
+        .execute();
+      await sql`alter table requests
+        add column status_category text not null default 'todo',
+        add column kind text not null default 'purchase',
+        add column renewal_asset_id uuid,
+        add column renewal_field_key text,
+        add column renewal_obligation_id uuid`.execute(db);
+      for (const st of defaultWorkflow.statuses) {
+        await sql`update requests set status_category = ${st.category} where status = ${st.key}`.execute(db);
+      }
+      await sql`create index requests_category on requests (status_category, unit_id)`.execute(db);
+      await sql`create index requests_renewal on requests (renewal_asset_id, renewal_field_key) where kind = 'renewal'`.execute(db);
+      // One open renewal request per date occurrence.
+      await sql`create unique index requests_open_renewal on requests (renewal_obligation_id) where renewal_obligation_id is not null and status_category in ('todo','active')`.execute(db);
     },
   },
 };

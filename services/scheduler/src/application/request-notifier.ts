@@ -21,6 +21,10 @@ export class RequestNotifier {
   ) {}
 
   async onRequestChanged(e: RequestChanged): Promise<void> {
+    // The renewals list shows where the renewal of each date stands.
+    if (e.requestKind === 'renewal' && e.renewal) {
+      await this.store.setRenewalRequest(e.renewal, { id: e.requestId, number: e.number, status: e.status, label: e.statusLabel, color: e.statusColor, category: e.statusCategory, at: e.at });
+    }
     const people = new Set<string>();
     const emails = new Set<string>();
     if (e.kind === 'created') {

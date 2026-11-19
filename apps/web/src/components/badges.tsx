@@ -1,4 +1,4 @@
-import { permissionMeta, roleOf, roles, requestStatusMeta, type Permission, type AssetType, type Obligation, type RequestStatus, type Urgency } from '@am/core';
+import { permissionMeta, roleOf, roles, type Permission, type AssetType, type Obligation, type RequestStatusInfo, type Urgency } from '@am/core';
 import { Badge } from './ui/display';
 import { relativeDays } from '@/lib/utils';
 
@@ -30,7 +30,7 @@ export function AccessBadge({ permissions }: { permissions: readonly Permission[
   );
 }
 
-export function RequestStatusBadge({ status }: { status: RequestStatus }) {
-  const m = requestStatusMeta[status];
-  return <Badge tone={m.tone}>{m.label}</Badge>;
+/** A status of a request's workflow, in its own colour. */
+export function RequestStatusBadge({ status }: { status: Pick<RequestStatusInfo, 'label' | 'color'> }) {
+  return <Badge color={status.color}>{status.label}</Badge>;
 }

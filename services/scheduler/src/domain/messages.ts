@@ -92,21 +92,15 @@ export interface RequestNotice {
   number: string;
   title: string;
   status: string;
+  /** The status's name in its workflow ("Waiting for approval"). */
+  statusLabel: string;
+  requestKind: 'purchase' | 'renewal';
   actorName: string;
   note: string | null;
   kind: 'created' | 'status' | 'comment' | 'assigned' | 'fulfilled';
   url: string;
 }
 
-const statusWords: Record<string, string> = {
-  submitted: 'submitted',
-  in_review: 'in review',
-  approved: 'approved',
-  ordered: 'ordered',
-  fulfilled: 'fulfilled',
-  rejected: 'declined',
-  cancelled: 'cancelled',
-};
 
 /** A short notification card: eyebrow, title, a line of context, an optional quote, one button. */
 export interface Notice {
@@ -135,12 +129,12 @@ export function noticeMessage(subject: string, n: Notice, recipientName: string)
 export function requestMessage(n: RequestNotice, recipientName: string): Message {
   const headline = {
     created: `New request ${n.number}: ${n.title}`,
-    status: `${n.number} is ${statusWords[n.status] ?? n.status}: ${n.title}`,
+    status: `${n.number} is now “${n.statusLabel}”: ${n.title}`,
     comment: `${n.actorName} commented on ${n.number}: ${n.title}`,
     assigned: `${n.number} was assigned: ${n.title}`,
-    fulfilled: `${n.number} is fulfilled: ${n.title}`,
+    fulfilled: `${n.number} is ${n.requestKind === 'renewal' ? 'renewed' : 'done'}: ${n.title}`,
   }[n.kind];
-  const intro = n.kind === 'created' ? `${n.actorName} asked for “${n.title}”.` : n.kind === 'comment' ? `${n.actorName} wrote:` : `${n.actorName} updated the request.`;
+  const intro = n.kind === 'created' ? (n.requestKind === 'renewal' ? `${n.actorName} asked to renew “${n.title.replace(/^Renew /, '')}”.` : `${n.actorName} asked for “${n.title}”.`) : n.kind === 'comment' ? `${n.actorName} wrote:` : `${n.actorName} updated the request.`;
   return noticeMessage(headline, { eyebrow: n.number, title: n.title, intro, quote: n.note, cta: { label: 'Open request', url: n.url } }, recipientName);
 }
 

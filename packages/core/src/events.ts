@@ -77,12 +77,20 @@ export interface RequestChanged {
   requesterId: string;
   assigneeId: string | null;
   status: string;
+  statusLabel: string;
+  statusColor: string;
+  statusCategory: 'todo' | 'active' | 'done' | 'closed';
   previousStatus: string | null;
   actorId: string;
   actorName: string;
   /** Comment or status note, when the change carried one. */
   note: string | null;
   kind: 'created' | 'status' | 'comment' | 'assigned' | 'fulfilled';
+  requestKind: 'purchase' | 'renewal';
+  /** Renewals: the item and the date occurrence being renewed. */
+  renewal: { assetId: string; fieldKey: string; obligationId: string | null } | null;
+  /** When it changed; events can arrive out of order. */
+  at: string;
 }
 
 /** Full state of a catalog's sharing (consumers replace what they hold). */

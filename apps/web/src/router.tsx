@@ -16,7 +16,7 @@ import { LoginPage } from './routes/login';
 import { OrganizationPage } from './routes/organization';
 import { RequestDetailPage, RequestsPage } from './routes/requests';
 import { SearchPage } from './routes/search';
-import { AccessPage, DateKindsPage, PeoplePage, ProfilePage } from './routes/settings';
+import { AccessPage, DateKindsPage, PeoplePage, ProfilePage, WorkflowsPage } from './routes/settings';
 import { UnitPage } from './routes/unit';
 import { TemplateBuilderPage, VariantBuilderPage } from './routes/template-builder';
 import { TemplatesPage } from './routes/templates';
@@ -126,6 +126,7 @@ const routeTree = root.addChildren([
     // Team variants are managed by the unit's managers (checked by the server), not only template managers.
     createRoute({ getParentRoute: () => app, path: '/templates/$typeId/variants/$variantId', component: VariantBuilderPage, validateSearch: (s: Record<string, unknown>) => ({ unit: optionalString(s.unit) }) }),
     createRoute({ getParentRoute: () => app, path: '/settings/date-kinds', component: orgManagers(DateKindsPage) }),
+    createRoute({ getParentRoute: () => app, path: '/settings/workflow', component: orgManagers(WorkflowsPage) }),
     createRoute({ getParentRoute: () => app, path: '/settings/organization', component: admin(OrganizationPage) }),
     createRoute({ getParentRoute: () => app, path: '/settings/people', component: admin(PeoplePage) }),
     createRoute({ getParentRoute: () => app, path: '/settings/access', component: orgManagers(AccessPage) }),

@@ -10,7 +10,7 @@ A generic system for everything an organisation buys and has to keep track of �
 - **Catalogs you can share.** A unit groups its assets into catalogs ("R&D developer tooling", "Device lab") and shares them with other teams, divisions, groups or people, with any role.
 - **Owners and buyers in one loop.** Before a renewal, the owner is asked "still needed?" automatically or with one click: renew as is, renew with changes, or don't renew. Every asset has a conversation with @mentions, and renewal decisions are recorded in it, next to its documents.
 - **Export any table to CSV**, with the same filters, search and sorting, and only the rows (and fields) you are allowed to see.
-- **Requests.** Anyone can ask for something for their team, or for any unit above it ("my department needs…", "the whole company needs…"). Procurement triages, approves, orders and fulfils; fulfilling creates the asset and links it back. Everyone involved is emailed at each step.
+- **Requests.** Anyone can ask for something for their team, or for any unit above it ("my department needs…", "the whole company needs…"). Procurement moves each request through a workflow of its own statuses (Jira-style, configurable per template); fulfilling creates the asset and links it back. Renewals are requests too. Everyone involved is emailed at each step.
 - **Search that forgives.** One box searches every non-restricted field of every asset you can see, plus requests, teams and people. Words can match partially, anywhere in the text, or with small typos. Results show which field matched. Filters work on any field in plain language ("Renewal date is in the next 90 days", "Seats is at least 40"). Any search can be saved as a pinned view.
 - **Documents in S3** with presigned upload/download URLs and in-app preview (PDF, images, text, video, audio).
 - **Sign-in** with LDAP / Active Directory, ADFS (OpenID Connect), and a break-glass local admin.
@@ -76,7 +76,7 @@ src/
 | **Organization unit** | Wix › R&D › Editor › Platform | A tree with free level names. Every asset and request belongs to one unit. Units link to directory groups or attributes. |
 | **Membership** | Platform members (from `CN=platform`); R&D managers | Members get the unit's member access (view by default). Managers get manage on the whole subtree, and receive reminders when an owner is missing. |
 | **Grant** | Dana → manage the whole company; Finance → view it | For roles that cut across the tree. Grants go to users or directory groups and apply to a unit's subtree; the highest matching level wins. |
-| **Request** | REQ-1042 "10 Miro seats" for Platform | Submitted → In review → Approved → Ordered → Fulfilled (or Declined/Cancelled). Handlers are people with edit on the unit. |
+| **Request** | REQ-1042 "10 Miro seats" for Platform; REQ-1043 "Renew Miro" | A purchase or a renewal, moving through a workflow (default: Submitted → In review → Approved → Ordered → Fulfilled, or Declined/Cancelled). Handlers have “Handle renewals” on the unit. |
 | **Obligation** | "Renew GitHub Enterprise by Dec 30" | One active occurrence per asset × date field; done / snoozed / dismissed. |
 
 ## Local development
@@ -188,6 +188,16 @@ Where to change it: a unit's **Access** tab (its managers), **Share** on a catal
 5. **Done.** Items get IDs, reminders, search and history like hand-made ones. *Undo import* removes the items it added that nobody has changed since (Import → *Your recent imports*).
 
 Imports run 500 rows per request (up to 20,000 per file), each row in its own savepoint, with the same permissions as adding items by hand.
+
+## Request workflows and renewal requests
+
+Requests follow a **workflow**: an ordered list of statuses, each with a name, a colour and a *meaning* — **To do** (waiting to be picked up; the first status is where requests start), **In progress**, **Done** (bought, delivered or renewed) and **Closed** (won't happen) — plus the moves allowed between them. A move is made by the people who handle requests, or also by the person who asked (e.g. "Cancel"). Meanings are what lists, counts, emails and automation use, so any workflow works everywhere.
+
+- **Settings → Request workflow** edits the organization's default. **Templates → a template → Requests → Own request workflow** gives one kind of item its own (Hardware: Requested → Awaiting approval → Under purchase → Delivered). Template managers edit both.
+- Removing a status, or changing its meaning, moves open requests in it to the new workflow's first status of the same meaning; finished requests keep theirs as history.
+- A purchase for a template reaches **Done** by creating the item ("Create the item"), so the item and request stay linked. A request without a template can be marked done directly.
+- **Renewal requests** ask the buyers to renew an existing item's date. They open when an owner answers a renewal check with *renew* / *renew with changes*, or from **⋯ → Open a renewal request** on any date. One is open per date at a time. Finishing it rolls a repeating date forward; renewing on the item directly finishes the open request. The date shows the request and its status in Upcoming and on the item.
+- Email subjects use the workflow's names ("REQ-1016 is now “Under purchase”").
 
 ## Catalogs, conversations and renewal checks
 
