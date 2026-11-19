@@ -7,9 +7,7 @@
     "dev": "vite",
     "build": "tsc -p tsconfig.json --noEmit && vite build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "preview": "vite preview",
-    "build:browser": "tsc -p tsconfig.json --noEmit && VITE_RUNTIME=browser vite build && node ../../packages/browser-runtime/build.mjs dist",
-    "dev:browser": "node ../../packages/browser-runtime/build.mjs public && VITE_RUNTIME=browser vite"
+    "preview": "vite preview"
   },
   "dependencies": {
     "@am/core": "workspace:*",

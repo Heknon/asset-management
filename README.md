@@ -121,10 +121,14 @@ The same services run in two ways. Nothing is duplicated: each service is a defi
 | Email | SMTP (Exchange / Office 365) | Kept in the browser: **Sent emails** page |
 | Sign-in | Local, LDAP / AD, ADFS (OIDC) | Local accounts (one-click Administrator, demo personas) |
 
+One environment variable switches between them: `VITE_RUNTIME` = `server` (default) or `browser`, set in the shell or in `.env`. The web app's normal `dev` and `build` commands read it; in browser mode they also build the service worker and the Postgres binaries.
+
 ```bash
-pnpm --filter web dev:browser         # browser mode on http://localhost:5173 (no Docker, no services)
-pnpm --filter web build:browser       # static site + service worker in apps/web/dist (what Vercel deploys)
+VITE_RUNTIME=browser pnpm --filter web dev      # browser mode on http://localhost:5173 (no Docker, no services)
+VITE_RUNTIME=browser pnpm --filter web build    # static site + service worker in apps/web/dist
 ```
+
+Vercel builds with `VITE_RUNTIME` from the project's environment variables, defaulting to `browser` (Vercel has no backend for this app). Set it to `server` there once `/api` is routed to real services.
 
 In browser mode the web app registers `/sw.js`, which starts the four services on first use (a few seconds the first time: it downloads Postgres and runs every migration; about a second afterwards). The service worker answers every `/api/*` request, so the web app, its links, downloads, previews and uploads are unchanged. The sign-in page offers **Continue as Administrator** and **Load the demo company** (the same seed as `pnpm seed`, run inside the browser in about half a minute), then one-click sign-in as each persona.
 

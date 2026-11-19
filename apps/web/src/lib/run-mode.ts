@@ -9,6 +9,20 @@ import { request } from './api';
 export const runMode: 'server' | 'browser' = import.meta.env.VITE_RUNTIME === 'browser' ? 'browser' : 'server';
 export const inBrowser = runMode === 'browser';
 
+/**
+ * Server mode: removes a service worker left by browser mode at this address
+ * (same dev port, or a deployment switched from browser to server), which
+ * would otherwise keep answering /api from this browser's local database.
+ * Reloads once if it was controlling the page.
+ */
+export async function retireBrowserRuntime(): Promise<void> {
+  if (!('serviceWorker' in navigator)) return;
+  const registrations = await navigator.serviceWorker.getRegistrations();
+  if (!registrations.length) return;
+  await Promise.all(registrations.map((r) => r.unregister()));
+  if (navigator.serviceWorker.controller) location.reload();
+}
+
 export interface RuntimeStatus {
   state: 'starting' | 'ready' | 'failed';
   step: string;

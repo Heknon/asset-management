@@ -7,12 +7,13 @@ import { applyTheme, readThemePref } from './components/app-shell';
 import { RuntimeGate } from './components/runtime-gate';
 import { TooltipProvider } from './components/ui/overlay';
 import { ApiError } from './lib/api';
-import { inBrowser } from './lib/run-mode';
+import { inBrowser, retireBrowserRuntime } from './lib/run-mode';
 import { createAppRouter } from './router';
 import './styles.css';
 
 // Theme before first paint: the stored choice, else the device's.
 applyTheme(readThemePref());
+if (!inBrowser) void retireBrowserRuntime();
 
 const queryClient = new QueryClient({
   defaultOptions: {
