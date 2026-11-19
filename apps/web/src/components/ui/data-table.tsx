@@ -100,7 +100,7 @@ export function DataTable<T>({
                       key={h.id}
                       style={{ width: meta?.width }}
                       aria-sort={active ? (activeSort.order === 'asc' ? 'ascending' : 'descending') : undefined}
-                      className={cn('h-9 border-b border-border px-3 text-left text-xs font-medium whitespace-nowrap text-muted first:pl-6 last:pr-6', meta?.align === 'right' && 'text-right')}
+                      className={cn('h-9 border-b border-border bg-bg px-3 text-left max-lg:first:sticky max-lg:first:left-0 max-lg:first:z-[1] text-xs font-medium whitespace-nowrap text-muted first:pl-4 last:pr-4 sm:first:pl-6 sm:last:pr-6', meta?.align === 'right' && 'text-right')}
                     >
                       {sortable(meta) ? (
                         <button
@@ -126,7 +126,7 @@ export function DataTable<T>({
               ? Array.from({ length: 6 }, (_, i) => (
                   <tr key={i}>
                     {columns.map((_, j) => (
-                      <td key={j} className="h-11 border-b border-border px-3 first:pl-6 last:pr-6">
+                      <td key={j} className="h-11 border-b border-border px-3 first:pl-4 last:pr-4 sm:first:pl-6 sm:last:pr-6">
                         <Skeleton className="h-3.5 w-3/4" />
                       </td>
                     ))}
@@ -137,7 +137,7 @@ export function DataTable<T>({
                     {row.getVisibleCells().map((cell) => {
                       const meta = (cell.column.columnDef as DataColumn<T>).meta;
                       return (
-                        <td key={cell.id} className={cn('h-11 border-b border-border px-3 whitespace-nowrap transition-colors first:pl-6 last:pr-6 group-hover:bg-surface-2/60', meta?.align === 'right' && 'text-right tabular-nums')}>
+                        <td key={cell.id} className={cn('h-11 border-b border-border px-3 whitespace-nowrap transition-colors max-lg:first:sticky max-lg:first:left-0 max-lg:first:z-[1] max-lg:first:max-w-[62vw] max-lg:first:overflow-hidden max-lg:first:bg-bg max-lg:first:shadow-[1px_0_0_var(--border)] first:pl-4 last:pr-4 sm:first:pl-6 sm:last:pr-6 group-hover:bg-surface-2/60', meta?.align === 'right' && 'text-right tabular-nums')}>
                           {flexRender(cell.column.columnDef.cell, cell.getContext())}
                         </td>
                       );
@@ -149,7 +149,7 @@ export function DataTable<T>({
         {!loading && !rows.length && empty}
       </div>
       {page && page.total > page.limit && (
-        <div className="flex items-center justify-between border-t border-border px-6 py-2 text-xs text-muted">
+        <div className="flex items-center justify-between border-t border-border px-4 sm:px-6 py-2 text-xs text-muted">
           <span>
             {page.offset + 1}–{Math.min(page.offset + page.limit, page.total)} of {page.total}
           </span>

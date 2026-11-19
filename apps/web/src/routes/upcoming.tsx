@@ -68,7 +68,7 @@ export function UpcomingPage() {
           </>
         }
       />
-      <div className="mx-auto w-full max-w-5xl space-y-6 px-6 py-6">
+      <div className="mx-auto w-full max-w-5xl space-y-6 px-4 sm:px-6 py-6">
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <Stat label="Overdue" value={summary.data?.overdue ?? '–'} tone={summary.data?.overdue ? 'danger' : undefined} />
           <Stat label="Due in 7 days" value={summary.data?.dueThisWeek ?? '–'} tone={summary.data?.dueThisWeek ? 'warning' : undefined} />
@@ -95,7 +95,7 @@ export function UpcomingPage() {
               <div className="mb-2 flex items-center gap-2 px-1">
                 <h2 className={g.key === 'overdue' ? 'text-[13px] font-semibold text-danger' : 'text-[13px] font-semibold'}>{g.title}</h2>
                 <span className="text-xs text-subtle">{g.items.length}</span>
-                <span className="ml-auto flex gap-1">
+                <span className="ml-auto hidden flex-wrap justify-end gap-1 sm:flex">
                   {[...new Map(g.items.map((o) => [o.dateKind.id, o.dateKind])).values()].slice(0, 4).map((k) => (
                     <DateKindBadge key={k.id} kind={k} />
                   ))}
@@ -135,7 +135,7 @@ function ChecksStrip() {
       <Card padded={false} className="divide-y divide-border overflow-hidden border-warning/40">
         {mine.map((o) => (
           <div key={o.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
-            <div className="min-w-0 flex-1">
+            <div className="min-w-0 flex-1 basis-64">
               <p className="text-[13px]">
                 <Link to="/assets/$assetId" params={{ assetId: o.assetId }} className="font-medium hover:underline">
                   Do you still need {o.assetName}?
@@ -146,7 +146,7 @@ function ChecksStrip() {
                 {o.check?.message ? ` — “${o.check.message}”` : ''}
               </p>
             </div>
-            <div className="flex gap-1.5">
+            <div className="flex flex-wrap gap-1.5">
               <Button size="sm" onClick={() => setAnswering({ o, decision: 'renew' })}>
                 Renew
               </Button>
@@ -173,7 +173,7 @@ function RequestsStrip() {
   const newRequest = useNewRequest();
   if (!counts.data) return null;
   return (
-    <div className="grid gap-3 md:grid-cols-2">
+    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
       {handles && (
         <Link to="/requests" className="block">
           <Card className="flex h-full items-center gap-3 border-accent/30 bg-accent-soft/40 transition-colors hover:border-accent/60">

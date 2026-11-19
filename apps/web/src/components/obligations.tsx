@@ -128,15 +128,25 @@ export function ObligationList({
               <div className="min-w-0 flex-1">
                 <div className="flex min-w-0 items-center gap-2">
                   {showAsset ? (
-                    <Link to="/assets/$assetId" params={{ assetId: o.assetId }} className="truncate font-medium hover:underline">
+                    <Link to="/assets/$assetId" params={{ assetId: o.assetId }} className="line-clamp-2 font-medium [overflow-wrap:anywhere] hover:underline sm:truncate">
                       {o.assetName}
                     </Link>
                   ) : (
                     <span className="font-medium">{o.label}</span>
                   )}
-                  {showAsset && <DateKindBadge kind={o.dateKind} />}
+                  {showAsset && (
+                    <span className="hidden sm:contents">
+                      <DateKindBadge kind={o.dateKind} />
+                    </span>
+                  )}
                 </div>
-                <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs whitespace-nowrap text-muted">
+                {/* Phones: a wrapping line with the essentials; wider screens: one line with everything. */}
+                <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted sm:flex-nowrap sm:whitespace-nowrap">
+                  {showAsset && (
+                    <span className="sm:hidden">
+                      <DueBadge obligation={o} />
+                    </span>
+                  )}
                   {showAsset && <span className="truncate">{o.label}</span>}
                   {showAsset && <span className="text-subtle">·</span>}
                   <span className="tabular-nums">{formatDate(o.dueDate)}</span>
@@ -147,10 +157,10 @@ export function ObligationList({
                     </>
                   )}
                   {showAsset && (
-                    <>
+                    <span className="hidden items-center gap-1.5 sm:inline-flex">
                       <span className="text-subtle">·</span>
                       <UnitPath id={o.unitId} leafOnly />
-                    </>
+                    </span>
                   )}
                   {showAsset && o.ownerId && (
                     <span className="ml-1 hidden sm:inline-flex">
@@ -167,7 +177,11 @@ export function ObligationList({
                   )}
                 </div>
               </div>
-              {showAsset && <DueBadge obligation={o} />}
+              {showAsset && (
+                <span className="hidden sm:contents">
+                  <DueBadge obligation={o} />
+                </span>
+              )}
               {active && o.check?.status === 'asked' && o.ownerId === me?.userId && (
                 <Button size="sm" variant="primary" icon={<CircleHelp className="size-3.5" />} onClick={() => setAnswer(o)}>
                   Still needed?
@@ -177,7 +191,7 @@ export function ObligationList({
                 <Button
                   size="sm"
                   variant={o.urgency === 'overdue' || o.urgency === 'due_soon' ? 'primary' : 'secondary'}
-                  className={cn(o.urgency === 'later' && 'opacity-0 group-hover:opacity-100 focus:opacity-100')}
+                  className={cn(o.urgency === 'later' && 'opacity-0 group-hover:opacity-100 focus:opacity-100 touch:opacity-100')}
                   icon={o.recurring ? <RefreshCcw className="size-3.5" /> : <Check className="size-3.5" />}
                   disabled={actions.pending}
                   onClick={() => actions.primary(o)}

@@ -98,7 +98,7 @@ export function UnitPage() {
       </PageHeader>
 
       {tab === 'overview' && (
-        <div className="mx-auto w-full max-w-5xl space-y-6 px-6 py-6">
+        <div className="mx-auto w-full max-w-5xl space-y-6 px-4 sm:px-6 py-6">
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <Stat label="Assets" value={assets.data?.total.toLocaleString() ?? '–'} hint="Including sub-teams" />
             <Stat label="Renewing in 12 months" value={money(spend)} hint="Recurring spend" />
@@ -112,13 +112,13 @@ export function UnitPage() {
       )}
       {tab === 'assets' && <AssetExplorer fixed={{ unitId: unit.id }} initial={{ includeSubunits: true }} />}
       {tab === 'requests' && (
-        <div className="mx-auto w-full max-w-5xl px-6 py-6">
+        <div className="mx-auto w-full max-w-5xl px-4 sm:px-6 py-6">
           <RequestList items={openRequests.data?.items ?? []} title="Open requests" empty="No open requests for this team." />
         </div>
       )}
       {tab === 'templates' && <TemplatesTab unitId={unit.id} />}
       {tab === 'access' && (
-        <div className="mx-auto w-full max-w-3xl space-y-3 px-6 py-6">
+        <div className="mx-auto w-full max-w-3xl space-y-3 px-4 sm:px-6 py-6">
           <p className="text-[13px] text-muted">Who can see and work with {unit.name}’s items — and everything in the units beneath it. Give access to people, other units or directory groups.</p>
           <GrantsEditor unitId={unit.id} />
         </div>
@@ -139,7 +139,7 @@ function TemplatesTab({ unitId }: { unitId: string }) {
   const canExtend = canManageOrganization || unitPermissionsOn(unitId).has('manage');
   const unit = unitById.get(unitId);
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-3 px-6 py-6">
+    <div className="mx-auto w-full max-w-4xl space-y-3 px-4 sm:px-6 py-6">
       <p className="text-[13px] text-muted">
         Templates are shared by the whole organization. A unit can extend one with the fields it needs — a Lab’s “Design license” adds the workstation and MAC addresses — and everyone in {unit?.name} and beneath it can use it.
       </p>
@@ -195,7 +195,7 @@ function CatalogsTab({ unitId, catalogs }: { unitId: string; catalogs: Catalog[]
   const [creating, setCreating] = useState(false);
   const canCreate = useMyOrg().unitPermissionsOn(unitId).has('manage');
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-4 px-6 py-6">
+    <div className="mx-auto w-full max-w-5xl space-y-4 px-4 sm:px-6 py-6">
       <div className="flex items-center justify-between gap-3">
         <p className="text-[13px] text-muted">Collections of this unit’s assets that it can share with other teams, divisions or people.</p>
         {canCreate && (
@@ -205,7 +205,7 @@ function CatalogsTab({ unitId, catalogs }: { unitId: string; catalogs: Catalog[]
         )}
       </div>
       {catalogs.length ? (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {catalogs.map((c) => (
             <CatalogCard key={c.id} catalog={c} />
           ))}
@@ -340,7 +340,7 @@ function PeopleTab({ unitId, people, editable }: { unitId: string; people: UnitP
     { role: 'member', title: 'Members', hint: 'See this unit’s assets and can request things for it.' },
   ];
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-6 px-6 py-6">
+    <div className="mx-auto w-full max-w-4xl space-y-6 px-4 sm:px-6 py-6">
       {editable && (
         <Card className="flex flex-wrap items-end gap-2">
           <div className="min-w-64 flex-1">

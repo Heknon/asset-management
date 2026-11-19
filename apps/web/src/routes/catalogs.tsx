@@ -37,9 +37,9 @@ export function CatalogsPage() {
           )
         }
       />
-      <div className="mx-auto w-full max-w-6xl space-y-8 px-6 py-6">
+      <div className="mx-auto w-full max-w-6xl space-y-8 px-4 sm:px-6 py-6">
         {catalogs.isLoading ? (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {Array.from({ length: 6 }, (_, i) => (
               <Skeleton key={i} className="h-28" />
             ))}
@@ -70,7 +70,7 @@ function Section({ title, hint, items }: { title: string; hint: string; items: N
     <section>
       <h2 className="text-[13px] font-semibold">{title}</h2>
       <p className="mb-3 text-xs text-muted">{hint}</p>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {items.map((c) => (
           <CatalogCard key={c.id} catalog={c} />
         ))}

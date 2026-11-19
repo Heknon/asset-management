@@ -62,7 +62,7 @@ export function SearchPage() {
           {r.loading && <Spinner className="absolute top-1/2 right-3 -translate-y-1/2" />}
         </div>
       </PageHeader>
-      <div className="mx-auto w-full max-w-4xl space-y-6 px-6 py-6">
+      <div className="mx-auto w-full max-w-4xl space-y-6 px-4 sm:px-6 py-6">
         {!debounced.trim() ? (
           <EmptyState icon={<Search />} title="Search everything" description="Names, vendors, serials, phone numbers, license tiers, owners, teams — any field except restricted ones." />
         ) : r.empty ? (

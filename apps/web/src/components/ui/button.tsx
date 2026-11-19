@@ -11,10 +11,10 @@ const variants = {
 };
 
 const sizes = {
-  xs: 'h-6 px-2 text-xs gap-1 rounded-md',
-  sm: 'h-7 px-2.5 text-[13px] gap-1.5 rounded-md',
-  md: 'h-8 px-3 text-[13px] gap-2 rounded-lg',
-  icon: 'h-7 w-7 rounded-md justify-center',
+  xs: 'h-6 px-2 text-xs gap-1 rounded-md touch:h-8',
+  sm: 'h-7 px-2.5 text-[13px] gap-1.5 rounded-md touch:h-9',
+  md: 'h-8 px-3 text-[13px] gap-2 rounded-lg touch:h-10 touch:px-3.5',
+  icon: 'h-7 w-7 rounded-md justify-center touch:h-10 touch:w-10',
 };
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {

@@ -108,7 +108,7 @@ export function ImportPage() {
   return (
     <>
       <PageHeader title="Import" description="Bring in what you already track in spreadsheets: CSV, TSV, Excel or Sheets (copy & paste), and Markdown tables." />
-      <div className="mx-auto w-full max-w-5xl space-y-6 px-6 py-6">
+      <div className="mx-auto w-full max-w-5xl space-y-6 px-4 sm:px-6 py-6">
         <ol className="flex flex-wrap items-center gap-2 text-[13px]" aria-label="Steps">
           {steps.map((s, i) => (
             <li key={s.key} className="flex items-center gap-2">
@@ -287,7 +287,7 @@ function SourceStep({
             setDragging(false);
             void readFile(e.dataTransfer.files[0]);
           }}
-          className={cn('flex flex-col items-center gap-2 border-b border-border px-6 py-8 text-center transition-colors', dragging && 'bg-accent-soft')}
+          className={cn('flex flex-col items-center gap-2 border-b border-border px-4 sm:px-6 py-8 text-center transition-colors', dragging && 'bg-accent-soft')}
         >
           <FileUp className="size-6 text-muted" />
           <p className="text-[13px] font-medium">Drop a CSV, TSV or Markdown file</p>
@@ -316,7 +316,7 @@ function SourceStep({
       {tables.length > 1 && (
         <Card>
           <p className="mb-2 text-[13px] font-medium">{tables.length} tables in {fileName} — which one?</p>
-          <div className="grid gap-2 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             {tables.map((t, i) => (
               <button key={i} type="button" onClick={() => onPick(i)} className={cn('rounded-lg border px-3 py-2 text-left', i === tableIndex ? 'border-accent bg-accent-soft' : 'border-border hover:border-border-strong')}>
                 <span className="block text-[13px] font-medium">{t.name}</span>
@@ -491,7 +491,7 @@ function DestinationStep({
     <>
       <Card className="space-y-3">
         <h2 className="text-[13px] font-semibold">What are these?</h2>
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
           {ranked.map(({ t, fit, count }) => (
             <button
               key={t.id}
@@ -689,7 +689,7 @@ function ColumnsStep({
             const f = fieldOf(t);
             const samples = table.rows.map((r) => r[col] ?? '').filter((v) => v.trim()).slice(0, 3);
             return (
-              <div key={col} className="grid items-start gap-3 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_24px_minmax(0,1fr)]">
+              <div key={col} className="grid grid-cols-1 items-start gap-3 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_24px_minmax(0,1fr)]">
                 <div className="min-w-0">
                   <p className="truncate text-[13px] font-medium">{h}</p>
                   <p className="truncate text-xs text-muted">{samples.join(' · ') || 'empty'}</p>
@@ -1067,7 +1067,7 @@ function ReviewStep(props: {
           </div>
         ) : (
           <>
-            <div className="grid gap-3 sm:grid-cols-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
               <Summary tone="success" value={review.counts.create} label="new items" />
               <Summary tone="accent" value={review.counts.update} label="updated" />
               <Summary value={review.counts.unchanged} label="already up to date" />

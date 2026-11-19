@@ -3,10 +3,10 @@ import { forwardRef, useId, useState, type InputHTMLAttributes, type ReactNode, 
 import { cn } from '@/lib/utils';
 
 const control =
-  'w-full rounded-lg border border-border bg-surface px-2.5 text-[13px] text-fg placeholder:text-subtle transition-colors hover:border-border-strong focus:border-accent focus:outline-none focus:ring-3 focus:ring-[var(--ring)] disabled:opacity-60 aria-[invalid=true]:border-danger';
+  'w-full rounded-lg border border-border bg-surface px-2.5 text-[13px] text-fg placeholder:text-subtle transition-colors hover:border-border-strong focus:border-accent focus:outline-none focus:ring-3 focus:ring-[var(--ring)] disabled:opacity-60 aria-[invalid=true]:border-danger touch:text-base';
 
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(function Input({ className, ...rest }, ref) {
-  return <input ref={ref} className={cn(control, 'h-8', className)} {...rest} />;
+  return <input ref={ref} className={cn(control, 'h-8 touch:h-10', className)} {...rest} />;
 });
 
 export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<HTMLTextAreaElement>>(function Textarea({ className, ...rest }, ref) {
@@ -19,7 +19,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSel
       ref={ref}
       className={cn(
         control,
-        'h-8 cursor-pointer appearance-none bg-[url("data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20width=%2712%27%20height=%2712%27%20fill=%27none%27%20stroke=%27%238b919c%27%20stroke-width=%272%27%3E%3Cpath%20d=%27M3%204.5l3%203%203-3%27/%3E%3C/svg%3E")] bg-[position:right_8px_center] bg-no-repeat pr-7',
+        'h-8 cursor-pointer appearance-none touch:h-10 bg-[url("data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20width=%2712%27%20height=%2712%27%20fill=%27none%27%20stroke=%27%238b919c%27%20stroke-width=%272%27%3E%3Cpath%20d=%27M3%204.5l3%203%203-3%27/%3E%3C/svg%3E")] bg-[position:right_8px_center] bg-no-repeat pr-7',
         className,
       )}
       {...rest}

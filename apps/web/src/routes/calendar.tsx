@@ -34,6 +34,10 @@ export function CalendarPage() {
   }, [obligations.data]);
   const today = todayIso();
   const monthKey = iso(cursor.y, cursor.m, 1).slice(0, 7);
+  // Phones: the grid shows dots; the chosen day's items are listed below it.
+  const [picked, setPicked] = useState<string | null>(null);
+  const selected = picked && picked.slice(0, 7) === monthKey ? picked : today.slice(0, 7) === monthKey ? today : (days.find((d) => d.slice(0, 7) === monthKey && byDay.has(d)) ?? iso(cursor.y, cursor.m, 1));
+  const dayItems = byDay.get(selected) ?? [];
   const shift = (n: number) => setCursor(({ y, m }) => ({ y: m + n < 0 ? y - 1 : m + n > 11 ? y + 1 : y, m: (m + n + 12) % 12 }));
 
   const copyFeed = async () => {
@@ -63,7 +67,7 @@ export function CalendarPage() {
           </>
         }
       />
-      <div className="flex min-h-0 flex-1 flex-col px-6 py-4">
+      <div className="flex min-h-0 flex-1 flex-col px-4 sm:px-6 py-4">
         <div className="grid grid-cols-7 pb-2 text-xs font-medium text-subtle">
           {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => (
             <div key={d} className="px-2">
@@ -71,23 +75,34 @@ export function CalendarPage() {
             </div>
           ))}
         </div>
-        <div className="grid flex-1 auto-rows-fr grid-cols-7 overflow-hidden rounded-xl border border-border bg-border gap-px">
+        <div className="grid shrink-0 auto-rows-fr grid-cols-7 gap-px overflow-hidden rounded-xl border border-border bg-border md:flex-1">
           {days.map((d) => {
             const items = byDay.get(d) ?? [];
             return (
-              <div key={d} className={cn('min-h-24 bg-surface p-1.5', d.slice(0, 7) !== monthKey && 'bg-surface-2/50')}>
-                <div className={cn('mb-1 flex size-6 items-center justify-center rounded-full text-xs tabular-nums', d === today ? 'bg-accent font-semibold text-white' : d.slice(0, 7) === monthKey ? 'text-fg' : 'text-subtle')}>
+              <div
+                key={d}
+                onClick={() => setPicked(d)}
+                className={cn('min-h-12 cursor-pointer bg-surface p-1 md:min-h-24 md:cursor-default md:p-1.5', d.slice(0, 7) !== monthKey && 'bg-surface-2/50', d === selected && 'max-md:bg-accent-soft')}
+              >
+                <div className={cn('mx-auto mb-1 flex size-6 md:mx-0 items-center justify-center rounded-full text-xs tabular-nums', d === today ? 'bg-accent font-semibold text-white' : d.slice(0, 7) === monthKey ? 'text-fg' : 'text-subtle')}>
                   {Number(d.slice(8))}
                 </div>
-                <div className="space-y-0.5">
+                {items.length > 0 && (
+                  <div className="flex flex-wrap justify-center gap-0.5 md:hidden" aria-label={`${items.length} dates`}>
+                    {items.slice(0, 4).map((o) => (
+                      <span key={o.id} className="size-1.5 rounded-full" style={{ background: o.dateKind.color }} />
+                    ))}
+                  </div>
+                )}
+                <div className="hidden space-y-0.5 md:block">
                   {items.slice(0, 3).map((o) => (
                     <Link
                       key={o.id}
                       to="/assets/$assetId"
                       params={{ assetId: o.assetId }}
                       title={`${o.dateKind.name}: ${o.assetName}`}
-                      className={cn('flex items-center gap-1 truncate rounded px-1.5 py-0.5 text-[11px] font-medium transition-opacity hover:opacity-80', (o.state === 'done' || o.state === 'dismissed') && 'line-through opacity-50')}
-                      style={{ background: `${o.dateKind.color}1f`, color: o.dateKind.color }}
+                      className={cn('tint flex items-center gap-1 truncate rounded px-1.5 py-0.5 text-[11px] font-medium transition-opacity hover:opacity-80', (o.state === 'done' || o.state === 'dismissed') && 'line-through opacity-50')}
+                      style={{ ['--c' as string]: o.dateKind.color }}
                     >
                       <span className="truncate">{o.assetName}</span>
                     </Link>
@@ -98,6 +113,31 @@ export function CalendarPage() {
             );
           })}
         </div>
+        <section className="mt-4 md:hidden" aria-live="polite">
+          <h2 className="mb-2 px-1 text-[13px] font-semibold">
+            {new Intl.DateTimeFormat(undefined, { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' }).format(new Date(`${selected}T00:00:00Z`))}
+          </h2>
+          {dayItems.length ? (
+            <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-surface">
+              {dayItems.map((o) => (
+                <li key={o.id}>
+                  <Link to="/assets/$assetId" params={{ assetId: o.assetId }} className={cn('flex min-h-12 items-center gap-3 px-3 py-2 active:bg-surface-2', (o.state === 'done' || o.state === 'dismissed') && 'opacity-60')}>
+                    <span className="size-2 shrink-0 rounded-full" style={{ background: o.dateKind.color }} />
+                    <span className="min-w-0 flex-1">
+                      <span className={cn('block truncate text-[14px] font-medium', (o.state === 'done' || o.state === 'dismissed') && 'line-through')}>{o.assetName}</span>
+                      <span className="block truncate text-xs text-muted">
+                        {o.dateKind.name} · {o.label}
+                      </span>
+                    </span>
+                    <ChevronRight className="size-4 text-subtle" />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="px-1 text-[13px] text-muted">Nothing due this day.</p>
+          )}
+        </section>
       </div>
     </>
   );

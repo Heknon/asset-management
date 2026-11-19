@@ -77,7 +77,7 @@ export function DateKindsPage() {
         description="The meanings a date field can have. Templates pick one per date; reminders and actions follow from it."
         actions={<Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setEditing('new')}>New date kind</Button>}
       />
-      <div className="mx-auto w-full max-w-3xl px-6 py-6">
+      <div className="mx-auto w-full max-w-3xl px-4 sm:px-6 py-6">
         <Card padded={false}>
           <ul className="divide-y divide-border">
             {(kinds.data ?? []).map((k) => (
@@ -166,7 +166,7 @@ export function WorkflowsPage() {
           )
         }
       />
-      <div className="mx-auto w-full max-w-4xl px-6 py-6">{wf ? <WorkflowEditor value={wf} onChange={setDraft} lockedKeys={saved.data?.statuses.map((s) => s.key)} /> : <Spinner />}</div>
+      <div className="mx-auto w-full max-w-4xl px-4 sm:px-6 py-6">{wf ? <WorkflowEditor value={wf} onChange={setDraft} lockedKeys={saved.data?.statuses.map((s) => s.key)} /> : <Spinner />}</div>
     </>
   );
 }
@@ -189,7 +189,7 @@ export function PeoplePage() {
       <PageHeader title="People & groups" description="People are provisioned on first sign-in through LDAP or ADFS. Directory groups sync automatically and can be granted access.">
         <Tabs value={tab} onValueChange={setTab} tabs={[{ value: 'users', label: 'People', count: users.data?.total }, { value: 'groups', label: 'Groups', count: groups.data?.length }]} />
       </PageHeader>
-      <div className="mx-auto w-full max-w-4xl px-6 py-6">
+      <div className="mx-auto w-full max-w-4xl px-4 sm:px-6 py-6">
         {tab === 'users' ? (
           <Card padded={false}>
             <div className="border-b border-border p-3">
@@ -363,8 +363,8 @@ export function AccessPage() {
         title="Access"
         description="Most access comes from the organization chart: members get their unit’s default role, managers are Admins of everything beneath their unit. Add access here for what spans the whole company — e.g. Procurement as Admin, Finance as Viewer. Access adds up; changes apply within 15 minutes."
       />
-      <div className="mx-auto w-full max-w-4xl space-y-6 px-6 py-6">
-        <div className="grid gap-3 sm:grid-cols-5">
+      <div className="mx-auto w-full max-w-4xl space-y-6 px-4 sm:px-6 py-6">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-5">
           {roleKeys.map((r) => (
             <Card key={r}>
               <Badge tone={r === 'admin' ? 'accent' : 'neutral'}>{roles[r].label}</Badge>
@@ -392,7 +392,7 @@ export function ProfilePage() {
   return (
     <>
       <PageHeader title="Profile & notifications" icon={<Avatar name={me.displayName} size={40} />} description={me.email ?? me.username} />
-      <div className="mx-auto w-full max-w-2xl space-y-6 px-6 py-6">
+      <div className="mx-auto w-full max-w-2xl space-y-6 px-4 sm:px-6 py-6">
         <Card className="space-y-4">
           <h2 className="text-[13px] font-semibold">Notifications</h2>
           <Switch

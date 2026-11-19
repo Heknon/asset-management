@@ -96,7 +96,7 @@ export function Documents({ assetId, canEdit, canManage, currentUserId }: { asse
                     {formatBytes(f.size)} · {f.uploadedByName} · {formatDateTime(f.createdAt)}
                   </div>
                 </button>
-                <div className="flex opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                <div className="flex opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 touch:opacity-100">
                   <Button size="icon" variant="ghost" aria-label="Download" icon={<Download className="size-4" />} onClick={() => void download(f)} />
                   {(canManage || (canEdit && f.uploadedBy === currentUserId)) && (
                     <Button size="icon" variant="danger-ghost" aria-label="Delete" icon={<Trash2 className="size-4" />} onClick={() => remove.mutate(f)} />

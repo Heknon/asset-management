@@ -28,13 +28,14 @@ function Panel({ open, onOpenChange, title, description, children, footer, class
         <RDialog.Content
           className={cn(
             'fixed z-50 flex flex-col border border-border bg-surface shadow-pop focus:outline-none',
+            // Phones: dialogs rise from the bottom, sheets take the whole screen.
             placement === 'center'
-              ? 'animate-panel top-[12vh] left-1/2 max-h-[76vh] w-[calc(100vw-2rem)] max-w-lg -translate-x-1/2 rounded-xl'
-              : 'animate-sheet inset-y-2 right-2 w-[calc(100vw-1rem)] max-w-xl rounded-xl',
+              ? 'animate-dialog inset-x-0 bottom-0 max-h-[92dvh] rounded-t-2xl pb-[env(safe-area-inset-bottom)] sm:inset-x-auto sm:top-[12vh] sm:bottom-auto sm:left-1/2 sm:max-h-[76vh] sm:w-[calc(100vw-2rem)] sm:max-w-lg sm:-translate-x-1/2 sm:rounded-xl sm:pb-0'
+              : 'animate-sheet inset-0 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] sm:inset-y-2 sm:right-2 sm:left-auto sm:w-[calc(100vw-1rem)] sm:max-w-xl sm:rounded-xl sm:pt-0 sm:pb-0',
             className,
           )}
         >
-          <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
+          <div className="flex items-start justify-between gap-4 border-b border-border px-4 py-4 sm:px-5">
             <div className="min-w-0">
               <RDialog.Title className="text-[15px] font-semibold">{title}</RDialog.Title>
               {description ? <RDialog.Description className="mt-0.5 text-[13px] text-muted">{description}</RDialog.Description> : <RDialog.Description className="sr-only">{title}</RDialog.Description>}
@@ -43,8 +44,8 @@ function Panel({ open, onOpenChange, title, description, children, footer, class
               <Button variant="ghost" size="icon" aria-label="Close" icon={<X className="size-4" />} />
             </RDialog.Close>
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{children}</div>
-          {footer && <div className="flex items-center justify-end gap-2 border-t border-border px-5 py-3">{footer}</div>}
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-5">{children}</div>
+          {footer && <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border px-4 py-3 sm:px-5">{footer}</div>}
         </RDialog.Content>
       </RDialog.Portal>
     </RDialog.Root>
@@ -74,14 +75,14 @@ export function ConfirmDialog({ open, onOpenChange, title, description, confirmL
   );
 }
 
-const popClass = 'animate-panel z-50 rounded-xl border border-border bg-surface p-1 shadow-pop';
+const popClass = 'animate-panel z-50 max-w-[calc(100vw-1rem)] max-h-[var(--radix-popper-available-height)] overflow-y-auto rounded-xl border border-border bg-surface p-1 shadow-pop';
 
 export function Menu({ trigger, children, align = 'end' }: { trigger: ReactNode; children: ReactNode; align?: 'start' | 'end' }) {
   return (
     <RMenu.Root>
       <RMenu.Trigger asChild>{trigger}</RMenu.Trigger>
       <RMenu.Portal>
-        <RMenu.Content align={align} sideOffset={4} className={cn(popClass, 'min-w-44')}>
+        <RMenu.Content align={align} sideOffset={4} collisionPadding={8} className={cn(popClass, 'min-w-44')}>
           {children}
         </RMenu.Content>
       </RMenu.Portal>
@@ -95,7 +96,7 @@ export function MenuItem({ children, onSelect, icon, danger, disabled }: { child
       disabled={disabled}
       onSelect={onSelect}
       className={cn(
-        'flex h-8 cursor-pointer items-center gap-2 rounded-md px-2 text-[13px] outline-none data-[disabled]:opacity-50 data-[highlighted]:bg-surface-2',
+        'flex h-8 cursor-pointer items-center gap-2 rounded-md px-2 text-[13px] outline-none touch:h-10 data-[disabled]:opacity-50 data-[highlighted]:bg-surface-2',
         danger && 'text-danger',
       )}
     >
@@ -112,7 +113,7 @@ export function Popover({ trigger, children, className, align = 'start', open, o
     <RPopover.Root open={open} onOpenChange={onOpenChange}>
       <RPopover.Trigger asChild>{trigger}</RPopover.Trigger>
       <RPopover.Portal>
-        <RPopover.Content align={align} sideOffset={4} className={cn(popClass, 'p-0', className)}>
+        <RPopover.Content align={align} sideOffset={4} collisionPadding={8} className={cn(popClass, 'p-0', className)}>
           {children}
         </RPopover.Content>
       </RPopover.Portal>

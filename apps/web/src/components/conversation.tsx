@@ -66,7 +66,7 @@ export function Conversation({ assetId, permissions }: { assetId: string; permis
                       {c.editedAt && !c.deleted && ' · edited'}
                     </span>
                     {!c.deleted && (c.authorId === me.userId || permissions.includes('delete')) && (
-                      <span className="ml-auto opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                      <span className="ml-auto opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 touch:opacity-100">
                         <Menu trigger={<Button size="icon" variant="ghost" aria-label="Message actions" icon={<MoreHorizontal className="size-3.5" />} />}>
                           {c.authorId === me.userId && (
                             <MenuItem icon={<Pencil />} onSelect={() => setEditing(c.id)}>

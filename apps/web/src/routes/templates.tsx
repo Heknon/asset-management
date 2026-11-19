@@ -80,11 +80,11 @@ export function TemplatesPage() {
           </Link>
         }
       />
-      <div className="mx-auto w-full max-w-5xl space-y-8 px-6 py-6">
+      <div className="mx-auto w-full max-w-5xl space-y-8 px-4 sm:px-6 py-6">
         <section>
           <SectionTitle>Your templates</SectionTitle>
           {active.length ? (
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {active.map((t) => (
                 <TypeCard key={t.id} type={t} />
               ))}
@@ -98,7 +98,7 @@ export function TemplatesPage() {
 
         <section>
           <SectionTitle>Start from a template</SectionTitle>
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {(gallery.data ?? []).map((g) => (
               <Card key={g.key} className="flex items-start gap-3">
                 <TypeIcon icon={g.icon} color={g.color} size={36} />
@@ -120,7 +120,7 @@ export function TemplatesPage() {
         {archived.length > 0 && (
           <section>
             <SectionTitle>Archived</SectionTitle>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {archived.map((t) => (
                 <TypeCard key={t.id} type={t} />
               ))}

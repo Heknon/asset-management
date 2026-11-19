@@ -7,6 +7,7 @@ import {
   Bookmark,
   Building2,
   CalendarDays,
+  Check,
   ChevronDown,
   FileUp,
   FolderOpen,
@@ -14,6 +15,8 @@ import {
   KeyRound,
   LayoutTemplate,
   LogOut,
+  Menu as MenuIcon,
+  Monitor,
   Moon,
   Network,
   Plus,
@@ -24,6 +27,7 @@ import {
   User,
   Users,
   Workflow,
+  X,
 } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { api } from '@/lib/api';
@@ -39,17 +43,43 @@ import { TypeIcon } from './type-icon';
 import { Avatar, Kbd } from './ui/display';
 import { Menu, MenuItem, MenuSeparator } from './ui/overlay';
 
+export type ThemePref = 'light' | 'dark' | 'system';
+
+const darkQuery = () => matchMedia('(prefers-color-scheme: dark)');
+
+/** Applies a theme choice; "system" follows the device, including when it changes (e.g. at sunset). */
+export function applyTheme(pref: ThemePref) {
+  const dark = pref === 'dark' || (pref === 'system' && darkQuery().matches);
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  // Phone browsers tint their toolbar with this.
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#0d0e11' : '#fbfbfc');
+}
+
+export function readThemePref(): ThemePref {
+  try {
+    const v = localStorage.getItem('theme');
+    return v === 'light' || v === 'dark' ? v : 'system';
+  } catch {
+    return 'system';
+  }
+}
+
 export function useTheme() {
-  const [theme, setTheme] = useState<'light' | 'dark'>(() => (document.documentElement.dataset.theme as 'light' | 'dark') ?? 'light');
+  const [pref, setPref] = useState<ThemePref>(readThemePref);
   useEffect(() => {
-    document.documentElement.dataset.theme = theme;
+    applyTheme(pref);
     try {
-      localStorage.setItem('theme', theme);
+      localStorage.setItem('theme', pref);
     } catch {
       /* storage may be unavailable */
     }
-  }, [theme]);
-  return [theme, setTheme] as const;
+    if (pref !== 'system') return;
+    const q = darkQuery();
+    const follow = () => applyTheme('system');
+    q.addEventListener('change', follow);
+    return () => q.removeEventListener('change', follow);
+  }, [pref]);
+  return [pref, setPref] as const;
 }
 
 const navClass = (active: boolean) =>
@@ -67,7 +97,7 @@ function NavItem({ to, search, params, icon, children, count, tone = 'danger', a
 
 const Heading = ({ children }: { children: ReactNode }) => <div className="px-2 pt-5 pb-1.5 text-[11px] font-semibold tracking-wide text-subtle uppercase">{children}</div>;
 
-function Sidebar({ me, onSearch }: { me: Me; onSearch: () => void }) {
+function Sidebar({ me, onSearch, onNavigate }: { me: Me; onSearch: () => void; onNavigate?: () => void }) {
   const types = useAssetTypes();
   const summary = useSummary();
   const counts = useRequestCounts();
@@ -89,7 +119,8 @@ function Sidebar({ me, onSearch }: { me: Me; onSearch: () => void }) {
   };
 
   return (
-    <aside className="flex w-64 shrink-0 flex-col border-r border-border bg-surface/60">
+    // Any click on a link inside closes the drawer on small screens.
+    <div className="flex h-full flex-col" onClick={(e) => onNavigate && (e.target as HTMLElement).closest('a') && onNavigate()}>
       <div className="flex h-14 items-center gap-2 px-4">
         <div className="flex size-7 items-center justify-center rounded-lg bg-accent text-white">
           <Shapes className="size-4" />
@@ -97,13 +128,13 @@ function Sidebar({ me, onSearch }: { me: Me; onSearch: () => void }) {
         <span className="text-[14px] font-semibold tracking-tight">Assets</span>
       </div>
       <div className="space-y-2 px-3">
-        <button type="button" onClick={newRequest} className="flex h-8 w-full items-center justify-center gap-1.5 rounded-lg bg-accent text-[13px] font-medium text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.12)] transition-colors hover:bg-accent-hover">
+        <button type="button" onClick={() => (onNavigate?.(), newRequest())} className="flex h-9 w-full lg:h-8 items-center justify-center gap-1.5 rounded-lg bg-accent text-[13px] font-medium text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.12)] transition-colors hover:bg-accent-hover">
           <Plus className="size-4" /> Request something
         </button>
-        <button type="button" onClick={onSearch} className="flex h-8 w-full items-center gap-2 rounded-lg border border-border bg-surface px-2.5 text-[13px] text-subtle transition-colors hover:border-border-strong">
+        <button type="button" onClick={() => (onNavigate?.(), onSearch())} className="flex h-9 w-full lg:h-8 items-center gap-2 rounded-lg border border-border bg-surface px-2.5 text-[13px] text-subtle transition-colors hover:border-border-strong">
           <Search className="size-3.5" />
           Search anything
-          <span className="ml-auto flex gap-0.5">
+          <span className="ml-auto hidden gap-0.5 [@media(hover:hover)]:flex">
             <Kbd>⌘</Kbd>
             <Kbd>K</Kbd>
           </span>
@@ -205,19 +236,31 @@ function Sidebar({ me, onSearch }: { me: Me; onSearch: () => void }) {
             </button>
           }
         >
-          <MenuItem icon={<User />} onSelect={() => void navigate({ to: '/profile' })}>
+          <MenuItem icon={<User />} onSelect={() => (onNavigate?.(), void navigate({ to: '/profile' }))}>
             Profile & notifications
           </MenuItem>
-          <MenuItem icon={theme === 'dark' ? <Sun /> : <Moon />} onSelect={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
-            {theme === 'dark' ? 'Light mode' : 'Dark mode'}
-          </MenuItem>
+          <MenuSeparator />
+          {(
+            [
+              ['light', 'Light', <Sun key="l" />],
+              ['dark', 'Dark', <Moon key="d" />],
+              ['system', 'Match device', <Monitor key="s" />],
+            ] as const
+          ).map(([value, label, icon]) => (
+            <MenuItem key={value} icon={icon} onSelect={() => setTheme(value)}>
+              <span className="flex flex-1 items-center justify-between gap-6">
+                {label}
+                {theme === value && <Check className="size-3.5 text-accent-fg" />}
+              </span>
+            </MenuItem>
+          ))}
           <MenuSeparator />
           <MenuItem icon={<LogOut />} onSelect={() => void logout()}>
             Sign out
           </MenuItem>
         </Menu>
       </div>
-    </aside>
+    </div>
   );
 }
 
@@ -238,14 +281,59 @@ export function AppShell({ me }: { me: Me }) {
 
   return (
     <NewRequestProvider>
-      <div className="flex h-full">
-        <Sidebar me={me} onSearch={() => setPaletteOpen(true)} />
-        <main className="flex min-w-0 flex-1 flex-col overflow-y-auto">
+      <div className="flex h-full flex-col lg:flex-row">
+        {/* Desktop and tablet landscape: the sidebar stays; smaller screens get a top bar and a drawer. */}
+        <aside className="hidden w-64 shrink-0 border-r border-border bg-surface/60 lg:block">
+          <Sidebar me={me} onSearch={() => setPaletteOpen(true)} />
+        </aside>
+        <TopBar me={me} onSearch={() => setPaletteOpen(true)} />
+        <main className="flex min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto pb-[env(safe-area-inset-bottom)]">
           <Outlet />
         </main>
         <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} isAdmin={me.isAdmin || canManageOrganization} />
       </div>
     </NewRequestProvider>
+  );
+}
+
+function TopBar({ me, onSearch }: { me: Me; onSearch: () => void }) {
+  const [open, setOpen] = useState(false);
+  const newRequest = useNewRequest();
+  const path = useRouterState({ select: (s) => s.location.pathname });
+  useEffect(() => setOpen(false), [path]);
+  const icon = 'flex size-10 items-center justify-center rounded-lg text-muted transition-colors hover:bg-surface-2 hover:text-fg active:bg-surface-3 [&>svg]:size-5';
+  return (
+    <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-1 border-b border-border bg-surface/90 px-2 pt-[env(safe-area-inset-top)] backdrop-blur lg:hidden">
+      <RDialog.Root open={open} onOpenChange={setOpen}>
+        <RDialog.Trigger className={icon} aria-label="Menu">
+          <MenuIcon />
+        </RDialog.Trigger>
+        <RDialog.Portal>
+          <RDialog.Overlay className="animate-overlay fixed inset-0 z-40 bg-black/30 dark:bg-black/60" />
+          <RDialog.Content className="animate-drawer fixed inset-y-0 left-0 z-50 w-[min(18rem,86vw)] border-r border-border bg-surface pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] shadow-pop outline-none">
+            <RDialog.Title className="sr-only">Navigation</RDialog.Title>
+            <RDialog.Description className="sr-only">Pages, teams and asset types</RDialog.Description>
+            <RDialog.Close className={cn(icon, 'absolute top-2 right-2 z-10')} aria-label="Close menu" style={{ marginTop: 'env(safe-area-inset-top)' }}>
+              <X />
+            </RDialog.Close>
+            <Sidebar me={me} onSearch={onSearch} onNavigate={() => setOpen(false)} />
+          </RDialog.Content>
+        </RDialog.Portal>
+      </RDialog.Root>
+      <Link to="/" className="flex items-center gap-2 px-1">
+        <span className="flex size-7 items-center justify-center rounded-lg bg-accent text-white">
+          <Shapes className="size-4" />
+        </span>
+        <span className="text-[15px] font-semibold tracking-tight">Assets</span>
+      </Link>
+      <span className="flex-1" />
+      <button type="button" className={icon} aria-label="Search" onClick={onSearch}>
+        <Search />
+      </button>
+      <button type="button" className={cn(icon, 'text-accent-fg')} aria-label="Request something" onClick={newRequest}>
+        <Plus />
+      </button>
+    </header>
   );
 }
 

@@ -96,7 +96,7 @@ export function AssetDetailPage() {
           )
         }
       />
-      <div className="mx-auto grid w-full max-w-6xl gap-6 px-6 py-6 lg:grid-cols-[minmax(0,1fr)_380px]">
+      <div className="mx-auto grid grid-cols-1 w-full max-w-6xl gap-6 px-4 sm:px-6 py-6 lg:grid-cols-[minmax(0,1fr)_380px]">
         <div className="space-y-6">
           <Details type={schema} attributes={a.attributes} ownerId={a.ownerId} canSeeRestricted={can('restricted')} />
           <Documents assetId={a.id} canEdit={can('attach')} canManage={can('delete')} currentUserId={me.userId} />

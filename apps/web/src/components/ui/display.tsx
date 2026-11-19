@@ -18,16 +18,16 @@ export function SectionTitle({ children, aside, className }: { children: ReactNo
 
 export function PageHeader({ title, description, icon, actions, children }: { title: ReactNode; description?: ReactNode; icon?: ReactNode; actions?: ReactNode; children?: ReactNode }) {
   return (
-    <div className="border-b border-border bg-bg/80 px-6 pt-5 pb-4 backdrop-blur">
+    <div className="border-b border-border bg-bg/80 px-4 sm:px-6 pt-5 pb-4 backdrop-blur">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
           {icon}
           <div className="min-w-0">
-            <h1 className="truncate text-lg font-semibold tracking-tight">{title}</h1>
+            <h1 className="text-lg font-semibold tracking-tight [overflow-wrap:anywhere] sm:truncate">{title}</h1>
             {description && <p className="mt-0.5 text-[13px] text-muted">{description}</p>}
           </div>
         </div>
-        {actions && <div className="flex items-center gap-2">{actions}</div>}
+        {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
       </div>
       {children && <div className="mt-4">{children}</div>}
     </div>
@@ -68,7 +68,7 @@ export function Avatar({ name, size = 22, className }: { name: string; size?: nu
 /** Colored rounded square with an icon — used for asset types everywhere. */
 export function IconTile({ color, children, size = 28 }: { color: string; children: ReactNode; size?: number }) {
   return (
-    <span className="inline-flex shrink-0 items-center justify-center rounded-lg [&>svg]:size-[55%]" style={{ width: size, height: size, background: `${color}1f`, color }}>
+    <span className="tint inline-flex shrink-0 items-center justify-center rounded-lg [&>svg]:size-[55%]" style={{ width: size, height: size, ['--c' as string]: color }}>
       {children}
     </span>
   );
@@ -76,7 +76,7 @@ export function IconTile({ color, children, size = 28 }: { color: string; childr
 
 export function EmptyState({ icon, title, description, action }: { icon?: ReactNode; title: string; description?: ReactNode; action?: ReactNode }) {
   return (
-    <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
+    <div className="flex flex-col items-center justify-center px-4 sm:px-6 py-16 text-center">
       {icon && <div className="mb-3 flex size-10 items-center justify-center rounded-xl bg-surface-2 text-muted [&>svg]:size-5">{icon}</div>}
       <p className="text-[14px] font-medium">{title}</p>
       {description && <p className="mt-1 max-w-sm text-[13px] text-muted">{description}</p>}
@@ -100,12 +100,12 @@ export function Kbd({ children }: { children: ReactNode }) {
 export function Tabs({ value, onValueChange, tabs, children }: { value: string; onValueChange: (v: string) => void; tabs: Array<{ value: string; label: ReactNode; count?: number }>; children?: ReactNode }) {
   return (
     <RTabs.Root value={value} onValueChange={onValueChange}>
-      <RTabs.List className="flex gap-4 border-b border-border">
+      <RTabs.List className="-mx-4 flex gap-4 overflow-x-auto border-b border-border px-4 [scrollbar-width:none] sm:mx-0 sm:px-0 [&::-webkit-scrollbar]:hidden">
         {tabs.map((t) => (
           <RTabs.Trigger
             key={t.value}
             value={t.value}
-            className="-mb-px flex h-9 items-center gap-1.5 border-b-2 border-transparent text-[13px] font-medium text-muted transition-colors hover:text-fg data-[state=active]:border-accent data-[state=active]:text-fg"
+            className="-mb-px flex h-10 shrink-0 items-center gap-1.5 border-b-2 whitespace-nowrap sm:h-9 border-transparent text-[13px] font-medium text-muted transition-colors hover:text-fg data-[state=active]:border-accent data-[state=active]:text-fg"
           >
             {t.label}
             {t.count !== undefined && <span className="rounded bg-surface-2 px-1 text-[11px] text-muted">{t.count}</span>}

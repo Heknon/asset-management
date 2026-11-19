@@ -57,7 +57,7 @@ export function RequestsPage() {
       >
         <Tabs value={active} onValueChange={(v) => setScope(v as RequestQuery['scope'])} tabs={tabs} />
       </PageHeader>
-      <div className="flex flex-wrap items-center gap-2 border-b border-border px-6 py-3">
+      <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 sm:px-6 py-3">
         <div className="relative w-80">
           <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-subtle" />
           <Input className="pl-8" placeholder="Search requests…" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -71,7 +71,7 @@ export function RequestsPage() {
         )}
         <span className="ml-auto text-xs text-subtle">{requests.data ? `${requests.data.total} ${requests.data.total === 1 ? 'request' : 'requests'}` : ''}</span>
       </div>
-      <div className="mx-auto w-full max-w-5xl px-6 py-5">
+      <div className="mx-auto w-full max-w-5xl px-4 sm:px-6 py-5">
         <Card padded={false} className="overflow-hidden">
           {requests.isLoading ? (
             <div className="space-y-3 p-4">{Array.from({ length: 4 }, (_, i) => <Skeleton key={i} className="h-12" />)}</div>
@@ -115,14 +115,18 @@ function RequestRow({ r, meId, onOpen }: { r: PurchaseRequest; meId: string; onO
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-2">
             <span className="truncate font-medium">{r.title}</span>
-            <span className="text-xs text-subtle">{r.number}</span>
+            <span className="hidden shrink-0 text-xs text-subtle sm:inline">{r.number}</span>
           </span>
           {r.snippet ? (
             <Highlight snippet={r.snippet} className="block truncate text-xs text-muted" />
           ) : (
-            <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted">
-              <UnitPath id={r.unitId} />
-              <span className="text-subtle">·</span>
+            <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-xs text-muted sm:flex-nowrap">
+              <span className="text-subtle sm:hidden">{r.number}</span>
+              <span className="text-subtle sm:hidden">·</span>
+              <span className="hidden min-w-0 sm:inline-flex">
+                <UnitPath id={r.unitId} />
+              </span>
+              <span className="hidden text-subtle sm:inline">·</span>
               <span className="truncate">{r.requesterId === meId ? 'You' : r.requesterName}</span>
               <span className="text-subtle">·</span>
               <span>{relativeDays(r.createdAt.slice(0, 10))}</span>
@@ -141,7 +145,7 @@ function RequestRow({ r, meId, onOpen }: { r: PurchaseRequest; meId: string; onO
             {r.commentCount}
           </span>
         )}
-        {r.assigneeId ? <AssigneeAvatar id={r.assigneeId} /> : <span className="w-[22px]" />}
+        <span className="hidden sm:contents">{r.assigneeId ? <AssigneeAvatar id={r.assigneeId} /> : <span className="w-[22px]" />}</span>
         <RequestStatusBadge status={r.statusInfo} />
       </button>
     </li>
@@ -266,14 +270,14 @@ export function RequestDetailPage() {
         }
         actions={(handler || (mine && r.statusInfo.category === 'todo')) && open && <Button icon={<Pencil className="size-3.5" />} onClick={() => setEditing(true)}>Edit</Button>}
       />
-      <div className="mx-auto grid w-full max-w-6xl gap-6 px-6 py-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+      <div className="mx-auto grid grid-cols-1 w-full max-w-6xl gap-6 px-4 sm:px-6 py-6 lg:grid-cols-[minmax(0,1fr)_340px]">
         <div className="space-y-6">
           <Card>
             <Stepper r={r} />
           </Card>
           <Card className="space-y-4">
             {r.description ? <p className="text-[14px] leading-relaxed whitespace-pre-wrap">{r.description}</p> : <p className="text-[13px] text-subtle">No details given.</p>}
-            <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-[13px] sm:grid-cols-4">
+            <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-[13px] xl:grid-cols-4">
               <Detail label="Kind">{type ? <span className="inline-flex items-center gap-1.5"><TypeIcon icon={type.icon} color={type.color} size={18} />{type.name}</span> : 'Not specified'}</Detail>
               <Detail label="Quantity">{r.quantity ?? '—'}</Detail>
               <Detail label="Rough budget">{r.estimatedCost ? formatMoney(r.estimatedCost.amount, r.estimatedCost.currency) : '—'}</Detail>

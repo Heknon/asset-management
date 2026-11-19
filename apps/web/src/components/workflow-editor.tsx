@@ -82,7 +82,7 @@ export function WorkflowEditor({ value, onChange, lockedKeys = [] }: { value: Wo
                 </span>
               </div>
               {s.category !== 'done' && s.category !== 'closed' ? (
-                <div className="flex flex-wrap items-center gap-1.5 pl-7">
+                <div className="flex flex-wrap items-center gap-1.5 sm:pl-7">
                   <span className="mr-1 text-xs text-muted">Can move to</span>
                   {value.statuses
                     .filter((x) => x.key !== s.key)
@@ -133,9 +133,9 @@ export function WorkflowEditor({ value, onChange, lockedKeys = [] }: { value: Wo
 /** Finished statuses normally end the request; a closed one may be reopened. */
 function ReopenRow({ s, value, onChange }: { s: WorkflowStatus; value: Workflow; onChange: (w: Workflow) => void }) {
   const out = value.transitions.filter((t) => t.from === s.key);
-  if (s.category === 'done') return <p className="pl-7 text-xs text-subtle">Finished: a purchase got its item, a renewal rolled its date forward.</p>;
+  if (s.category === 'done') return <p className="text-xs text-subtle sm:pl-7">Finished: a purchase got its item, a renewal rolled its date forward.</p>;
   return (
-    <div className="flex flex-wrap items-center gap-1.5 pl-7">
+    <div className="flex flex-wrap items-center gap-1.5 sm:pl-7">
       <span className="mr-1 text-xs text-muted">Can be reopened to</span>
       {value.statuses
         .filter((x) => x.category === 'todo' || x.category === 'active')

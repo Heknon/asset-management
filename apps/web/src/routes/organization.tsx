@@ -79,7 +79,7 @@ export function OrganizationPage() {
           <button
             type="button"
             aria-label="Add sub-unit"
-            className="rounded p-0.5 text-subtle opacity-0 group-hover:opacity-100 hover:bg-surface-3 hover:text-fg"
+            className="rounded p-0.5 text-subtle opacity-0 group-hover:opacity-100 touch:opacity-100 hover:bg-surface-3 hover:text-fg"
             onClick={(e) => {
               e.stopPropagation();
               setNewParent(unit.id);
@@ -122,7 +122,7 @@ export function OrganizationPage() {
           </>
         }
       />
-      <div className="grid min-h-0 flex-1 gap-6 px-6 py-6 lg:grid-cols-[380px_minmax(0,1fr)]">
+      <div className="grid grid-cols-1 min-h-0 flex-1 gap-6 px-4 sm:px-6 py-6 lg:grid-cols-[380px_minmax(0,1fr)]">
         <Card padded={false} className="flex min-h-0 flex-col lg:max-h-[calc(100vh-180px)]">
           <div className="border-b border-border p-2">
             <div className="relative">
@@ -212,7 +212,7 @@ function UnitEditor({ unit, parentId, onSaved }: { unit: OrgUnit | null; parentI
           {unit ? 'Save' : 'Create'}
         </Button>
       </div>
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Field label="Name" required>
           {(id) => <Input id={id} autoFocus={!unit} value={d.name} onChange={(e) => set({ name: e.target.value })} placeholder="e.g. Editor Platform" />}
         </Field>

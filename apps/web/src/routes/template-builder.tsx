@@ -224,7 +224,7 @@ export function TemplateBuilderPage() {
         onSelect={setSelected}
         onChange={(patch) => update(patch)}
         info={
-          <Card className="grid gap-4 sm:grid-cols-2">
+          <Card className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Name" required>
               {(id) => <Input id={id} value={draft.name} placeholder="e.g. Software license" onChange={(e) => update({ name: e.target.value, ...(isNew && { key: slugKey(e.target.value) }) })} />}
             </Field>
@@ -299,7 +299,7 @@ function SchemaWorkbench({
   };
   const allSections = [...(locked?.sections ?? []), ...sections.filter((x) => !locked?.sections.includes(x))];
   return (
-    <div className="grid min-h-0 flex-1 gap-6 px-6 py-6 xl:grid-cols-[minmax(0,1fr)_420px]">
+    <div className="grid grid-cols-1 min-h-0 flex-1 gap-6 px-4 sm:px-6 py-6 xl:grid-cols-[minmax(0,1fr)_420px]">
       <div className="space-y-6">
         {info}
         <Card padded={false}>
@@ -338,7 +338,7 @@ function SchemaWorkbench({
             </DndContext>
           )}
         </Card>
-        <div className="grid gap-6 lg:grid-cols-2">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           {extra}
           <SectionsEditor
             value={sections}
@@ -526,7 +526,7 @@ export function VariantBuilderPage() {
         onChange={(patch) => update(patch)}
         locked={{ fields: t.fields, sections: t.sections, from: t.name }}
         info={
-          <Card className="grid gap-4 sm:grid-cols-2">
+          <Card className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Name" required hint="What this unit calls these items">
               {(id) => <Input id={id} value={draft.name} placeholder={`e.g. Design ${t.name.toLowerCase()}`} onChange={(e) => update({ name: e.target.value })} />}
             </Field>
