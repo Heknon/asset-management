@@ -65,6 +65,12 @@ variable "mail_from" {
   default = "Asset Management <assets@example.com>"
 }
 
+variable "csv_export_enabled" {
+  description = "Let people export tables to CSV (only rows they can see)."
+  type        = bool
+  default     = true
+}
+
 variable "request_inbox_emails" {
   description = "Shared mailboxes told about every new request (e.g. procurement@corp.com)."
   type        = list(string)

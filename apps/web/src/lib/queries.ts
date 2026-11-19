@@ -1,6 +1,9 @@
 import type {
   ActivityEntry,
   Asset,
+  AssetComment,
+  Catalog,
+  CatalogQuery,
   AssetQuery,
   AssetType,
   AuthProviderInfo,
@@ -62,7 +65,23 @@ export const keys = {
   groupMembers: (id: string) => ['groups', id, 'members'] as const,
   grants: ['grants'] as const,
   calendarFeed: ['calendar-feed'] as const,
+  features: ['features'] as const,
+  catalogs: ['catalogs'] as const,
+  catalogList: (q: Partial<CatalogQuery>) => ['catalogs', 'list', q] as const,
+  catalog: (id: string) => ['catalogs', id] as const,
+  comments: (assetId: string) => ['assets', assetId, 'comments'] as const,
 };
+
+export interface Features {
+  csvExport: boolean;
+}
+export const useFeatures = () => useQuery({ queryKey: keys.features, queryFn: () => api.get<Features>('/api/registry/features'), staleTime: 300_000 });
+
+export const useCatalogs = (q: Partial<CatalogQuery> = {}) => useQuery({ queryKey: keys.catalogList(q), queryFn: () => api.get<Catalog[]>('/api/registry/catalogs', q), staleTime: 30_000 });
+export const useCatalog = (id: string | null | undefined) =>
+  useQuery({ queryKey: keys.catalog(id ?? ''), queryFn: () => api.get<Catalog>(`/api/registry/catalogs/${id}`), enabled: !!id, retry: false });
+export const useComments = (assetId: string) =>
+  useQuery({ queryKey: keys.comments(assetId), queryFn: () => api.get<AssetComment[]>(`/api/registry/assets/${assetId}/comments`), refetchInterval: 30_000 });
 
 export const useMe = () => useQuery({ queryKey: keys.me, queryFn: () => api.get<Me>('/api/identity/me'), retry: false, staleTime: 60_000 });
 export const useProviders = () => useQuery({ queryKey: keys.providers, queryFn: () => api.get<AuthProviderInfo[]>('/api/identity/auth/providers') });

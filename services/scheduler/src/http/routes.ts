@@ -27,6 +27,7 @@ export function registerRoutes(app: FastifyInstance, obligations: ObligationServ
   /** Lets administrators trigger a reminder run instead of waiting for the schedule. */
   app.post(`${PREFIX}/dispatch`, async (req) => {
     requireAdmin(req);
-    return dispatcher.run();
+    const checksAsked = await obligations.autoAsk();
+    return { ...(await dispatcher.run()), checksAsked };
   });
 }

@@ -9,6 +9,7 @@ import { keys, useLookups, useMe } from './lib/queries';
 import { AssetDetailPage } from './routes/asset-detail';
 import { AssetsPage, SavedViewPage } from './routes/assets';
 import { CalendarPage } from './routes/calendar';
+import { CatalogPage, CatalogsPage } from './routes/catalogs';
 import { LoginPage } from './routes/login';
 import { OrganizationPage } from './routes/organization';
 import { RequestDetailPage, RequestsPage } from './routes/requests';
@@ -92,7 +93,9 @@ const routeTree = root.addChildren([
     createRoute({ getParentRoute: () => app, path: '/requests/$requestId', component: RequestDetailPage }),
     createRoute({ getParentRoute: () => app, path: '/units/$unitId', component: UnitPage }),
     createRoute({ getParentRoute: () => app, path: '/views/$viewId', component: SavedViewPage }),
-    createRoute({ getParentRoute: () => app, path: '/assets/$assetId', component: AssetDetailPage }),
+    createRoute({ getParentRoute: () => app, path: '/assets/$assetId', component: AssetDetailPage, validateSearch: (s: Record<string, unknown>) => ({ check: optionalString(s.check) }) }),
+    createRoute({ getParentRoute: () => app, path: '/catalogs', component: CatalogsPage }),
+    createRoute({ getParentRoute: () => app, path: '/catalogs/$catalogId', component: CatalogPage }),
     createRoute({ getParentRoute: () => app, path: '/profile', component: ProfilePage }),
     createRoute({ getParentRoute: () => app, path: '/templates', component: admin(TemplatesPage) }),
     createRoute({ getParentRoute: () => app, path: '/templates/$typeId', component: admin(TemplateBuilderPage) }),

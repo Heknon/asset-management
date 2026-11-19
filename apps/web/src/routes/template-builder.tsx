@@ -516,7 +516,7 @@ function DateMeaning({ field, fields, kinds, onChange }: { field: Extract<FieldD
       </div>
       <Select
         value={t?.dateKindId ?? ''}
-        onChange={(e) => onChange(e.target.value ? { dateKindId: e.target.value, notify: t?.notify ?? { owner: true, userFields: [], emails: [], unitManagers: 'fallback' }, derive: t?.derive, recurrence: t?.recurrence, reminders: t?.reminders } : undefined)}
+        onChange={(e) => onChange(e.target.value ? { dateKindId: e.target.value, notify: t?.notify ?? { owner: true, userFields: [], emails: [], unitManagers: 'fallback' }, derive: t?.derive, recurrence: t?.recurrence, reminders: t?.reminders, confirmBefore: t?.confirmBefore ?? null } : undefined)}
       >
         <option value="">Just a date (not tracked)</option>
         {kinds
@@ -622,6 +622,24 @@ function DateMeaning({ field, fields, kinds, onChange }: { field: Extract<FieldD
               <Field label="Reminders" aside={<Checkbox checked={!!t.reminders} onChange={(c) => set({ reminders: c ? kind.defaultReminders : undefined })} label={<span className="text-xs">Custom</span>} />}>
                 {() => (t.reminders ? <DurationListEditor value={t.reminders} onChange={(reminders) => set({ reminders })} /> : <p className="text-xs text-muted">{formatDurations(kind.defaultReminders)} (from {kind.name})</p>)}
               </Field>
+              {kind.behavior === 'recurring' && (
+                <Field
+                  label="Ask the owner first"
+                  hint="Before each renewal, the owner is asked whether to renew as is, renew with changes, or not renew. Buyers see the answer next to the date."
+                  aside={<Switch checked={!!t.confirmBefore} onChange={(c) => set({ confirmBefore: c ? { amount: 60, unit: 'day' } : null })} />}
+                >
+                  {() =>
+                    t.confirmBefore ? (
+                      <div className="flex items-center gap-2 text-[13px]">
+                        <DurationInput value={t.confirmBefore} onChange={(confirmBefore) => set({ confirmBefore })} />
+                        <span className="text-muted">before the date</span>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted">Off — anyone handling the renewal can still ask with one click.</p>
+                    )
+                  }
+                </Field>
+              )}
               <Field label="Notify">
                 {() => (
                   <div className="space-y-2">

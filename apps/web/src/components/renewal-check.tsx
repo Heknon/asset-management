@@ -1,0 +1,161 @@
+import { renewalDecisionMeta, type Obligation, type RenewalDecision } from '@am/core';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { CircleHelp, PencilLine, RefreshCcw, XCircle } from 'lucide-react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { toast } from 'sonner';
+import { api, ApiError } from '@/lib/api';
+import { keys } from '@/lib/queries';
+import { cn, formatDate, formatDateTime } from '@/lib/utils';
+import { PersonName } from './pickers';
+import { Button } from './ui/button';
+import { Badge } from './ui/display';
+import { Textarea } from './ui/form';
+import { Dialog } from './ui/overlay';
+
+/** "Waiting for owner" / "Owner: renew" … next to a date. */
+export function CheckBadge({ check }: { check: Obligation['check'] }) {
+  if (!check) return null;
+  const meta = renewalDecisionMeta[check.status];
+  const detail = check.status === 'asked' ? `Asked by ${check.askedByName ?? 'someone'}${check.message ? `: ${check.message}` : ''}` : `${check.answeredByName ?? 'Owner'}${check.note ? `: ${check.note}` : ''}`;
+  return (
+    <span title={detail}>
+      <Badge tone={meta.tone}>{meta.label}</Badge>
+    </span>
+  );
+}
+
+export function useCheckActions() {
+  const qc = useQueryClient();
+  const done = (o: Obligation) => {
+    void qc.invalidateQueries({ queryKey: keys.obligations });
+    // The question and the answer are also posted to the asset's conversation (asynchronously).
+    setTimeout(() => void qc.invalidateQueries({ queryKey: keys.comments(o.assetId) }), 1500);
+  };
+  const onError = (e: unknown) => toast.error(e instanceof ApiError ? e.message : 'Something went wrong');
+  const ask = useMutation({
+    mutationFn: ({ o, message }: { o: Obligation; message: string }) => api.post(`/api/scheduler/obligations/${o.id}/actions`, { action: 'ask', message: message || undefined }),
+    onSuccess: (_d, { o }) => {
+      toast.success('Owner asked', { description: `They'll get an email and see it in Upcoming. Answers show up here and in ${o.assetName}'s conversation.` });
+      done(o);
+    },
+    onError,
+  });
+  const answer = useMutation({
+    mutationFn: ({ o, decision, note }: { o: Obligation; decision: RenewalDecision; note: string }) => api.post(`/api/scheduler/obligations/${o.id}/actions`, { action: 'answer', decision, note: note || undefined }),
+    onSuccess: (_d, { o, decision }) => {
+      toast.success(renewalDecisionMeta[decision].label.replace('Owner: ', 'Answered: '), { description: o.assetName });
+      done(o);
+    },
+    onError,
+  });
+  return { ask, answer };
+}
+
+export function AskOwnerDialog({ obligation, onClose }: { obligation: Obligation | null; onClose: () => void }) {
+  const { ask } = useCheckActions();
+  const [message, setMessage] = useState('');
+  useEffect(() => setMessage(''), [obligation?.id]);
+  if (!obligation) return null;
+  return (
+    <Dialog
+      open
+      onOpenChange={(o) => !o && onClose()}
+      title="Ask the owner"
+      description={`${obligation.assetName} · ${obligation.label} ${formatDate(obligation.dueDate)}`}
+      footer={
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="primary" loading={ask.isPending} onClick={() => ask.mutate({ o: obligation, message }, { onSuccess: onClose })}>
+            Ask
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3 text-[13px]">
+        <p className="text-muted">
+          {obligation.ownerId ? (
+            <>
+              <PersonName id={obligation.ownerId} /> will be asked whether to renew as is, renew with changes, or not renew.
+            </>
+          ) : (
+            'Nobody owns this, so the managers of its team will be asked whether to renew it.'
+          )}
+        </p>
+        <Textarea rows={3} value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Optional: add context, e.g. “The vendor raised the price 12%. Still need 40 seats?”" />
+      </div>
+    </Dialog>
+  );
+}
+
+const choices: Array<{ value: RenewalDecision; title: string; hint: string; icon: ReactNode; tone: string }> = [
+  { value: 'renew', title: 'Renew as is', hint: 'Still needed, nothing changes', icon: <RefreshCcw className="size-4" />, tone: 'text-success' },
+  { value: 'change', title: 'Renew with changes', hint: 'More or fewer seats, another plan…', icon: <PencilLine className="size-4" />, tone: 'text-accent' },
+  { value: 'cancel', title: "Don't renew", hint: 'No longer needed', icon: <XCircle className="size-4" />, tone: 'text-danger' },
+];
+
+/** The owner's side: one click, with an optional note. */
+export function AnswerDialog({ obligation, initial, onClose }: { obligation: Obligation | null; initial?: RenewalDecision; onClose: () => void }) {
+  const { answer } = useCheckActions();
+  const [decision, setDecision] = useState<RenewalDecision | null>(initial ?? null);
+  const [note, setNote] = useState('');
+  useEffect(() => {
+    setDecision(initial ?? null);
+    setNote('');
+  }, [obligation?.id, initial]);
+  if (!obligation) return null;
+  const check = obligation.check;
+  const needsNote = decision === 'change';
+  return (
+    <Dialog
+      open
+      onOpenChange={(o) => !o && onClose()}
+      title={`Should we renew ${obligation.assetName}?`}
+      description={`${obligation.label} ${formatDate(obligation.dueDate)}`}
+      footer={
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="primary" disabled={!decision || (needsNote && !note.trim())} loading={answer.isPending} onClick={() => decision && answer.mutate({ o: obligation, decision, note }, { onSuccess: onClose })}>
+            Send answer
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4 text-[13px]">
+        {check?.status === 'asked' && (
+          <div className="flex gap-2 rounded-lg bg-surface-2 px-3 py-2.5">
+            <CircleHelp className="mt-0.5 size-4 shrink-0 text-muted" />
+            <div>
+              <p>
+                <span className="font-medium">{check.askedByName}</span> <span className="text-muted">asked {check.askedAt ? formatDateTime(check.askedAt) : ''}</span>
+              </p>
+              {check.message && <p className="mt-1 whitespace-pre-wrap">{check.message}</p>}
+            </div>
+          </div>
+        )}
+        <div className="grid gap-2 sm:grid-cols-3">
+          {choices.map((c) => (
+            <button
+              key={c.value}
+              type="button"
+              onClick={() => setDecision(c.value)}
+              aria-pressed={decision === c.value}
+              className={cn('rounded-lg border px-3 py-3 text-left transition-colors hover:border-border-strong', decision === c.value ? 'border-accent bg-accent-soft' : 'border-border')}
+            >
+              <span className={cn('flex items-center gap-1.5 font-medium', c.tone)}>
+                {c.icon}
+                {c.title}
+              </span>
+              <span className="mt-1 block text-xs text-muted">{c.hint}</span>
+            </button>
+          ))}
+        </div>
+        <Textarea
+          rows={3}
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder={decision === 'change' ? 'What should change? e.g. “Drop to 25 seats, move to the Business plan”' : decision === 'cancel' ? 'Optional: why, or what replaces it' : 'Optional note for the buyer'}
+        />
+      </div>
+    </Dialog>
+  );
+}

@@ -71,7 +71,9 @@ services:
       limits: { memory: 384Mi }
   registry:
     replicas: 2
-    env: {}
+    env:
+      # CSV export of tables (for anyone who can see the rows). "false" hides it for everyone.
+      CSV_EXPORT_ENABLED: "true"
     secretKeys: [DATABASE_URL]
     resources:
       requests: { cpu: 100m, memory: 160Mi }

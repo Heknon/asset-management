@@ -41,6 +41,7 @@ export interface RegistryDB extends OutboxTable {
     status: string;
     owner_id: string | null;
     unit_id: string;
+    catalog_id: string | null;
     /** Non-restricted values: searchable and visible to every viewer. */
     attributes: Json<Attributes>;
     /** Restricted values (secrets, sensitive fields): only returned to `manage`. */
@@ -108,6 +109,41 @@ export interface RegistryDB extends OutboxTable {
     from_status: RequestStatus | null;
     to_status: RequestStatus | null;
     at: Timestamp;
+  };
+  catalogs: {
+    id: Generated<string>;
+    unit_id: string;
+    name: string;
+    description: string | null;
+    icon: string;
+    color: string;
+    version: Generated<number>;
+    created_by: string;
+    created_by_name: string;
+    created_at: Timestamp;
+    updated_at: Timestamp;
+  };
+  /** "unit:<id>" reaches that unit and everything beneath it; "user:<id>" one person. */
+  catalog_shares: {
+    catalog_id: string;
+    subject_key: string;
+    level: 'view' | 'edit';
+    created_by_name: string;
+    created_at: Timestamp;
+  };
+  asset_comments: {
+    id: Generated<string>;
+    asset_id: string;
+    kind: Generated<'message' | 'renewal_check'>;
+    /** Idempotency key for messages posted from events. */
+    source_key: string | null;
+    author_id: string;
+    author_name: string;
+    body: string;
+    mention_ids: ColumnType<string[], string[], string[]>;
+    created_at: Timestamp;
+    edited_at: Timestamp | null;
+    deleted: Generated<boolean>;
   };
   saved_views: {
     id: Generated<string>;
@@ -289,6 +325,56 @@ export const migrations: Record<string, Migration> = {
         .addColumn('created_at', 'timestamptz', (c) => c.notNull().defaultTo(sql`now()`))
         .execute();
       await db.schema.createIndex('saved_views_owner').on('saved_views').column('owner_id').execute();
+    },
+  },
+  '0005_catalogs_comments': {
+    async up(db) {
+      await db.schema
+        .createTable('catalogs')
+        .addColumn('id', 'uuid', (c) => c.primaryKey().defaultTo(sql`gen_random_uuid()`))
+        .addColumn('unit_id', 'uuid', (c) => c.notNull())
+        .addColumn('name', 'text', (c) => c.notNull())
+        .addColumn('description', 'text')
+        .addColumn('icon', 'text', (c) => c.notNull())
+        .addColumn('color', 'text', (c) => c.notNull())
+        .addColumn('version', 'integer', (c) => c.notNull().defaultTo(1))
+        .addColumn('created_by', 'uuid', (c) => c.notNull())
+        .addColumn('created_by_name', 'text', (c) => c.notNull())
+        .addColumn('created_at', 'timestamptz', (c) => c.notNull().defaultTo(sql`now()`))
+        .addColumn('updated_at', 'timestamptz', (c) => c.notNull().defaultTo(sql`now()`))
+        .execute();
+      await db.schema.createIndex('catalogs_unit').on('catalogs').column('unit_id').execute();
+      await sql`create unique index catalogs_unit_name on catalogs (unit_id, lower(name))`.execute(db);
+
+      await db.schema
+        .createTable('catalog_shares')
+        .addColumn('catalog_id', 'uuid', (c) => c.notNull().references('catalogs.id').onDelete('cascade'))
+        .addColumn('subject_key', 'text', (c) => c.notNull())
+        .addColumn('level', 'text', (c) => c.notNull().check(sql`level in ('view','edit')`))
+        .addColumn('created_by_name', 'text', (c) => c.notNull())
+        .addColumn('created_at', 'timestamptz', (c) => c.notNull().defaultTo(sql`now()`))
+        .addPrimaryKeyConstraint('catalog_shares_pk', ['catalog_id', 'subject_key'])
+        .execute();
+      await db.schema.createIndex('catalog_shares_subject').on('catalog_shares').columns(['subject_key', 'level']).execute();
+
+      await sql`alter table assets add column catalog_id uuid references catalogs(id)`.execute(db);
+      await db.schema.createIndex('assets_catalog').on('assets').column('catalog_id').execute();
+
+      await db.schema
+        .createTable('asset_comments')
+        .addColumn('id', 'uuid', (c) => c.primaryKey().defaultTo(sql`gen_random_uuid()`))
+        .addColumn('asset_id', 'uuid', (c) => c.notNull().references('assets.id').onDelete('cascade'))
+        .addColumn('kind', 'text', (c) => c.notNull().defaultTo('message'))
+        .addColumn('source_key', 'text', (c) => c.unique())
+        .addColumn('author_id', 'uuid', (c) => c.notNull())
+        .addColumn('author_name', 'text', (c) => c.notNull())
+        .addColumn('body', 'text', (c) => c.notNull())
+        .addColumn('mention_ids', sql`uuid[]`, (c) => c.notNull().defaultTo(sql`'{}'`))
+        .addColumn('created_at', 'timestamptz', (c) => c.notNull().defaultTo(sql`now()`))
+        .addColumn('edited_at', 'timestamptz')
+        .addColumn('deleted', 'boolean', (c) => c.notNull().defaultTo(false))
+        .execute();
+      await db.schema.createIndex('asset_comments_asset').on('asset_comments').columns(['asset_id', 'created_at']).execute();
     },
   },
 };

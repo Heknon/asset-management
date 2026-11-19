@@ -6,6 +6,9 @@ A generic system for everything an organisation buys and has to keep track of �
 - **Dates have meaning.** Any date field can be tagged with a *date kind* — Renewal, Notice deadline, Expiry, Payment due, Warranty end, or one you define. The kind decides behaviour (one-off, recurring, informational), default reminders and the action verb ("Renew", "Pay"). Dates can be *derived* ("cancellation deadline = renewal date − notice period") and *recur* by a fixed interval or by another field ("term in months").
 - **Reminders that people act on.** One digest email per person, Outlook calendar invites that move or cancel when the date changes, and a personal calendar feed. "Renew" rolls the date forward and closes the occurrence, including derived dates.
 - **Built for a whole company.** An organization tree (company → divisions → departments → teams → squads) drives everything. Membership comes from LDAP/ADFS groups or attributes like `department`. Members see their team's assets, managers manage everything beneath their unit, and division heads get rolled-up spend and renewals per sub-unit. Restricted fields (license keys, PINs) are visible to managers only and never searchable.
+- **Catalogs you can share.** A unit groups its assets into catalogs ("R&D developer tooling", "Device lab") and shares them with other teams, divisions or people, at *view* or *edit*. Shares only add access; restricted fields, deletion and re-sharing stay with the owners.
+- **Owners and buyers in one loop.** Before a renewal, the owner is asked "still needed?" automatically or with one click: renew as is, renew with changes, or don't renew. Every asset has a conversation with @mentions, and renewal decisions are recorded in it, next to its documents.
+- **Export any table to CSV**, with the same filters, search and sorting, and only the rows (and fields) you are allowed to see.
 - **Requests.** Anyone can ask for something for their team, or for any unit above it ("my department needs…", "the whole company needs…"). Procurement triages, approves, orders and fulfils; fulfilling creates the asset and links it back. Everyone involved is emailed at each step.
 - **Search that forgives.** One box searches every non-restricted field of every asset you can see, plus requests, teams and people. Words can match partially, anywhere in the text, or with small typos. Results show which field matched. Filters work on any field in plain language ("Renewal date is in the next 90 days", "Seats is at least 40"). Any search can be saved as a pinned view.
 - **Documents in S3** with presigned upload/download URLs and in-app preview (PDF, images, text, video, audio).
@@ -91,10 +94,10 @@ Sign in as `admin` / `admin-change-me` (local break-glass account from `.env`). 
 
 | Account | Persona | What to look at |
 |---|---|---|
-| `dana.cohen` | Procurement lead (manages the whole company) | Requests → To handle; approve, order and fulfil a request |
-| `tom.levi` | Platform team member | Request something; My requests; the team's assets |
-| `rachel.amar` | R&D division head | My teams → R&D: rollups by department, renewals |
-| `noa.mizrahi` | Finance (views company-wide) | Spend on the home screen; saved views |
+| `dana.cohen` | Procurement lead (manages the whole company) | Requests → To handle; Upcoming → "Waiting for owner"; ⋯ → Ask the owner |
+| `tom.levi` | Platform team member | Upcoming → "Waiting for your answer"; the asset's conversation |
+| `rachel.amar` | R&D division head | Catalogs → R&D developer tooling → Share; My teams → R&D rollups |
+| `noa.mizrahi` | Finance (views company-wide) | Spend on the home screen; Catalogs → shared with her at edit; Export CSV |
  Emails and Outlook invites are captured by Mailpit at http://localhost:8025. To try LDAP sign-in, set `LDAP_ENABLED=true` and the `LDAP_*` values shown in `docker-compose.yml` (users `alice`/`bob`, password `password`).
 
 ```bash
@@ -140,6 +143,14 @@ The chart works with OpenShift's `restricted-v2` SCC (no fixed UIDs, read-only r
 - **Link units to the directory.** A unit's member and manager links are LDAP group DNs, ADFS group names, or attribute values such as `department=Platform` (set `LDAP_UNIT_ATTRIBUTES` / `OIDC_UNIT_CLAIMS`). People are placed at every sign-in. Team leads can add people outside the directory by hand.
 - **Reorganise freely.** Moving a unit moves its subtree: access, rollups, search and reminders follow immediately.
 - **Nobody falls through the cracks.** If an asset's owner leaves, its reminders go to the nearest unit managers up the tree. Per date, a template can send them *never*, *only as a fallback*, or *always*.
+
+## Catalogs, conversations and renewal checks
+
+- **Catalogs.** Managers of a unit create catalogs on the unit page (Catalogs tab) or under Catalogs. A catalog holds assets of its unit and every team beneath it; an asset is in at most one catalog (chosen in the asset form). Moving items into or out of a catalog needs edit on the catalog, because it changes who can see them.
+- **Sharing.** *Share* gives a unit (with all its sub-units) or a person *Can view* or *Can edit* on everything in the catalog, including items added later. People with *Can edit* can update items, upload documents, act on dates and add new items to the catalog. Only the owning unit's managers can delete items, see restricted fields or change sharing. Deleting a catalog never deletes assets. Sharing works the same everywhere: listings, search, documents, reminders, calendar and exports (one rule in `@am/core` + `visibleFilter` in `@am/platform`).
+- **Renewal checks.** Recurring dates can ask the owner automatically ("Ask the owner first: 60 days before" on the date field; the license and domain templates do this by default), and anyone handling a renewal can ask with one click (⋯ → Ask the owner). The owner gets an email and a "Waiting for your answer" card on Upcoming, and answers with one click: renew as is, renew with changes (with a note) or don't renew. The answer is emailed to whoever asked (or to `REQUEST_INBOX_EMAILS` when the owner speaks first), shown as a badge on the date, and filterable (Upcoming → Waiting for owner / Owner answered). Each occurrence is asked once; the next cycle starts fresh.
+- **Conversations.** Every asset has a conversation. Anyone who can see the asset can post; type `@` to mention someone (they are emailed), and the owner is emailed about new messages. Questions and answers from renewal checks appear in the thread, so the documents, the decisions and the discussion about a purchase live in one place.
+- **CSV export.** *Export CSV* on any asset table (all assets, a type, a team, a catalog, a saved view) downloads every matching row with the table's filters, search and sort. Columns follow the templates (currency and numbers stay numeric), teams are written as full paths, and restricted fields are included only for people who manage them. Smaller tables (sub-unit rollups) export in the browser. Exports are counted (`am_exports_total`, `am_exported_rows_total`) and logged with who exported what. Set `CSV_EXPORT_ENABLED=false` (Helm: `services.registry.env`, Terraform: `csv_export_enabled`) to turn exports off.
 
 ## Identity providers
 

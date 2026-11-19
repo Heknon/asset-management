@@ -1,127 +1,134 @@
 import {
   AppError,
-  assetTypeInputSchema,
-  dateKindInputSchema,
-  instantiateTemplate,
-  starterTemplates,
-  validateTypeStructure,
-  type AssetType,
-  type AssetTypeInput,
-  type DateKind,
-  type DateKindInput,
+  atLeast,
+  shareSubjectKey,
+  unitScopesFor,
+  type Catalog,
+  type CatalogInput,
+  type CatalogQuery,
+  type CatalogShareInput,
+  type Principal,
 } from '@am/core';
 import { assetChangedEvent } from '../domain/asset.js';
+import { catalogChangedEvent, parseSubjectKey, type CatalogState } from '../domain/catalog.js';
+import type { AccessResolver } from './access.js';
 import type { RegistryStore } from './ports.js';
 
-export interface TemplateSummary {
-  key: string;
-  name: string;
-  description?: string;
-  icon: string;
-  color: string;
-  fieldCount: number;
-  trackedDates: string[];
-}
-
-/** Asset types (templates), date kinds and the starter template gallery. */
+/**
+ * Catalogs: named collections of a unit's assets that the unit can share with
+ * other units, divisions or people. Managers of the owning unit (or anyone
+ * with manage above it) create, rename, share and delete them.
+ */
 export class CatalogService {
-  constructor(private readonly store: RegistryStore) {}
+  constructor(
+    private readonly store: RegistryStore,
+    private readonly access: AccessResolver,
+  ) {}
 
-  listDateKinds() {
-    return this.store.listDateKinds();
+  async list(p: Principal, q: CatalogQuery): Promise<Catalog[]> {
+    const rows = await this.store.listCatalogs({
+      unitScopes: unitScopesFor(p, 'view'),
+      shareKeys: p.isAdmin ? [] : await this.access.shareKeys(p),
+      unitId: q.unitId,
+      only: q.scope === 'all' ? undefined : q.scope,
+    });
+    return Promise.all(rows.map((c) => this.present(p, c)));
   }
 
-  async createDateKind(input: DateKindInput): Promise<DateKind> {
-    return this.store.createDateKind(dateKindInputSchema.parse(input));
+  async get(p: Principal, id: string): Promise<Catalog> {
+    const catalog = await this.store.getCatalog(id);
+    if (!catalog || (await this.access.catalogLevel(p, catalog)).level === 'none') throw AppError.notFound('Catalog');
+    return this.present(p, catalog);
   }
 
-  /** Kind semantics feed every tracked date using it, so affected assets are re-published. */
-  async updateDateKind(id: string, input: DateKindInput & { archived: boolean }): Promise<DateKind> {
+  async create(p: Principal, input: CatalogInput): Promise<Catalog> {
+    const unit = await this.store.getUnit(input.unitId);
+    if (!unit || unit.archived) throw AppError.validation('Unknown or archived unit');
+    if (!atLeast((await this.access.catalogLevel(p, { unitPath: unit.path, shares: [] })).level, 'manage')) {
+      throw AppError.forbidden(`Only people who manage ${unit.name} can create its catalogs`);
+    }
+    const catalog = await this.store.transaction(async (tx) => {
+      const created = await tx.insertCatalog(input, { id: p.userId, name: p.displayName });
+      await tx.publish('catalog.changed', catalogChangedEvent(created));
+      return created;
+    });
+    return this.present(p, catalog);
+  }
+
+  async update(p: Principal, id: string, input: Omit<CatalogInput, 'unitId'>): Promise<Catalog> {
     return this.store.transaction(async (tx) => {
-      const kind = await tx.updateDateKind(id, input);
-      const types = (await tx.listTypes(true)).filter((t) => t.fields.some((f) => f.kind === 'date' && f.config.tracking?.dateKindId === id));
-      await republishAssets(tx, types.map((t) => t.id));
-      return kind;
+      await this.managed(tx, p, id);
+      const saved = await tx.updateCatalog(id, input);
+      await tx.publish('catalog.changed', catalogChangedEvent(saved));
+      return this.present(p, saved);
     });
   }
 
-  listTypes(includeArchived = false) {
-    return this.store.listTypes(includeArchived);
-  }
-
-  async getType(id: string): Promise<AssetType> {
-    const type = await this.store.getType(id);
-    if (!type) throw AppError.notFound('Asset type');
-    return type;
-  }
-
-  async createType(input: AssetTypeInput): Promise<AssetType> {
-    const parsed = await this.validated(input);
-    return this.store.createType(parsed);
-  }
-
-  /**
-   * Schema changes are versioned. Existing values stay stored; values that no
-   * longer fit surface as validation errors the next time the asset is edited.
-   */
-  async updateType(id: string, input: AssetTypeInput, expectedVersion: number): Promise<AssetType> {
-    const parsed = await this.validated(input);
-    return this.store.transaction(async (tx) => {
-      const type = await tx.updateType(id, parsed, expectedVersion);
-      await republishAssets(tx, [id]);
-      return type;
+  /** Deleting a catalog never deletes assets: they stay with their unit, unshared. */
+  async remove(p: Principal, id: string): Promise<void> {
+    await this.store.transaction(async (tx) => {
+      const catalog = await this.managed(tx, p, id);
+      const kinds = new Map((await tx.listDateKinds()).map((k) => [k.id, k]));
+      for (const asset of await tx.unfileAssets(id, p.userId)) {
+        const type = (await tx.getType(asset.assetTypeId))!;
+        await tx.addActivity({ assetId: asset.id, actorId: p.userId, actorName: p.displayName, action: 'updated', changes: { catalogId: { from: id, to: null } } });
+        await tx.publish('asset.changed', assetChangedEvent(asset, type, kinds));
+      }
+      await tx.deleteCatalog(id);
+      await tx.publish('catalog.changed', catalogChangedEvent({ ...catalog, version: catalog.version + 1 }, true));
     });
   }
 
-  async setArchived(id: string, archived: boolean): Promise<AssetType> {
-    return this.store.setTypeArchived(id, archived);
+  async share(p: Principal, id: string, input: CatalogShareInput): Promise<Catalog> {
+    return this.store.transaction(async (tx) => {
+      const catalog = await this.managed(tx, p, id);
+      if (input.subjectKind === 'user') {
+        if (!(await tx.activeUserIds([input.subjectId])).has(input.subjectId)) throw AppError.validation('Unknown or inactive person');
+      } else {
+        if (!(await tx.unitsExist([input.subjectId])).has(input.subjectId)) throw AppError.validation('Unknown or archived unit');
+        if (catalog.unitPath.includes(input.subjectId)) throw AppError.validation('That unit already contains this catalog; its access comes from the organization tree');
+      }
+      await tx.putShare(id, shareSubjectKey(input.subjectKind, input.subjectId), input.level, p.displayName);
+      const saved = await tx.touchCatalog(id);
+      await tx.publish('catalog.changed', catalogChangedEvent(saved));
+      return this.present(p, saved);
+    });
   }
 
-  templates(): TemplateSummary[] {
-    return starterTemplates.map((t) => ({
-      key: t.key,
-      name: t.name,
-      description: t.description,
-      icon: t.icon,
-      color: t.color,
-      fieldCount: t.fields.length,
-      trackedDates: t.fields.filter((f) => f.tracking).map((f) => f.label),
-    }));
+  async unshare(p: Principal, id: string, subject: Pick<CatalogShareInput, 'subjectKind' | 'subjectId'>): Promise<Catalog> {
+    return this.store.transaction(async (tx) => {
+      await this.managed(tx, p, id);
+      if (!(await tx.removeShare(id, shareSubjectKey(subject.subjectKind, subject.subjectId)))) throw AppError.notFound('Share');
+      const saved = await tx.touchCatalog(id);
+      await tx.publish('catalog.changed', catalogChangedEvent(saved));
+      return this.present(p, saved);
+    });
   }
 
-  /** Creates an ordinary, fully editable asset type from a starter template. */
-  async createFromTemplate(templateKey: string): Promise<AssetType> {
-    const template = starterTemplates.find((t) => t.key === templateKey);
-    if (!template) throw AppError.notFound('Template');
-    const kinds = await this.store.listDateKinds();
-    const input = instantiateTemplate(template, new Map(kinds.map((k) => [k.key, k.id])));
-    const existing = new Set((await this.store.listTypes(true)).map((t) => t.key));
-    let key = input.key;
-    for (let i = 2; existing.has(key); i++) key = `${input.key}_${i}`;
-    return this.createType({ ...input, key, name: key === input.key ? input.name : `${input.name} (${key.split('_').pop()})` });
+  private async managed(tx: RegistryStore, p: Principal, id: string): Promise<CatalogState> {
+    const catalog = await tx.getCatalog(id, { forUpdate: true });
+    const level = catalog ? (await this.access.catalogLevel(p, catalog)).level : 'none';
+    if (!catalog || level === 'none') throw AppError.notFound('Catalog');
+    if (!atLeast(level, 'manage')) throw AppError.forbidden('Only the managers of the owning unit can change this catalog or who it is shared with');
+    return catalog;
   }
 
-  private async validated(input: AssetTypeInput): Promise<AssetTypeInput> {
-    const parsed = assetTypeInputSchema.parse(input);
-    const kinds = await this.store.listDateKinds();
-    const issues = validateTypeStructure(parsed, new Set(kinds.map((k) => k.id)));
-    if (issues.length) throw AppError.validation('The template has problems', { issues });
-    return parsed;
-  }
-}
-
-/** Re-emits `asset.changed` for every asset of the given types (after schema or kind changes). */
-export async function republishAssets(store: RegistryStore, typeIds: string[]): Promise<void> {
-  if (!typeIds.length) return;
-  const kinds = new Map((await store.listDateKinds()).map((k) => [k.id, k]));
-  const types = new Map<string, AssetType>();
-  for (const id of typeIds) {
-    const t = await store.getType(id);
-    if (t) types.set(id, t);
-  }
-  for (const assetId of await store.assetIdsOfTypes(typeIds)) {
-    const asset = await store.getAsset(assetId);
-    const type = asset && types.get(asset.assetTypeId);
-    if (asset && type) await store.publish('asset.changed', assetChangedEvent(asset, type, kinds));
+  private async present(p: Principal, c: CatalogState): Promise<Catalog> {
+    const { level, viaShare } = await this.access.catalogLevel(p, c);
+    return {
+      id: c.id,
+      unitId: c.unitId,
+      name: c.name,
+      description: c.description,
+      icon: c.icon,
+      color: c.color,
+      assetCount: c.assetCount,
+      access: level,
+      sharedWithMe: viaShare,
+      shares: c.shares.map((s) => ({ ...parseSubjectKey(s.subjectKey), level: s.level, createdByName: s.createdByName, createdAt: s.createdAt.toISOString() })),
+      createdByName: c.createdByName,
+      createdAt: c.createdAt.toISOString(),
+      updatedAt: c.updatedAt.toISOString(),
+    };
   }
 }

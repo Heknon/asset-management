@@ -108,6 +108,29 @@ const statusWords: Record<string, string> = {
   cancelled: 'cancelled',
 };
 
+/** A short notification card: eyebrow, title, a line of context, an optional quote, one button. */
+export interface Notice {
+  eyebrow: string;
+  title: string;
+  intro: string;
+  quote?: string | null;
+  cta: { label: string; url: string };
+}
+
+export function noticeMessage(subject: string, n: Notice, recipientName: string): Message {
+  const text = [`Hi ${recipientName},`, '', n.intro, ...(n.quote ? ['', n.quote] : []), '', `${n.cta.label}: ${n.cta.url}`].join('\n');
+  const html = `<!doctype html><html><body style="margin:0;background:#f6f7f9;font-family:-apple-system,Segoe UI,Inter,Helvetica,Arial,sans-serif">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:32px 16px"><tr><td align="center">
+  <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;background:#fff;border-radius:12px;padding:28px 32px;border:1px solid #eceef2">
+    <tr><td style="font-size:12px;color:#64748b;font-weight:600;letter-spacing:.04em;text-transform:uppercase">${esc(n.eyebrow)}</td></tr>
+    <tr><td style="font-size:17px;font-weight:600;color:#0f172a;padding:4px 0 12px">${esc(n.title)}</td></tr>
+    <tr><td style="font-size:14px;color:#334155;line-height:1.55">Hi ${esc(recipientName)},<br>${esc(n.intro)}</td></tr>
+    ${n.quote ? `<tr><td style="padding-top:12px"><div style="border-left:3px solid #e2e8f0;padding:4px 12px;color:#334155;font-size:14px;white-space:pre-wrap">${esc(n.quote)}</div></td></tr>` : ''}
+    <tr><td style="padding-top:20px"><a href="${esc(n.cta.url)}" style="display:inline-block;background:#4f46e5;color:#fff;font-size:14px;font-weight:600;padding:10px 16px;border-radius:8px;text-decoration:none">${esc(n.cta.label)}</a></td></tr>
+  </table></td></tr></table></body></html>`;
+  return { subject, text, html };
+}
+
 /** Short, human emails for request updates. */
 export function requestMessage(n: RequestNotice, recipientName: string): Message {
   const headline = {
@@ -117,16 +140,53 @@ export function requestMessage(n: RequestNotice, recipientName: string): Message
     assigned: `${n.number} was assigned: ${n.title}`,
     fulfilled: `${n.number} is fulfilled: ${n.title}`,
   }[n.kind];
-  const body = n.kind === 'created' ? `${n.actorName} asked for “${n.title}”.` : n.kind === 'comment' ? `${n.actorName} wrote:` : `${n.actorName} updated the request.`;
-  const text = [`Hi ${recipientName},`, '', body, ...(n.note ? ['', n.note] : []), '', n.url].join('\n');
-  const html = `<!doctype html><html><body style="margin:0;background:#f6f7f9;font-family:-apple-system,Segoe UI,Inter,Helvetica,Arial,sans-serif">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:32px 16px"><tr><td align="center">
-  <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;background:#fff;border-radius:12px;padding:28px 32px;border:1px solid #eceef2">
-    <tr><td style="font-size:12px;color:#64748b;font-weight:600;letter-spacing:.04em;text-transform:uppercase">${esc(n.number)}</td></tr>
-    <tr><td style="font-size:17px;font-weight:600;color:#0f172a;padding:4px 0 12px">${esc(n.title)}</td></tr>
-    <tr><td style="font-size:14px;color:#334155;line-height:1.55">Hi ${esc(recipientName)},<br>${esc(body)}</td></tr>
-    ${n.note ? `<tr><td style="padding-top:12px"><div style="border-left:3px solid #e2e8f0;padding:4px 12px;color:#334155;font-size:14px;white-space:pre-wrap">${esc(n.note)}</div></td></tr>` : ''}
-    <tr><td style="padding-top:20px"><a href="${esc(n.url)}" style="display:inline-block;background:#4f46e5;color:#fff;font-size:14px;font-weight:600;padding:10px 16px;border-radius:8px;text-decoration:none">Open request</a></td></tr>
-  </table></td></tr></table></body></html>`;
-  return { subject: headline, text, html };
+  const intro = n.kind === 'created' ? `${n.actorName} asked for “${n.title}”.` : n.kind === 'comment' ? `${n.actorName} wrote:` : `${n.actorName} updated the request.`;
+  return noticeMessage(headline, { eyebrow: n.number, title: n.title, intro, quote: n.note, cta: { label: 'Open request', url: n.url } }, recipientName);
+}
+
+export interface CommentNotice {
+  assetName: string;
+  authorName: string;
+  excerpt: string;
+  mentioned: boolean;
+  url: string;
+}
+
+export function commentMessage(n: CommentNotice, recipientName: string): Message {
+  const subject = n.mentioned ? `${n.authorName} mentioned you on ${n.assetName}` : `${n.authorName} commented on ${n.assetName}`;
+  const intro = n.mentioned ? `${n.authorName} mentioned you in the conversation about ${n.assetName}:` : `${n.authorName} wrote about ${n.assetName}, which you own:`;
+  return noticeMessage(subject, { eyebrow: 'Conversation', title: n.assetName, intro, quote: n.excerpt, cta: { label: 'Reply', url: n.url } }, recipientName);
+}
+
+export interface RenewalCheckNotice {
+  assetName: string;
+  label: string;
+  dueDate: IsoDate;
+  kind: 'asked' | 'answered';
+  decisionLabel: string;
+  actorName: string;
+  text: string | null;
+  url: string;
+}
+
+/** "Do you still need it?" to the owner, and their answer back to whoever asked. */
+export function renewalCheckMessage(n: RenewalCheckNotice, recipientName: string, today: IsoDate): Message {
+  if (n.kind === 'asked') {
+    return noticeMessage(
+      `Do you still need ${n.assetName}? ${n.label} ${relativeDue(n.dueDate, today)}`,
+      {
+        eyebrow: 'Renewal check',
+        title: n.assetName,
+        intro: `${n.actorName} is preparing the renewal (${n.label} ${n.dueDate}, ${relativeDue(n.dueDate, today)}). Should it be renewed as is, renewed with changes, or not renewed? It takes one click.`,
+        quote: n.text,
+        cta: { label: 'Answer', url: n.url },
+      },
+      recipientName,
+    );
+  }
+  return noticeMessage(
+    `${n.decisionLabel}: ${n.assetName}`,
+    { eyebrow: 'Renewal check answered', title: n.assetName, intro: `${n.actorName} answered for ${n.label} ${n.dueDate}: ${n.decisionLabel.toLowerCase()}.`, quote: n.text, cta: { label: 'Open', url: n.url } },
+    recipientName,
+  );
 }

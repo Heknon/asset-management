@@ -1,7 +1,12 @@
 import {
   AppError,
   foldText,
+  type AccessLevel,
   type ActivityEntry,
+  type AssetComment,
+  type CatalogInput,
+  type ShareLevel,
+  type Visibility,
   type AssetQuery,
   type AssetType,
   type AssetTypeInput,
@@ -16,10 +21,11 @@ import {
   type SavedViewInput,
   type Scope,
 } from '@am/core';
-import { enqueue, inSubtree, scopeFilter } from '@am/platform';
+import { catalogShareLevel, enqueue, inSubtree, scopeFilter, visibleFilter } from '@am/platform';
 import { sql, type Kysely, type Selectable, type SqlBool } from 'kysely';
 import type { RegistryStore, RequestRow, UnitRef } from '../application/ports.js';
 import { splitRestricted, type AssetDraft, type AssetState } from '../domain/asset.js';
+import type { CatalogState } from '../domain/catalog.js';
 import type { RequestState } from '../domain/request.js';
 import type { RegistryDB } from './schema.js';
 import { filterExpression, textSearch } from './sql-search.js';
@@ -67,6 +73,7 @@ const toAsset = (r: AssetRow): AssetState & { snippet?: string } => ({
   ownerId: r.owner_id,
   unitId: r.unit_id,
   unitPath: r.unit_path ?? [r.unit_id],
+  catalogId: r.catalog_id,
   values: { ...r.attributes, ...r.restricted_attributes },
   reminderOverrides: r.reminder_overrides,
   version: r.version,
@@ -100,7 +107,39 @@ const toRequest = (r: RequestRowDb): RequestState & { snippet?: string } => ({
   ...(r.snippet && r.snippet.includes('«') ? { snippet: r.snippet } : {}),
 });
 
-type Visibility = { userId: string; viewScopes: Scope[]; editScopes: Scope[]; myUnitIds: string[] };
+type ShareJson = { subjectKey: string; level: ShareLevel; createdByName: string; createdAt: string };
+type CatalogRow = Selectable<RegistryDB['catalogs']> & { unit_path: string[] | null; asset_count: number | string; shares: ShareJson[] };
+
+const toCatalog = (r: CatalogRow): CatalogState => ({
+  id: r.id,
+  unitId: r.unit_id,
+  unitPath: r.unit_path ?? [r.unit_id],
+  name: r.name,
+  description: r.description,
+  icon: r.icon,
+  color: r.color,
+  version: r.version,
+  assetCount: Number(r.asset_count),
+  shares: r.shares.map((x) => ({ subjectKey: x.subjectKey, level: x.level, createdByName: x.createdByName, createdAt: new Date(x.createdAt) })),
+  createdByName: r.created_by_name,
+  createdAt: r.created_at,
+  updatedAt: r.updated_at,
+});
+
+const toComment = (r: Selectable<RegistryDB['asset_comments']>): AssetComment => ({
+  id: r.id,
+  assetId: r.asset_id,
+  kind: r.kind,
+  authorId: r.author_id,
+  authorName: r.author_name,
+  body: r.deleted ? '' : r.body,
+  mentionIds: r.deleted ? [] : r.mention_ids,
+  createdAt: r.created_at.toISOString(),
+  editedAt: r.edited_at ? r.edited_at.toISOString() : null,
+  deleted: r.deleted,
+});
+
+type RequestVisibility = { userId: string; viewScopes: Scope[]; editScopes: Scope[]; myUnitIds: string[] };
 
 const SORT_COLUMNS = { name: 'name', status: 'status', createdAt: 'created_at', updatedAt: 'updated_at' } as const;
 /** Columns shown by name rather than id sort by that name (case-insensitive). */
@@ -236,20 +275,35 @@ export class PgRegistryStore implements RegistryStore {
       .select(sql<string[] | null>`units_ref.path`.as('unit_path'));
   }
 
-  async queryAssets(query: AssetQuery, scopes: Scope[], type: AssetType | null) {
+  private assetQuery(query: AssetQuery, visibility: Visibility, type: AssetType | null) {
     const search = query.q ? textSearch('assets', query.q, this.fuzzy) : null;
     let q = this.db
       .selectFrom('assets')
       .leftJoin('units_ref', 'units_ref.id', 'assets.unit_id')
-      .where(scopeFilter(scopes, 'units_ref.path', 'assets.asset_type_id'));
+      .where(visibleFilter(visibility, { unitPath: 'units_ref.path', assetType: 'assets.asset_type_id', catalog: 'assets.catalog_id' }));
     if (query.assetTypeId) q = q.where('assets.asset_type_id', '=', query.assetTypeId);
     if (query.unitId) q = q.where(query.includeSubunits ? inSubtree(query.unitId, 'units_ref.path') : sql<SqlBool>`assets.unit_id = ${query.unitId}`);
+    if (query.catalogId) q = q.where('assets.catalog_id', '=', query.catalogId);
     if (query.status) q = q.where('assets.status', '=', query.status);
     if (query.ownerId) q = q.where('assets.owner_id', '=', query.ownerId);
     // Only non-restricted values are indexed, so search cannot reveal secrets.
     if (query.q) q = q.where(search ? search.where : sql<SqlBool>`false`);
     for (const f of query.filters) q = q.where(filterExpression(f, type));
+    return { q, search };
+  }
 
+  async assetTypeIdsIn(query: AssetQuery, visibility: Visibility) {
+    const type = query.assetTypeId ? await this.getType(query.assetTypeId) : null;
+    const { q } = this.assetQuery(query, visibility, type);
+    return (await q.select('assets.asset_type_id').distinct().execute()).map((r) => r.asset_type_id);
+  }
+
+  catalogShareLevel(catalogId: string | null, shareKeys: readonly string[]): Promise<AccessLevel> {
+    return catalogShareLevel(this.db, catalogId, shareKeys);
+  }
+
+  async queryAssets(query: AssetQuery, visibility: Visibility, type: AssetType | null) {
+    const { q, search } = this.assetQuery(query, visibility, type);
     const total = Number((await q.select((eb) => eb.fn.countAll<number>().as('n')).executeTakeFirstOrThrow()).n);
     let page = q.selectAll('assets').select(sql<string[] | null>`units_ref.path`.as('unit_path'));
     if (search) page = page.select(search.snippet.as('snippet'));
@@ -287,6 +341,7 @@ export class PgRegistryStore implements RegistryStore {
       status: draft.status,
       owner_id: draft.ownerId,
       unit_id: draft.unitId,
+      catalog_id: draft.catalogId,
       attributes: json(open),
       restricted_attributes: json(restricted),
       reminder_overrides: json(draft.reminderOverrides),
@@ -469,11 +524,11 @@ export class PgRegistryStore implements RegistryStore {
   }
 
   /** Visible = I asked for it, or I can view its unit (members can, by default). */
-  private visible(v: Visibility) {
+  private visible(v: RequestVisibility) {
     return sql<SqlBool>`(requests.requester_id = ${v.userId}::uuid or ${scopeFilter(v.viewScopes, 'units_ref.path', 'requests.asset_type_id')})`;
   }
 
-  private requestScope(scope: RequestQuery['scope'], v: Visibility) {
+  private requestScope(scope: RequestQuery['scope'], v: RequestVisibility) {
     switch (scope) {
       case 'mine':
         return sql<SqlBool>`requests.requester_id = ${v.userId}::uuid`;
@@ -486,7 +541,7 @@ export class PgRegistryStore implements RegistryStore {
     }
   }
 
-  async queryRequests(q: RequestQuery, v: Visibility) {
+  async queryRequests(q: RequestQuery, v: RequestVisibility) {
     const search = q.q ? textSearch('requests', q.q, this.fuzzy) : null;
     let base = this.db.selectFrom('requests').leftJoin('units_ref', 'units_ref.id', 'requests.unit_id').where(this.requestScope(q.scope, v));
     if (q.status === 'open') base = base.where('requests.status', 'in', ['submitted', 'in_review', 'approved', 'ordered']);
@@ -510,7 +565,7 @@ export class PgRegistryStore implements RegistryStore {
     return { items: ids.map((r) => byId.get(r.id)!).filter(Boolean), total };
   }
 
-  async countRequests(v: Visibility) {
+  async countRequests(v: RequestVisibility) {
     const open = sql<SqlBool>`requests.status in ('submitted','in_review','approved','ordered')`;
     const r = await this.db
       .selectFrom('requests')
@@ -551,6 +606,152 @@ export class PgRegistryStore implements RegistryStore {
   async requestForAsset(assetId: string) {
     const r = await this.requests().where('requests.asset_id', '=', assetId).executeTakeFirst();
     return r ? toRequest(r as RequestRowDb) : null;
+  }
+
+  // ─── Catalogs ────────────────────────────────────────────────────────────
+
+  private catalogs() {
+    return this.db
+      .selectFrom('catalogs')
+      .leftJoin('units_ref', 'units_ref.id', 'catalogs.unit_id')
+      .selectAll('catalogs')
+      .select([
+        sql<string[] | null>`units_ref.path`.as('unit_path'),
+        sql<number>`(select count(*) from assets a where a.catalog_id = catalogs.id)`.as('asset_count'),
+        sql<ShareJson[]>`coalesce((select json_agg(json_build_object('subjectKey', s.subject_key, 'level', s.level, 'createdByName', s.created_by_name, 'createdAt', s.created_at) order by s.created_at) from catalog_shares s where s.catalog_id = catalogs.id), '[]')`.as('shares'),
+      ]);
+  }
+
+  async getCatalog(id: string, opts: { forUpdate?: boolean } = {}) {
+    let q = this.catalogs().where('catalogs.id', '=', id);
+    if (opts.forUpdate) q = q.forUpdate('catalogs');
+    const r = await q.executeTakeFirst();
+    return r ? toCatalog(r as CatalogRow) : null;
+  }
+
+  async listCatalogs(where: { unitScopes: Scope[]; shareKeys: readonly string[]; unitId?: string; only?: 'owned' | 'shared' }) {
+    const owned = scopeFilter(where.unitScopes, 'units_ref.path', 'catalogs.id');
+    const shared = where.shareKeys.length
+      ? sql<SqlBool>`catalogs.id in (select s.catalog_id from catalog_shares s where s.subject_key = any(${sql.val([...where.shareKeys])}::text[]))`
+      : sql<SqlBool>`false`;
+    let q = this.catalogs().where(where.only === 'owned' ? owned : where.only === 'shared' ? sql<SqlBool>`(${shared} and not ${owned})` : sql<SqlBool>`(${owned} or ${shared})`);
+    if (where.unitId) q = q.where(inSubtree(where.unitId, 'units_ref.path'));
+    const rows = await q.orderBy(sql`lower(catalogs.name)`).limit(500).execute();
+    return rows.map((r) => toCatalog(r as CatalogRow));
+  }
+
+  async insertCatalog(input: CatalogInput, actor: { id: string; name: string }) {
+    try {
+      const r = await this.db
+        .insertInto('catalogs')
+        .values({ unit_id: input.unitId, name: input.name, description: input.description, icon: input.icon, color: input.color, created_by: actor.id, created_by_name: actor.name })
+        .returning('id')
+        .executeTakeFirstOrThrow();
+      return (await this.getCatalog(r.id))!;
+    } catch (e) {
+      if (isUniqueViolation(e)) throw AppError.conflict(`This unit already has a catalog called "${input.name}"`);
+      throw e;
+    }
+  }
+
+  async updateCatalog(id: string, input: Omit<CatalogInput, 'unitId'>) {
+    try {
+      await this.db
+        .updateTable('catalogs')
+        .set({ name: input.name, description: input.description, icon: input.icon, color: input.color, version: sql`version + 1`, updated_at: sql`now()` })
+        .where('id', '=', id)
+        .execute();
+    } catch (e) {
+      if (isUniqueViolation(e)) throw AppError.conflict(`This unit already has a catalog called "${input.name}"`);
+      throw e;
+    }
+    return (await this.getCatalog(id))!;
+  }
+
+  async touchCatalog(id: string) {
+    await this.db.updateTable('catalogs').set({ version: sql`version + 1`, updated_at: sql`now()` }).where('id', '=', id).execute();
+    return (await this.getCatalog(id))!;
+  }
+
+  async deleteCatalog(id: string) {
+    await this.db.deleteFrom('catalogs').where('id', '=', id).execute();
+  }
+
+  async assetIdsInCatalog(id: string) {
+    return (await this.db.selectFrom('assets').select('id').where('catalog_id', '=', id).execute()).map((r) => r.id);
+  }
+
+  async unfileAssets(catalogId: string, actorId: string) {
+    const ids = (
+      await this.db
+        .updateTable('assets')
+        .set({ catalog_id: null, version: sql`version + 1`, updated_by: actorId, updated_at: sql`now()` })
+        .where('catalog_id', '=', catalogId)
+        .returning('id')
+        .execute()
+    ).map((r) => r.id);
+    const out: AssetState[] = [];
+    for (const id of ids) out.push((await this.getAsset(id))!);
+    return out;
+  }
+
+  async putShare(catalogId: string, subjectKey: string, level: ShareLevel, byName: string) {
+    await this.db
+      .insertInto('catalog_shares')
+      .values({ catalog_id: catalogId, subject_key: subjectKey, level, created_by_name: byName })
+      .onConflict((oc) => oc.columns(['catalog_id', 'subject_key']).doUpdateSet({ level }))
+      .execute();
+  }
+
+  async removeShare(catalogId: string, subjectKey: string) {
+    const r = await this.db.deleteFrom('catalog_shares').where('catalog_id', '=', catalogId).where('subject_key', '=', subjectKey).executeTakeFirst();
+    return Number(r.numDeletedRows) > 0;
+  }
+
+  async unitsExist(ids: string[]) {
+    if (!ids.length) return new Set<string>();
+    const rows = await this.db.selectFrom('units_ref').select('id').where('id', 'in', ids).where('archived', '=', false).execute();
+    return new Set(rows.map((r) => r.id));
+  }
+
+  // ─── Conversations ───────────────────────────────────────────────────────
+
+  async listComments(assetId: string) {
+    const rows = await this.db.selectFrom('asset_comments').selectAll().where('asset_id', '=', assetId).orderBy('created_at').limit(1000).execute();
+    return rows.map(toComment);
+  }
+
+  async getComment(id: string) {
+    const r = await this.db.selectFrom('asset_comments').selectAll().where('id', '=', id).executeTakeFirst();
+    return r ? toComment(r) : null;
+  }
+
+  async insertComment(c: Pick<AssetComment, 'assetId' | 'authorId' | 'authorName' | 'body' | 'mentionIds'> & { kind?: AssetComment['kind']; sourceKey?: string }) {
+    const r = await this.db
+      .insertInto('asset_comments')
+      .values({ asset_id: c.assetId, kind: c.kind ?? 'message', source_key: c.sourceKey ?? null, author_id: c.authorId, author_name: c.authorName, body: c.body, mention_ids: c.mentionIds })
+      .onConflict((oc) => oc.column('source_key').doNothing())
+      .returningAll()
+      .executeTakeFirst();
+    return r ? toComment(r) : null;
+  }
+
+  async updateComment(id: string, patch: { body: string; mentionIds: string[] } | { deleted: true }) {
+    const set = 'deleted' in patch ? { deleted: true, body: '', mention_ids: [] as string[] } : { body: patch.body, mention_ids: patch.mentionIds, edited_at: sql<Date>`now()` };
+    const r = await this.db.updateTable('asset_comments').set(set).where('id', '=', id).returningAll().executeTakeFirstOrThrow();
+    return toComment(r);
+  }
+
+  async commentCounts(assetIds: string[]) {
+    if (!assetIds.length) return new Map<string, number>();
+    const rows = await this.db
+      .selectFrom('asset_comments')
+      .select((eb) => ['asset_id', eb.fn.countAll<number>().as('n')])
+      .where('asset_id', 'in', assetIds)
+      .where('deleted', '=', false)
+      .groupBy('asset_id')
+      .execute();
+    return new Map(rows.map((r) => [r.asset_id, Number(r.n)]));
   }
 
   // ─── Saved views ─────────────────────────────────────────────────────────

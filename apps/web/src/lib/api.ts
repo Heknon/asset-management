@@ -59,13 +59,15 @@ export async function request<T>(method: string, path: string, body?: unknown, r
   return data as T;
 }
 
+/** Scalars become plain parameters; arrays/objects (e.g. filters) are sent as JSON. Empty values are omitted. */
+export function withQuery(path: string, params?: object): string {
+  const entries = Object.entries(params ?? {}).filter(([, v]) => v !== undefined && v !== null && v !== '' && !(Array.isArray(v) && !v.length));
+  const qs = new URLSearchParams(entries.map(([k, v]) => [k, typeof v === 'object' ? JSON.stringify(v) : String(v)])).toString();
+  return qs ? `${path}?${qs}` : path;
+}
+
 export const api = {
-  /** Scalars become plain parameters; arrays/objects (e.g. filters) are sent as JSON. Empty values are omitted. */
-  get: <T>(path: string, params?: object) => {
-    const entries = Object.entries(params ?? {}).filter(([, v]) => v !== undefined && v !== null && v !== '' && !(Array.isArray(v) && !v.length));
-    const qs = new URLSearchParams(entries.map(([k, v]) => [k, typeof v === 'object' ? JSON.stringify(v) : String(v)])).toString();
-    return request<T>('GET', qs ? `${path}?${qs}` : path);
-  },
+  get: <T>(path: string, params?: object) => request<T>('GET', withQuery(path, params)),
   post: <T>(path: string, body?: unknown) => request<T>('POST', path, body),
   put: <T>(path: string, body?: unknown) => request<T>('PUT', path, body),
   patch: <T>(path: string, body?: unknown) => request<T>('PATCH', path, body),

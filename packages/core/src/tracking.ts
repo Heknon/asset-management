@@ -17,6 +17,8 @@ export interface TrackedDate {
   /** Offsets before `date` at which reminders fire. */
   reminders: Duration[];
   notify: { owner: boolean; userIds: string[]; emails: string[]; unitManagers: 'never' | 'fallback' | 'always' };
+  /** Ask the owner to confirm the renewal this long before the date (recurring dates only). */
+  confirmBefore: Duration | null;
 }
 
 type KindLookup = ReadonlyMap<string, DateKind>;
@@ -65,6 +67,7 @@ export function resolveTrackedDates(
       recurrence: recurrenceFor(field, kind, values),
       reminders: kind.behavior === 'informational' ? [] : (reminderOverrides[field.key] ?? tracking.reminders ?? kind.defaultReminders),
       notify: { owner: tracking.notify.owner, userIds: [...new Set(userIds)], emails: tracking.notify.emails, unitManagers: tracking.notify.unitManagers },
+      confirmBefore: kind.behavior === 'recurring' ? (tracking.confirmBefore ?? null) : null,
     });
   }
   return out.sort((a, b) => a.date.localeCompare(b.date));

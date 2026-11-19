@@ -1,12 +1,13 @@
 import { atLeast, isRestricted, type ActivityEntry, type AssetType, type FieldDefinition } from '@am/core';
 import { useMutation } from '@tanstack/react-query';
-import { Link, useNavigate, useParams } from '@tanstack/react-router';
-import { ArrowLeft, CalendarClock, History, MoreHorizontal, Pencil, Sparkles, Trash2 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
+import { ArrowLeft, CalendarClock, FolderOpen, History, MoreHorizontal, Pencil, Sparkles, Trash2 } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { AssetFormSheet } from '@/components/asset-form';
 import { AttributeValue } from '@/components/attribute';
 import { AccessBadge, StatusBadge } from '@/components/badges';
+import { Conversation } from '@/components/conversation';
 import { Documents } from '@/components/documents';
 import { ObligationList } from '@/components/obligations';
 import { PersonName, UnitPath } from '@/components/pickers';
@@ -16,8 +17,9 @@ import { Button } from '@/components/ui/button';
 import { Badge, Card, EmptyState, PageHeader, SectionTitle, Spinner } from '@/components/ui/display';
 import { ConfirmDialog, Menu, MenuItem } from '@/components/ui/overlay';
 import { api, ApiError } from '@/lib/api';
-import { useActivity, useAsset, useAssetRequest, useInvalidateAssets, useLookups, useMe, useObligations } from '@/lib/queries';
+import { useActivity, useAsset, useAssetRequest, useCatalog, useInvalidateAssets, useLookups, useMe, useObligations } from '@/lib/queries';
 import { formatDateTime } from '@/lib/utils';
+import type { Obligation } from '@am/core';
 
 export function AssetDetailPage() {
   const { assetId } = useParams({ strict: false }) as { assetId: string };
@@ -67,6 +69,7 @@ export function AssetDetailPage() {
             <Link to="/units/$unitId" params={{ unitId: a.unitId }} className="hover:text-fg">
               <UnitPath id={a.unitId} />
             </Link>
+            <CatalogLink catalogId={a.catalogId} />
             <AccessBadge level={a.access} />
           </span>
         }
@@ -91,6 +94,7 @@ export function AssetDetailPage() {
         <div className="space-y-6">
           <Details type={type} attributes={a.attributes} ownerId={a.ownerId} canSeeRestricted={atLeast(a.access, 'manage')} />
           <Documents assetId={a.id} canEdit={canEdit} canManage={atLeast(a.access, 'manage')} currentUserId={me.userId} />
+          <Conversation assetId={a.id} access={a.access} />
         </div>
         <div className="space-y-6">
           <OriginRequest assetId={a.id} />
@@ -154,9 +158,35 @@ function Details({ type, attributes, ownerId, canSeeRestricted }: { type: AssetT
   );
 }
 
+/** "In R&D Labs" (with who it is shared with) when the asset is filed in a catalog. */
+function CatalogLink({ catalogId }: { catalogId: string | null }) {
+  const catalog = useCatalog(catalogId);
+  if (!catalogId || !catalog.data) return null;
+  const c = catalog.data;
+  return (
+    <Link to="/catalogs/$catalogId" params={{ catalogId: c.id }} className="inline-flex items-center gap-1 hover:text-fg" title={c.shares.length ? `Shared with ${c.shares.length} ${c.shares.length === 1 ? 'unit or person' : 'units or people'}` : undefined}>
+      <FolderOpen className="size-3" />
+      {c.name}
+      {c.shares.length > 0 && <span className="text-subtle">· shared</span>}
+    </Link>
+  );
+}
+
 function KeyDates({ assetId, canEdit }: { assetId: string; canEdit: boolean }) {
   const active = useObligations({ assetId, state: 'active', limit: 50 });
   const history = useObligations({ assetId, state: 'done', limit: 10 });
+  // Opened from a "Do you still need it?" email: show the answer dialog.
+  const { check } = useSearch({ strict: false }) as { check?: string };
+  const navigate = useNavigate();
+  const [answering, setAnswering] = useState<Obligation | null>(null);
+  useEffect(() => {
+    const o = check && active.data?.items.find((x) => x.id === check);
+    if (o && o.check?.status === 'asked') setAnswering(o);
+  }, [check, active.data]);
+  const closeAnswer = (o: Obligation | null) => {
+    setAnswering(o);
+    if (!o && check) void navigate({ to: '.', search: {}, replace: true });
+  };
   return (
     <Card padded={false}>
       <div className="flex items-center gap-2 border-b border-border px-4 py-2.5">
@@ -164,7 +194,7 @@ function KeyDates({ assetId, canEdit }: { assetId: string; canEdit: boolean }) {
         <h2 className="text-[13px] font-semibold">Key dates</h2>
       </div>
       {active.data?.items.length ? (
-        <ObligationList items={active.data.items} showAsset={false} canEdit={() => canEdit} />
+        <ObligationList items={active.data.items} showAsset={false} canEdit={() => canEdit} answering={answering} onAnsweringChange={closeAnswer} />
       ) : (
         <p className="px-4 py-6 text-center text-xs text-muted">{active.isLoading ? 'Loading…' : 'No upcoming tracked dates.'}</p>
       )}
@@ -211,7 +241,7 @@ function Activity({ assetId, type }: { assetId: string; type: AssetType }) {
   const activity = useActivity(assetId);
   const label = (key: string) => {
     if (key.startsWith('attributes.')) return type.fields.find((f) => f.key === key.slice(11))?.label ?? key.slice(11);
-    return { name: 'Name', status: 'Status', ownerId: 'Owner', unitId: 'Team', reminderOverrides: 'Reminders', request: 'Request' }[key] ?? key;
+    return { name: 'Name', status: 'Status', ownerId: 'Owner', unitId: 'Team', catalogId: 'Catalog', reminderOverrides: 'Reminders', request: 'Request' }[key] ?? key;
   };
   return (
     <Card>

@@ -6,7 +6,6 @@ import {
   effectiveLevel,
   mergeAttributes,
   redactAttributes,
-  scopesFor,
   type AccessCheck,
   type AccessLevel,
   type Asset,
@@ -19,39 +18,60 @@ import {
 } from '@am/core';
 import { authorize } from '@am/platform';
 import { assetChangedEvent, diff, resolveStatus, scopeOf, validatedOverrides, validatedValues, type AssetDraft, type AssetState } from '../domain/asset.js';
+import { assertFitsCatalog } from '../domain/catalog.js';
 import { requestNumber } from '../domain/request.js';
+import type { AccessResolver } from './access.js';
 import type { RegistryStore } from './ports.js';
 
 export class AssetService {
-  constructor(private readonly store: RegistryStore) {}
+  constructor(
+    private readonly store: RegistryStore,
+    private readonly resolver: AccessResolver,
+  ) {}
 
   async list(principal: Principal, query: AssetQuery): Promise<Page<Asset>> {
-    const scopes = scopesFor(principal, 'view');
+    const visibility = await this.resolver.visibility(principal, 'view');
     const type = query.assetTypeId ? await this.store.getType(query.assetTypeId) : null;
-    const { items, total } = scopes.length ? await this.store.queryAssets(query, scopes, type) : { items: [], total: 0 };
-    const types = await this.typeMap(items.map((a) => a.assetTypeId));
-    return { items: items.map((a) => ({ ...this.present(principal, a, types.get(a.assetTypeId)!), ...(a.snippet && { snippet: a.snippet }) })), total, limit: query.limit, offset: query.offset };
+    const { items, total } = await this.store.queryAssets(query, visibility, type);
+    const [types, shared] = await Promise.all([this.typeMap(items.map((a) => a.assetTypeId)), this.resolver.sharedLevels(principal, items.map((a) => a.catalogId))]);
+    return {
+      items: items.map((a) => ({ ...this.present(principal, a, types.get(a.assetTypeId)!, a.catalogId ? shared.get(a.catalogId) : undefined), ...(a.snippet && { snippet: a.snippet }) })),
+      total,
+      limit: query.limit,
+      offset: query.offset,
+    };
   }
 
   async get(principal: Principal, id: string): Promise<Asset> {
     const { asset, type } = await this.load(id);
-    authorize(principal, 'view', scopeOf(asset));
-    return this.present(principal, asset, type);
+    const scope = await this.resolver.assetScope(principal, asset);
+    authorize(principal, 'view', scope);
+    return this.present(principal, asset, type, scope.shared);
+  }
+
+  /** For other application services (conversations): the asset and the caller's level, or not found. */
+  async reach(principal: Principal, id: string, required: AccessLevel): Promise<{ asset: AssetState; level: AccessLevel }> {
+    const asset = await this.store.getAsset(id);
+    if (!asset) throw AppError.notFound('Asset');
+    return { asset, level: authorize(principal, required, await this.resolver.assetScope(principal, asset)) };
   }
 
   /** Used by other services (files) to authorise access to an asset on behalf of a user. */
   async access(principal: Principal, id: string): Promise<AccessCheck> {
     const asset = await this.store.getAsset(id);
     if (!asset) throw AppError.notFound('Asset');
-    const level = effectiveLevel(principal, scopeOf(asset));
+    const level = effectiveLevel(principal, await this.resolver.assetScope(principal, asset));
     if (level === 'none') throw AppError.notFound('Asset');
-    return { assetId: asset.id, assetTypeId: asset.assetTypeId, unitId: asset.unitId, level };
+    return { assetId: asset.id, assetTypeId: asset.assetTypeId, unitId: asset.unitId, catalogId: asset.catalogId, level };
   }
 
   async create(principal: Principal, input: AssetCreate): Promise<Asset> {
     const type = await this.activeType(input.assetTypeId);
     const unitPath = await this.unitPath(input.unitId);
-    const level = authorize(principal, 'edit', { unitPath, assetTypeId: type.id });
+    // Someone a catalog is shared with at edit may add to it (inside its unit).
+    const shared = input.catalogId ? await this.resolver.assetScope(principal, { unitPath, assetTypeId: type.id, catalogId: input.catalogId }) : undefined;
+    const level = authorize(principal, 'edit', shared ?? { unitPath, assetTypeId: type.id });
+    await this.assertCatalog(this.store, principal, input.catalogId, unitPath);
     await this.assertPeople(type, input.ownerId, input.attributes);
     const { merged, blocked } = mergeAttributes(type.fields, {}, input.attributes, atLeast(level, 'manage'));
     if (blocked.length) throw AppError.forbidden(`Only managers can set: ${blocked.join(', ')}`);
@@ -63,6 +83,7 @@ export class AssetService {
       status: resolveStatus(type, input.status),
       ownerId: input.ownerId ?? principal.userId,
       unitId: input.unitId,
+      catalogId: input.catalogId,
       values: validatedValues(type, merged),
       reminderOverrides: validatedOverrides(type, input.reminderOverrides),
     };
@@ -108,12 +129,22 @@ export class AssetService {
     return this.store.transaction(async (tx) => {
       const current = await tx.getAsset(id, { forUpdate: true });
       if (!current) throw AppError.notFound('Asset');
-      const level = authorize(principal, 'edit', scopeOf(current));
+      const level = authorize(principal, 'edit', await this.resolver.assetScope(principal, current, tx));
       const type = (await tx.getType(current.assetTypeId))!;
 
       // Moving an asset to another unit needs edit rights on the destination too.
+      let unitPath = current.unitPath;
       if (patch.unitId && patch.unitId !== current.unitId) {
-        authorize(principal, 'edit', { unitPath: await this.unitPath(patch.unitId, tx), assetTypeId: type.id });
+        unitPath = await this.unitPath(patch.unitId, tx);
+        authorize(principal, 'edit', { unitPath, assetTypeId: type.id });
+      }
+      // Filing into (or out of) a catalog changes who can see the asset: edit on both catalogs.
+      const catalogId = patch.catalogId !== undefined ? patch.catalogId : current.catalogId;
+      if (catalogId !== current.catalogId) {
+        await this.assertCatalog(tx, principal, current.catalogId, null);
+        await this.assertCatalog(tx, principal, catalogId, unitPath);
+      } else if (catalogId && unitPath !== current.unitPath) {
+        assertFitsCatalog((await tx.getCatalog(catalogId))!, unitPath);
       }
       await this.assertPeople(type, patch.ownerId ?? null, patch.attributes ?? {}, tx);
 
@@ -126,15 +157,16 @@ export class AssetService {
         status: patch.status !== undefined ? resolveStatus(type, patch.status) : current.status,
         ownerId: patch.ownerId !== undefined ? patch.ownerId : current.ownerId,
         unitId: patch.unitId ?? current.unitId,
+        catalogId,
         values: validatedValues(type, merged),
         reminderOverrides: patch.reminderOverrides ? validatedOverrides(type, patch.reminderOverrides) : current.reminderOverrides,
       };
       const changes = diff(type, current, draft);
-      if (!Object.keys(changes).length) return this.present(principal, current, type);
+      if (!Object.keys(changes).length) return this.present(principal, current, type, level);
       const saved = await tx.saveAsset(id, draft, principal.userId, await this.searchText(tx, type, draft));
       await tx.addActivity({ assetId: id, actorId: principal.userId, actorName: principal.displayName, action: 'updated', changes });
       await tx.publish('asset.changed', assetChangedEvent(saved, type, await this.kinds(tx)));
-      return this.present(principal, saved, type);
+      return this.present(principal, saved, type, (await this.resolver.assetScope(principal, saved, tx)).shared);
     });
   }
 
@@ -143,7 +175,8 @@ export class AssetService {
     return this.store.transaction(async (tx) => {
       const current = await tx.getAsset(id, { forUpdate: true });
       if (!current) throw AppError.notFound('Asset');
-      authorize(principal, 'edit', scopeOf(current));
+      const scope = await this.resolver.assetScope(principal, current, tx);
+      authorize(principal, 'edit', scope);
       const type = (await tx.getType(current.assetTypeId))!;
       const kinds = await this.kinds(tx);
       const { values, from, to } = advanceRecurringDate(type, current.values, fieldKey, kinds);
@@ -152,7 +185,7 @@ export class AssetService {
       await tx.addActivity({ assetId: id, actorId: principal.userId, actorName: principal.displayName, action: 'advanced', changes: diff(type, current, draft) });
       const affected = type.fields.filter((f) => f.kind === 'date' && current.values[f.key] !== values[f.key]).map((f) => f.key);
       await tx.publish('asset.changed', assetChangedEvent(saved, type, kinds, { fieldKey, from, to, by: principal.userId, affected }));
-      return this.present(principal, saved, type);
+      return this.present(principal, saved, type, scope.shared);
     });
   }
 
@@ -168,9 +201,7 @@ export class AssetService {
   }
 
   async activity(principal: Principal, id: string) {
-    const asset = await this.store.getAsset(id);
-    if (!asset) throw AppError.notFound('Asset');
-    authorize(principal, 'view', scopeOf(asset));
+    await this.reach(principal, id, 'view');
     return this.store.listActivity(id, 200);
   }
 
@@ -205,8 +236,20 @@ export class AssetService {
     });
   }
 
-  private present(principal: Principal, asset: AssetState, type: AssetType): Asset {
-    const access: AccessLevel = effectiveLevel(principal, scopeOf(asset));
+  /**
+   * Filing into a catalog shares the asset with the catalog's audience, so it
+   * needs edit on the catalog; the asset must sit within the catalog's unit.
+   */
+  private async assertCatalog(store: RegistryStore, principal: Principal, catalogId: string | null, assetUnitPath: string[] | null) {
+    if (!catalogId) return;
+    const catalog = await store.getCatalog(catalogId);
+    if (!catalog) throw AppError.validation('Unknown catalog');
+    if (assetUnitPath) assertFitsCatalog(catalog, assetUnitPath);
+    if (!atLeast((await this.resolver.catalogLevel(principal, catalog)).level, 'edit')) throw AppError.forbidden(`You cannot change what is in "${catalog.name}"`);
+  }
+
+  private present(principal: Principal, asset: AssetState, type: AssetType, shared?: AccessLevel): Asset {
+    const access: AccessLevel = effectiveLevel(principal, scopeOf(asset, shared));
     return {
       id: asset.id,
       assetTypeId: asset.assetTypeId,
@@ -215,6 +258,7 @@ export class AssetService {
       status: asset.status,
       ownerId: asset.ownerId,
       unitId: asset.unitId,
+      catalogId: asset.catalogId,
       attributes: redactAttributes(type.fields, asset.values, atLeast(access, 'manage')),
       reminderOverrides: asset.reminderOverrides,
       access,

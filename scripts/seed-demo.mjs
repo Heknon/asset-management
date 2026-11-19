@@ -210,4 +210,34 @@ if (existingRequests.total === 0) {
   });
   console.log(`requests: ${made.length} created across all stages`);
 }
+// ─── Catalogs, sharing, conversations, renewal checks ────────────────────────
+const existingCatalogs = await admin('GET', '/api/registry/catalogs');
+if (!existingCatalogs.length) {
+  const asRachel = await login('rachel.amar');
+  const asDana = await login('dana.cohen');
+  const asTom = await login('tom.levi');
+  const rnd = byName('R&D');
+  const inUnit = async (unit, typeKey, n) =>
+    (await admin('GET', `/api/registry/assets?unitId=${unit.id}&assetTypeId=${types[typeKey].id}&limit=${n}&sort=name&order=asc`)).items;
+
+  // R&D keeps its dev tooling in a catalog and shares it with Sales (view) and Finance (edit, for invoices).
+  const tooling = await asRachel('POST', '/api/registry/catalogs', { unitId: rnd.id, name: 'R&D developer tooling', description: 'Licenses every engineer can use: IDEs, CI, monitoring.', icon: 'library', color: '#6366f1' });
+  for (const a of await inUnit(rnd, 'software_license', 8)) await asRachel('PATCH', `/api/registry/assets/${a.id}`, { catalogId: tooling.id });
+  await asRachel('POST', `/api/registry/catalogs/${tooling.id}/shares`, { subjectKind: 'unit', subjectId: byName('Sales').id, level: 'view' });
+  await asRachel('POST', `/api/registry/catalogs/${tooling.id}/shares`, { subjectKind: 'user', subjectId: idOf('noa.mizrahi'), level: 'edit' });
+
+  // A lab: the division's test devices and SIMs, shared with Customer Care, who reproduce bugs on them.
+  const lab = await asRachel('POST', '/api/registry/catalogs', { unitId: rnd.id, name: 'Device lab', description: 'Test phones, SIM lines and laptops for reproducing customer issues.', icon: 'flask', color: '#0ea5e9' });
+  for (const a of [...(await inUnit(rnd, 'hardware', 5)), ...(await inUnit(rnd, 'sim_line', 5))]) await asRachel('PATCH', `/api/registry/assets/${a.id}`, { catalogId: lab.id });
+  await asRachel('POST', `/api/registry/catalogs/${lab.id}/shares`, { subjectKind: 'unit', subjectId: byName('Customer Care').id, level: 'view' });
+
+  // Procurement asks Tom whether to renew one of his licenses; a short conversation around it.
+  const toms = (await asTom('GET', '/api/scheduler/obligations?mine=true&limit=200')).items.filter((o) => o.recurring && o.ownerId === tom && !o.check);
+  if (toms[0]) {
+    await asDana('POST', `/api/scheduler/obligations/${toms[0].id}/actions`, { action: 'ask', message: 'The vendor raised prices 12% this year. Do you still need every seat?' });
+    await asTom('POST', `/api/registry/assets/${toms[0].assetId}/comments`, { body: 'Half the team moved to the new whiteboard tool — I think we can cut seats. @Dana Cohen can you get a quote for 20?', mentionIds: [dana] });
+    await asDana('POST', `/api/registry/assets/${toms[0].assetId}/comments`, { body: 'Will do. I will hold the renewal until you confirm in the check.', mentionIds: [] });
+  }
+  console.log('catalogs: 2 created and shared; 1 renewal check waiting for tom.levi');
+}
 console.log('\nDemo accounts (password "password-1234"): dana.cohen (Procurement), tom.levi (Platform team), rachel.amar (R&D head), noa.mizrahi (Finance)');

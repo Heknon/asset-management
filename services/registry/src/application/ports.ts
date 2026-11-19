@@ -1,6 +1,9 @@
 import type {
+  AccessLevel,
   ActivityEntry,
+  AssetComment,
   AssetQuery,
+  CatalogInput,
   AssetType,
   AssetTypeInput,
   DateKind,
@@ -13,7 +16,10 @@ import type {
   SavedView,
   SavedViewInput,
   Scope,
+  ShareLevel,
+  Visibility,
 } from '@am/core';
+import type { CatalogState } from '../domain/catalog.js';
 import type { AssetDraft, AssetState } from '../domain/asset.js';
 import type { RequestState } from '../domain/request.js';
 
@@ -58,8 +64,12 @@ export interface RegistryStore {
   setTypeArchived(id: string, archived: boolean): Promise<AssetType>;
   countAssetsOfType(id: string): Promise<number>;
 
-  /** Assets visible within the given scopes (empty scopes ⇒ nothing), with search snippets when `q` is set. */
-  queryAssets(query: AssetQuery, scopes: Scope[], type: AssetType | null): Promise<{ items: Array<AssetState & { snippet?: string }>; total: number }>;
+  /** Assets the visibility allows (org scopes or catalog shares), with search snippets when `q` is set. */
+  queryAssets(query: AssetQuery, visibility: Visibility, type: AssetType | null): Promise<{ items: Array<AssetState & { snippet?: string }>; total: number }>;
+  /** The asset types present in a query's results (CSV columns). */
+  assetTypeIdsIn(query: AssetQuery, visibility: Visibility): Promise<string[]>;
+  /** The best level any of these share keys has on the catalog ('none' when not shared with them). */
+  catalogShareLevel(catalogId: string | null, shareKeys: readonly string[]): Promise<AccessLevel>;
   getAsset(id: string, opts?: { forUpdate?: boolean }): Promise<AssetState | null>;
   insertAsset(draft: AssetDraft, actorId: string, searchText: string): Promise<AssetState>;
   saveAsset(id: string, draft: AssetDraft, actorId: string, searchText: string): Promise<AssetState>;
@@ -94,6 +104,28 @@ export interface RegistryStore {
   addRequestEvent(e: Omit<RequestEvent, 'id' | 'at'>): Promise<void>;
   listRequestEvents(requestId: string): Promise<RequestEvent[]>;
   requestForAsset(assetId: string): Promise<RequestState | null>;
+
+  getCatalog(id: string, opts?: { forUpdate?: boolean }): Promise<CatalogState | null>;
+  /** Catalogs whose unit is within the org scopes (type-agnostic), or shared with one of the keys. */
+  listCatalogs(where: { unitScopes: Scope[]; shareKeys: readonly string[]; unitId?: string; only?: 'owned' | 'shared' }): Promise<CatalogState[]>;
+  insertCatalog(input: CatalogInput, actor: { id: string; name: string }): Promise<CatalogState>;
+  updateCatalog(id: string, input: Omit<CatalogInput, 'unitId'>): Promise<CatalogState>;
+  /** Bumps the version (after a share change) so consumers can order events. */
+  touchCatalog(id: string): Promise<CatalogState>;
+  deleteCatalog(id: string): Promise<void>;
+  assetIdsInCatalog(id: string): Promise<string[]>;
+  /** Takes assets out of a catalog (it is being deleted); returns the updated assets. */
+  unfileAssets(catalogId: string, actorId: string): Promise<AssetState[]>;
+  putShare(catalogId: string, subjectKey: string, level: ShareLevel, byName: string): Promise<void>;
+  removeShare(catalogId: string, subjectKey: string): Promise<boolean>;
+  unitsExist(ids: string[]): Promise<Set<string>>;
+
+  listComments(assetId: string): Promise<AssetComment[]>;
+  getComment(id: string): Promise<AssetComment | null>;
+  /** Null when `sourceKey` was already posted (event redelivery). */
+  insertComment(c: Pick<AssetComment, 'assetId' | 'authorId' | 'authorName' | 'body' | 'mentionIds'> & { kind?: AssetComment['kind']; sourceKey?: string }): Promise<AssetComment | null>;
+  updateComment(id: string, patch: { body: string; mentionIds: string[] } | { deleted: true }): Promise<AssetComment>;
+  commentCounts(assetIds: string[]): Promise<Map<string, number>>;
 
   listViews(ownerId: string): Promise<SavedView[]>;
   createView(ownerId: string, input: SavedViewInput): Promise<SavedView>;

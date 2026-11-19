@@ -7,6 +7,7 @@ import {
   type IsoDate,
   type Obligation,
   type ObligationState,
+  type RenewalCheck,
   type TrackedDate,
   type Urgency,
 } from '@am/core';
@@ -32,6 +33,21 @@ export interface ObligationRecord {
   sequence: number;
   resolvedAt: Date | null;
   resolvedBy: string | null;
+  note: string | null;
+  /** Ask the owner this long before a recurring date (null: only on demand). */
+  confirmBefore: Duration | null;
+  check: RenewalCheckRecord | null;
+}
+
+export interface RenewalCheckRecord {
+  status: RenewalCheck['status'];
+  askedAt: Date | null;
+  askedById: string | null;
+  askedByName: string | null;
+  message: string | null;
+  answeredAt: Date | null;
+  answeredById: string | null;
+  answeredByName: string | null;
   note: string | null;
 }
 
@@ -77,7 +93,8 @@ function sameSemantics(o: ObligationRecord, t: TrackedDate): boolean {
     o.recurring === !!t.recurrence &&
     JSON.stringify(o.dateKind) === JSON.stringify(t.dateKind) &&
     JSON.stringify(o.reminders) === JSON.stringify(t.reminders) &&
-    JSON.stringify(o.notify) === JSON.stringify(t.notify)
+    JSON.stringify(o.notify) === JSON.stringify(t.notify) &&
+    JSON.stringify(o.confirmBefore ?? null) === JSON.stringify(t.confirmBefore ?? null)
   );
 }
 
@@ -126,10 +143,33 @@ export interface AssetRef {
   unitId: string;
   /** Ancestor ids, root first, ending with the unit (from the units projection). */
   unitPath: string[];
+  catalogId: string | null;
   ownerId: string | null;
   active: boolean;
   spend: { amount: number; currency: string } | null;
 }
+
+/** When the owner will be asked automatically, while nobody has asked yet. */
+export function confirmOn(o: Pick<ObligationRecord, 'dueDate' | 'recurring' | 'confirmBefore' | 'check' | 'state'>): IsoDate | null {
+  if (o.check || !o.recurring || !o.confirmBefore || !ACTIVE_STATES.includes(o.state)) return null;
+  return addDuration(o.dueDate, o.confirmBefore, -1);
+}
+
+/** Due for the automatic "still needed?" question: the moment has come and the date has not passed. */
+export function needsAutoAsk(o: ObligationRecord, today: IsoDate): boolean {
+  const on = confirmOn(o);
+  return !!on && on <= today && o.dueDate >= today;
+}
+
+const presentCheck = (c: RenewalCheckRecord): RenewalCheck => ({
+  status: c.status,
+  askedAt: c.askedAt?.toISOString() ?? null,
+  askedByName: c.askedByName,
+  message: c.message,
+  answeredAt: c.answeredAt?.toISOString() ?? null,
+  answeredByName: c.answeredByName,
+  note: c.note,
+});
 
 export function present(o: ObligationRecord, asset: AssetRef, today: IsoDate): Obligation {
   return {
@@ -152,6 +192,8 @@ export function present(o: ObligationRecord, asset: AssetRef, today: IsoDate): O
     resolvedAt: o.resolvedAt?.toISOString() ?? null,
     resolvedBy: o.resolvedBy,
     nextReminder: nextReminderDate(o, today),
+    check: o.check ? presentCheck(o.check) : null,
+    confirmOn: confirmOn(o),
   };
 }
 

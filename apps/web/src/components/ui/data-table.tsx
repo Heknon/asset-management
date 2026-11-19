@@ -1,6 +1,8 @@
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
-import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight, Download } from 'lucide-react';
 import { useMemo, useState, type ReactNode } from 'react';
+import { downloadCsv } from '@/lib/download';
+import { useFeatures } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { Button } from './button';
 import { Skeleton } from './display';
@@ -15,6 +17,8 @@ export interface ColumnMeta<T> {
   sortKey?: string;
   /** Client mode: the value a column sorts by. Strings compare naturally and case-insensitively. */
   sortValue?: (row: T) => string | number | null | undefined;
+  /** CSV export value (defaults to sortValue). Columns with neither are left out of client exports. */
+  csvValue?: (row: T) => unknown;
   align?: 'right';
   width?: number;
 }
@@ -156,5 +160,29 @@ export function DataTable<T>({
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * "Export CSV" for any table. Hidden when the deployment turns exports off.
+ * Server tables pass a download URL; client tables use `exportRows`.
+ */
+export function ExportButton({ onExport, disabled }: { onExport: () => void; disabled?: boolean }) {
+  const features = useFeatures();
+  if (!features.data?.csvExport) return null;
+  return (
+    <Button variant="ghost" icon={<Download className="size-3.5" />} disabled={disabled} onClick={onExport} title="Download what this table shows — every page, with your filters and sorting — as a spreadsheet file">
+      Export CSV
+    </Button>
+  );
+}
+
+/** Client-side export of loaded rows, using each column's header and csvValue/sortValue. */
+export function exportRows<T>(title: string, columns: Array<DataColumn<T>>, rows: T[]): void {
+  const cols = columns.filter((c) => c.meta?.csvValue || c.meta?.sortValue);
+  downloadCsv(
+    title,
+    cols.map((c) => (typeof c.header === 'string' ? c.header : (c.id ?? ''))),
+    rows.map((r) => cols.map((c) => (c.meta!.csvValue ?? c.meta!.sortValue)!(r))),
   );
 }

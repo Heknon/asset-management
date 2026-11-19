@@ -1,5 +1,6 @@
 import { envList, main, runService } from '@am/platform';
 import { z } from 'zod';
+import { CollaborationNotifier } from './application/collaboration-notifier.js';
 import { ObligationService } from './application/obligation-service.js';
 import { ReminderDispatcher } from './application/reminder-dispatcher.js';
 import { RequestNotifier } from './application/request-notifier.js';
@@ -45,12 +46,17 @@ main(() =>
       await bus.subscribe('scheduler', 'asset.deleted', (e) => obligations.onAssetDeleted(e.assetId));
       await bus.subscribe('scheduler', 'user.changed', (e) => obligations.onUserChanged(e));
       await bus.subscribe('scheduler', 'unit.changed', (e) => obligations.onUnitChanged(e));
+      await bus.subscribe('scheduler', 'catalog.changed', (e) => obligations.onCatalogChanged(e));
+      const collaboration = new CollaborationNotifier(store, mailer, clock, logger, appUrl, config.REQUEST_INBOX_EMAILS);
+      await bus.subscribe('scheduler', 'renewal.check', (e) => collaboration.onRenewalCheck(e));
+      await bus.subscribe('scheduler', 'asset.commented', (e) => collaboration.onAssetCommented(e));
       const notifier = new RequestNotifier(store, mailer, logger, appUrl, config.REQUEST_INBOX_EMAILS);
       await bus.subscribe('scheduler', 'request.changed', (e) => notifier.onRequestChanged(e));
 
       await bus.schedule(DISPATCH_QUEUE, config.DISPATCH_CRON, async () => {
+        const checksAsked = await obligations.autoAsk();
         const result = await dispatcher.run();
-        logger.info(result, 'reminder run complete');
+        logger.info({ ...result, checksAsked }, 'reminder run complete');
       });
     },
   }),

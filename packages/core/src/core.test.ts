@@ -4,7 +4,12 @@ import {
   advanceRecurringDate,
   assetTypeInputSchema,
   defaultDateKinds,
+  csvCell,
+  csvFilename,
+  csvLine,
   effectiveLevel,
+  shareKeysOf,
+  shareLevelsFor,
   instantiateTemplate,
   mergeAttributes,
   redactAttributes,
@@ -186,5 +191,37 @@ describe('search', () => {
       { line: 3, path: ['Wix', 'R&D', 'Editor', 'Platform'], members: ['CN=platform,DC=wix', 'department=Platform'], managers: ['CN=leads'] },
     ]);
     expect(errors).toEqual([{ line: 4, message: 'Missing unit path' }]);
+  });
+});
+
+describe('catalog shares', () => {
+  const division = '00000000-0000-4000-8000-00000000000d';
+  const team = '00000000-0000-4000-8000-00000000000e';
+  const paths = new Map([[team, [division, team]]]);
+
+  it('reaches a person through their units and every ancestor', () => {
+    const keys = shareKeysOf({ userId: 'u1', units: [{ unitId: team, role: 'member' }] }, (id) => paths.get(id));
+    expect(keys).toEqual(['user:u1', `unit:${division}`, `unit:${team}`]);
+  });
+
+  it('adds access but never manage', () => {
+    const principal = { isAdmin: false, grants: [] };
+    const scope = { unitPath: ['other'], assetTypeId: 't' };
+    expect(effectiveLevel(principal, scope)).toBe('none');
+    expect(effectiveLevel(principal, { ...scope, shared: 'view' })).toBe('view');
+    expect(effectiveLevel(principal, { ...scope, shared: 'manage' })).toBe('edit');
+    expect(effectiveLevel({ isAdmin: false, grants: [{ unitId: null, assetTypeId: null, level: 'manage' }] }, { ...scope, shared: 'view' })).toBe('manage');
+    expect(shareLevelsFor('edit')).toEqual(['edit']);
+    expect(shareLevelsFor('manage')).toEqual([]);
+  });
+});
+
+describe('csv', () => {
+  it('quotes, escapes and defuses formulas', () => {
+    expect(csvLine(['a', 'b,c', 'say "hi"', null, 12, -3.5])).toBe('a,"b,c","say ""hi""",,12,-3.5\r\n');
+    expect(csvCell('=HYPERLINK("x")')).toBe(`"'=HYPERLINK(""x"")"`);
+    expect(csvCell('-cmd')).toBe("'-cmd");
+    expect(csvCell('line\nbreak')).toBe('"line\nbreak"');
+    expect(csvFilename('Licenses: R&D / Labs', '2026-11-19')).toBe('Licenses R&D Labs 2026-11-19.csv');
   });
 });

@@ -1,8 +1,8 @@
 import type { AssetChanged, TrackedDate } from '@am/core';
 import { describe, expect, it } from 'vitest';
 import { feed, invite } from './calendar.js';
-import { reminderDigest, requestMessage } from './messages.js';
-import { dueReminderSlot, nextReminderDate, reconcile, todayIn, urgencyOf, type ObligationRecord } from './obligation.js';
+import { commentMessage, reminderDigest, renewalCheckMessage, requestMessage } from './messages.js';
+import { confirmOn, dueReminderSlot, needsAutoAsk, nextReminderDate, reconcile, todayIn, urgencyOf, type ObligationRecord } from './obligation.js';
 
 const kind = { id: 'k1', key: 'renewal', name: 'Renewal', color: '#6366f1', behavior: 'recurring' as const, actionLabel: 'Renew' };
 const tracked = (over: Partial<TrackedDate> = {}): TrackedDate => ({
@@ -14,6 +14,7 @@ const tracked = (over: Partial<TrackedDate> = {}): TrackedDate => ({
   recurrence: { amount: 1, unit: 'year' },
   reminders: [{ amount: 30, unit: 'day' }, { amount: 7, unit: 'day' }],
   notify: { owner: true, userIds: [], emails: [], unitManagers: 'fallback' },
+  confirmBefore: null,
   ...over,
 });
 const event = (dates: TrackedDate[], over: Partial<AssetChanged> = {}): AssetChanged => ({
@@ -22,6 +23,7 @@ const event = (dates: TrackedDate[], over: Partial<AssetChanged> = {}): AssetCha
   assetTypeId: 't1',
   assetTypeName: 'License',
   unitId: 'p1',
+  catalogId: null,
   ownerId: 'u1',
   status: 'active',
   active: true,
@@ -48,6 +50,8 @@ const obligation = (over: Partial<ObligationRecord> = {}): ObligationRecord => {
     resolvedAt: null,
     resolvedBy: null,
     note: null,
+    confirmBefore: null,
+    check: null,
     ...over,
   };
 };
@@ -164,5 +168,42 @@ describe('request emails', () => {
     expect(m.subject).toBe('REQ-1001 is declined: Miro seats');
     expect(m.html).toContain('&lt;b&gt;Use FigJam');
     expect(m.text).toContain('Use FigJam');
+  });
+});
+
+describe('renewal checks', () => {
+  const sixtyDays = { amount: 60, unit: 'day' as const };
+
+  it('asks the owner once the window opens, and never after the date', () => {
+    const o = obligation({ confirmBefore: sixtyDays });
+    expect(confirmOn(o)).toBe('2026-12-03');
+    expect(needsAutoAsk(o, '2026-12-02')).toBe(false);
+    expect(needsAutoAsk(o, '2026-12-03')).toBe(true);
+    expect(needsAutoAsk(o, '2027-02-02')).toBe(false);
+  });
+
+  it('does not ask twice, or for one-off dates', () => {
+    const asked = { status: 'asked' as const, askedAt: new Date(), askedById: null, askedByName: 'x', message: null, answeredAt: null, answeredById: null, answeredByName: null, note: null };
+    expect(confirmOn(obligation({ confirmBefore: sixtyDays, check: asked }))).toBeNull();
+    expect(confirmOn(obligation({ confirmBefore: sixtyDays, recurring: false }))).toBeNull();
+    expect(confirmOn(obligation())).toBeNull();
+  });
+
+  it('re-syncs an obligation when the setting changes', () => {
+    const actions = reconcile([obligation()], event([tracked({ confirmBefore: sixtyDays })]));
+    expect(actions).toEqual([expect.objectContaining({ kind: 'update', id: 'o1', dateChanged: false })]);
+  });
+
+  it('writes plain, escaped emails', () => {
+    const ask = renewalCheckMessage(
+      { assetName: 'Figma <Org>', label: 'Renewal date', dueDate: '2027-02-01', kind: 'asked', decisionLabel: 'Waiting for owner', actorName: 'Dana', text: 'Still 40 seats?', url: 'https://x/a' },
+      'Tom',
+      '2027-01-02',
+    );
+    expect(ask.subject).toBe('Do you still need Figma <Org>? Renewal date due in 30 days');
+    expect(ask.html).toContain('Figma &lt;Org&gt;');
+    expect(ask.text).toContain('Still 40 seats?');
+    const c = commentMessage({ assetName: 'Figma', authorName: 'Dana', excerpt: 'hi', mentioned: true, url: 'https://x' }, 'Tom');
+    expect(c.subject).toBe('Dana mentioned you on Figma');
   });
 });

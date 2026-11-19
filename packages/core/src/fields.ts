@@ -56,6 +56,8 @@ export const dateTrackingSchema = z.object({
   recurrence: recurrenceSchema.optional(),
   reminders: z.array(durationSchema).max(10).optional(),
   notify: notifyRuleSchema.default({}),
+  /** Recurring dates: ask the owner "still needed?" this long before (null: only when someone asks). */
+  confirmBefore: durationSchema.nullable().default(null),
 });
 export type DateTracking = z.infer<typeof dateTrackingSchema>;
 

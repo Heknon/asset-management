@@ -4,7 +4,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { Bookmark, Search, Shapes, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { api, ApiError } from '@/lib/api';
+import { api, ApiError, withQuery } from '@/lib/api';
 import { useDebounced } from '@/lib/hooks';
 import { keys, useAssets, useLookups } from '@/lib/queries';
 import { formatDateTime } from '@/lib/utils';
@@ -15,7 +15,8 @@ import { Highlight } from './highlight';
 import { PersonName, UnitPath, UnitPicker, AssetTypeSelect } from './pickers';
 import { TypeIcon } from './type-icon';
 import { Button } from './ui/button';
-import { DataTable, type DataColumn, type SortState } from './ui/data-table';
+import { DataTable, ExportButton, type DataColumn, type SortState } from './ui/data-table';
+import { downloadUrl } from '@/lib/download';
 import { EmptyState } from './ui/display';
 import { Checkbox, Field, Input, Select } from './ui/form';
 import { Dialog } from './ui/overlay';
@@ -102,7 +103,20 @@ const toSaved = (q: ExplorerQuery): SavedQuery => ({
  * a team's page and saved views. `fixed` pins parts of the query (e.g. the
  * team on a team page); everything else is the user's to change and save.
  */
-export function AssetExplorer({ initial, fixed = {}, view, empty }: { initial?: SavedQuery; fixed?: { assetTypeId?: string; unitId?: string }; view?: SavedView; empty?: React.ReactNode }) {
+export function AssetExplorer({
+  initial,
+  fixed = {},
+  view,
+  empty,
+  title,
+}: {
+  initial?: SavedQuery;
+  fixed?: { assetTypeId?: string; unitId?: string; catalogId?: string };
+  view?: SavedView;
+  empty?: React.ReactNode;
+  /** Names the CSV export ("Software licenses 2026-11-19.csv"). */
+  title?: string;
+}) {
   const lookups = useLookups();
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -126,18 +140,19 @@ export function AssetExplorer({ initial, fixed = {}, view, empty }: { initial?: 
 
   const type = query.assetTypeId ? lookups.typeById.get(query.assetTypeId) : undefined;
   const sort: SortState = query.sort ?? (search ? { sort: 'relevance', order: 'desc' } : { sort: 'updatedAt', order: 'desc' });
-  const assets = useAssets({
+  const listQuery = {
     assetTypeId: query.assetTypeId,
     unitId: query.unitId,
     includeSubunits: query.includeSubunits,
+    catalogId: fixed.catalogId,
     status: query.status,
     q: search || undefined,
     filters: query.filters,
     sort: sort.sort,
     order: sort.order,
-    limit: PAGE,
-    offset,
-  });
+  };
+  const assets = useAssets({ ...listQuery, limit: PAGE, offset });
+  const exportTitle = view?.name ?? title ?? type?.name ?? 'Assets';
   const columns = useMemo(() => columnsFor(type, lookups, !!search), [type, lookups, search]);
   const dirty = JSON.stringify(toSaved(query)) !== JSON.stringify(toSaved({ ...fromSaved(view?.query ?? initial), ...fixed }));
   const hasQuery = !!(query.q || query.filters.length || query.status || (query.unitId && !fixed.unitId) || (query.assetTypeId && !fixed.assetTypeId));
@@ -194,6 +209,7 @@ export function AssetExplorer({ initial, fixed = {}, view, empty }: { initial?: 
         <FilterBar type={type} value={query.filters} onChange={(filters) => update({ filters })} />
         <span className="ml-auto flex items-center gap-2">
           <span className="text-xs text-subtle">{assets.data ? `${assets.data.total.toLocaleString()} ${assets.data.total === 1 ? 'result' : 'results'}` : ''}</span>
+          <ExportButton disabled={!assets.data?.total} onExport={() => downloadUrl(withQuery('/api/registry/assets/export.csv', { ...listQuery, title: exportTitle }))} />
           {(hasQuery || view) && (view ? dirty : true) && (
             <Button icon={<Bookmark className="size-3.5" />} onClick={() => (view ? saveView.mutate(false) : (setName(''), setSaving(true)))} loading={saveView.isPending}>
               {view ? 'Save changes' : 'Save view'}

@@ -1,8 +1,11 @@
 import {
   AppError,
   isValidIsoDate,
-  scopesFor,
+  ShareKeyResolver,
+  visibilityFor,
+  type AccessLevel,
   type AssetChanged,
+  type CatalogChanged,
   type Obligation,
   type ObligationAction,
   type ObligationQuery,
@@ -12,18 +15,29 @@ import {
   type UnitChanged,
   type UnitRollup,
   type UserChanged,
+  type Visibility,
 } from '@am/core';
 import { authorize } from '@am/platform';
 import { feed, type CalendarEntry } from '../domain/calendar.js';
-import { present, reconcile, type ObligationRecord, type AssetRef } from '../domain/obligation.js';
+import { needsAutoAsk, present, reconcile, type AssetRef, type ObligationRecord, type RenewalCheckRecord } from '../domain/obligation.js';
+import type { ObligationWithAsset } from './ports.js';
 import type { Clock, SchedulerStore } from './ports.js';
 
 export class ObligationService {
+  private readonly shareKeys: ShareKeyResolver;
+
   constructor(
     private readonly store: SchedulerStore,
     private readonly clock: Clock,
     private readonly appUrl: string,
-  ) {}
+  ) {
+    this.shareKeys = new ShareKeyResolver((ids) => store.unitPaths(ids));
+  }
+
+  /** Org-tree scopes plus catalogs shared with the caller (same rules as the registry). */
+  private async visibility(p: Principal, required: AccessLevel): Promise<Visibility> {
+    return visibilityFor(p, required, p.isAdmin ? [] : await this.shareKeys.of(p));
+  }
 
   // ─── Projections (event handlers; idempotent) ────────────────────────────
 
@@ -36,6 +50,7 @@ export class ObligationService {
         assetTypeName: e.assetTypeName,
         unitId: e.unitId,
         unitPath: [],
+        catalogId: e.catalogId ?? null,
         ownerId: e.ownerId,
         active: e.active,
         spend: e.spend,
@@ -71,19 +86,22 @@ export class ObligationService {
   // ─── Queries ─────────────────────────────────────────────────────────────
 
   async list(principal: Principal, q: ObligationQuery): Promise<Page<Obligation>> {
-    const scopes = scopesFor(principal, 'view');
-    const { items, total } = await this.store.query(q, scopes, principal.userId);
+    const { items, total } = await this.store.query(q, await this.visibility(principal, 'view'), principal.userId);
     const today = this.clock.today();
     return { items: items.map((i) => present(i.obligation, i.asset, today)), total, limit: q.limit, offset: q.offset };
   }
 
   async summary(principal: Principal, q: { unitId?: string; mine: boolean }): Promise<ObligationSummary> {
-    return this.store.summary(scopesFor(principal, 'view'), this.clock.today(), { unitId: q.unitId, userId: q.mine ? principal.userId : undefined });
+    return this.store.summary(await this.visibility(principal, 'view'), this.clock.today(), { unitId: q.unitId, userId: q.mine ? principal.userId : undefined });
   }
 
   /** Division/department view: what renews beneath each child unit. */
   async rollup(principal: Principal, unitId: string): Promise<UnitRollup[]> {
-    return this.store.rollup(scopesFor(principal, 'view'), this.clock.today(), unitId);
+    return this.store.rollup(await this.visibility(principal, 'view'), this.clock.today(), unitId);
+  }
+
+  async onCatalogChanged(e: CatalogChanged): Promise<void> {
+    await this.store.transaction((tx) => tx.applyCatalog(e));
   }
 
   async onUnitChanged(e: UnitChanged): Promise<void> {
@@ -100,11 +118,38 @@ export class ObligationService {
   async act(principal: Principal, id: string, action: ObligationAction): Promise<Obligation> {
     const found = await this.store.getObligation(id);
     if (!found) throw AppError.notFound('Obligation');
-    authorize(principal, 'edit', { unitPath: found.asset.unitPath, assetTypeId: found.asset.assetTypeId });
+    const shared = principal.isAdmin ? undefined : await this.store.catalogShareLevel(found.asset.catalogId, await this.shareKeys.of(principal));
+    // Anyone who can see it may answer "still needed?"; everything else needs edit.
+    authorize(principal, action.action === 'answer' ? 'view' : 'edit', { unitPath: found.asset.unitPath, assetTypeId: found.asset.assetTypeId, shared });
     const o = found.obligation;
     const today = this.clock.today();
 
     switch (action.action) {
+      case 'ask':
+        assertActive(o);
+        await this.recordCheck(found, {
+          status: 'asked',
+          askedAt: new Date(),
+          askedById: principal.userId,
+          askedByName: principal.displayName,
+          message: action.message || null,
+          answeredAt: null,
+          answeredById: null,
+          answeredByName: null,
+          note: null,
+        }, { id: principal.userId, name: principal.displayName });
+        break;
+      case 'answer':
+        assertActive(o);
+        await this.recordCheck(found, {
+          ...(o.check ?? { askedAt: null, askedById: null, askedByName: null, message: null }),
+          status: action.decision,
+          answeredAt: new Date(),
+          answeredById: principal.userId,
+          answeredByName: principal.displayName,
+          note: action.note || null,
+        }, { id: principal.userId, name: principal.displayName });
+        break;
       case 'complete':
         if (o.recurring) throw AppError.validation(`Use "${o.dateKind.actionLabel}" on the asset to roll this date forward`);
         assertActive(o);
@@ -129,6 +174,55 @@ export class ObligationService {
     }
     const updated = (await this.store.getObligation(id))!;
     return present(updated.obligation, updated.asset, today);
+  }
+
+  /**
+   * Asks owners "still needed?" when a recurring date's confirmation window
+   * opens (the date field's "ask the owner … before" setting). Runs with the
+   * reminder job; each occurrence is asked once.
+   */
+  async autoAsk(): Promise<number> {
+    const today = this.clock.today();
+    let asked = 0;
+    for (const item of await this.store.confirmable(today)) {
+      if (!needsAutoAsk(item.obligation, today)) continue;
+      await this.recordCheck(item, {
+        status: 'asked',
+        askedAt: new Date(),
+        askedById: null,
+        askedByName: 'Asset Management',
+        message: null,
+        answeredAt: null,
+        answeredById: null,
+        answeredByName: null,
+        note: null,
+      }, null);
+      asked++;
+    }
+    return asked;
+  }
+
+  /** Saves the check and publishes it (emails; a line in the asset's conversation). */
+  private async recordCheck({ obligation: o, asset }: ObligationWithAsset, check: RenewalCheckRecord, actor: { id: string; name: string } | null) {
+    await this.store.transaction(async (tx) => {
+      await tx.setCheck(o.id, check);
+      await tx.publish('renewal.check', {
+        obligationId: o.id,
+        assetId: o.assetId,
+        assetName: asset.name,
+        label: o.label,
+        dueDate: o.dueDate,
+        kind: check.status === 'asked' ? 'asked' : 'answered',
+        status: check.status,
+        actorId: actor?.id ?? null,
+        actorName: actor?.name ?? 'Asset Management',
+        text: check.status === 'asked' ? check.message : check.note,
+        askedById: check.askedById,
+        ownerId: asset.ownerId,
+        unitId: asset.unitId,
+        at: (check.status === 'asked' ? check.askedAt : check.answeredAt)!.toISOString(),
+      });
+    });
   }
 
   // ─── Calendar feed ───────────────────────────────────────────────────────
@@ -170,3 +264,4 @@ export function calendarEntry(o: ObligationRecord, asset: AssetRef, appUrl: stri
 }
 
 const toDays = (d: { amount: number; unit: string }) => d.amount * ({ day: 1, week: 7, month: 30, year: 365 }[d.unit] ?? 1);
+

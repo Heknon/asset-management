@@ -1,4 +1,7 @@
 import {
+  Folder,
+  FlaskConical,
+  Library,
   Box,
   Briefcase,
   Car,
@@ -25,7 +28,7 @@ import {
 } from 'lucide-react';
 import { IconTile } from './ui/display';
 
-/** The icon vocabulary for asset types; stored by name on the type. */
+/** The icon vocabulary for asset types and catalogs; stored by name. */
 export const typeIcons: Record<string, LucideIcon> = {
   box: Box,
   'key-round': KeyRound,
@@ -49,6 +52,9 @@ export const typeIcons: Record<string, LucideIcon> = {
   briefcase: Briefcase,
   car: Car,
   ticket: Ticket,
+  folder: Folder,
+  flask: FlaskConical,
+  library: Library,
 };
 
 export function TypeIcon({ icon, color, size = 28 }: { icon: string; color: string; size?: number }) {

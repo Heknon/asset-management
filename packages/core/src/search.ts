@@ -38,7 +38,8 @@ export interface SearchLookups {
   assetName?: (id: string) => string | undefined;
 }
 
-function fieldText(field: FieldDefinition, value: unknown, l: SearchLookups): string | null {
+/** A value as people read it (option labels, names, "1200 USD"); shared by search text and CSV export. */
+export function attributeText(field: FieldDefinition, value: unknown, l: Pick<SearchLookups, 'personName' | 'assetName'>): string | null {
   if (value === undefined || value === null || value === '') return null;
   switch (field.kind) {
     case 'select':
@@ -67,7 +68,7 @@ export function buildSearchText(type: Pick<AssetType, 'fields'>, name: string, v
   if (ownerName) parts.push(`Owner: ${ownerName}`);
   for (const f of type.fields) {
     if (isRestricted(f)) continue;
-    const text = fieldText(f, values[f.key], l);
+    const text = attributeText(f, values[f.key], l);
     if (text) parts.push(`${f.label}: ${text}`);
   }
   return parts.join(' · ').slice(0, 20_000);

@@ -14,6 +14,10 @@ import { z } from 'zod';
  *   1. unit membership  → the unit's default member access (usually view)
  *   2. unit management  → manage on the unit's subtree
  *   3. explicit grants  → e.g. Procurement: manage on the whole organization
+ *
+ * On top of the tree, a unit can share a *catalog* (a named collection of its
+ * assets) with other units or people, at view or edit. Shares only ever add
+ * access, never manage: restricted fields and deletion stay with the owners.
  */
 export const accessLevels = ['none', 'view', 'edit', 'manage'] as const;
 export type AccessLevel = (typeof accessLevels)[number];
@@ -46,6 +50,8 @@ export interface Principal {
 export interface AccessScope {
   unitPath: readonly string[];
   assetTypeId: string;
+  /** Access the caller gets through a catalog share, if any (capped at edit). */
+  shared?: AccessLevel;
 }
 
 export function atLeast(level: AccessLevel, required: AccessLevel): boolean {
@@ -58,7 +64,7 @@ export function maxLevel(a: AccessLevel, b: AccessLevel): AccessLevel {
 
 export function effectiveLevel(principal: Pick<Principal, 'isAdmin' | 'grants'>, scope: AccessScope): AccessLevel {
   if (principal.isAdmin) return 'manage';
-  let level: AccessLevel = 'none';
+  let level: AccessLevel = scope.shared === 'view' ? 'view' : scope.shared === 'edit' || scope.shared === 'manage' ? 'edit' : 'none';
   for (const g of principal.grants) {
     const unit = g.unitId === null || scope.unitPath.includes(g.unitId);
     const type = g.assetTypeId === null || g.assetTypeId === scope.assetTypeId;
@@ -105,4 +111,85 @@ export function requestableUnitIds(principal: Pick<Principal, 'units' | 'isAdmin
   const out = new Set<string>();
   for (const u of principal.units) for (const id of unitPathOf(u.unitId) ?? [u.unitId]) out.add(id);
   return out;
+}
+
+// ─── Catalog shares ────────────────────────────────────────────────────────
+
+export type ShareSubjectKind = 'unit' | 'user';
+export type ShareLevel = 'view' | 'edit';
+
+/** How a share is stored and matched: "unit:<id>" (that unit and everything beneath it) or "user:<id>". */
+export const shareSubjectKey = (kind: ShareSubjectKind, id: string) => `${kind}:${id}`;
+
+/**
+ * The share keys that reach the caller: themselves, every unit they belong to
+ * or manage, and every ancestor of those units (a share with a division
+ * reaches all of its teams).
+ */
+export function shareKeysOf(principal: Pick<Principal, 'userId' | 'units'>, unitPathOf: (unitId: string) => readonly string[] | undefined): string[] {
+  const keys = new Set([shareSubjectKey('user', principal.userId)]);
+  for (const u of principal.units) for (const id of unitPathOf(u.unitId) ?? [u.unitId]) keys.add(shareSubjectKey('unit', id));
+  return [...keys];
+}
+
+/**
+ * Resolves a caller's share keys once per request (principals are per
+ * request). Each service passes its own unit-path lookup.
+ */
+export class ShareKeyResolver {
+  private readonly memo = new WeakMap<object, Promise<string[]>>();
+
+  constructor(private readonly unitPaths: (ids: string[]) => Promise<ReadonlyMap<string, readonly string[]>>) {}
+
+  of(p: Pick<Principal, 'userId' | 'units'>): Promise<string[]> {
+    let keys = this.memo.get(p);
+    if (!keys) {
+      keys = this.unitPaths(p.units.map((u) => u.unitId)).then((paths) => shareKeysOf(p, (id) => paths.get(id)));
+      this.memo.set(p, keys);
+    }
+    return keys;
+  }
+}
+
+/** Share levels that satisfy `required` (shares never satisfy manage). */
+export function shareLevelsFor(required: AccessLevel): ShareLevel[] {
+  if (required === 'view' || required === 'none') return ['view', 'edit'];
+  return required === 'edit' ? ['edit'] : [];
+}
+
+/** Everything a repository needs to filter the rows a caller may see (or change) at a level. */
+export interface Visibility {
+  scopes: Scope[];
+  shareKeys: string[];
+  shareLevels: ShareLevel[];
+}
+
+export function visibilityFor(principal: Pick<Principal, 'isAdmin' | 'grants'>, required: AccessLevel, shareKeys: readonly string[]): Visibility {
+  return { scopes: scopesFor(principal, required), shareKeys: [...shareKeys], shareLevels: principal.isAdmin ? [] : shareLevelsFor(required) };
+}
+
+/** The best level among the shares that reach someone. */
+export function bestShareLevel(levels: readonly string[]): AccessLevel {
+  return levels.includes('edit') ? 'edit' : levels.includes('view') ? 'view' : 'none';
+}
+
+/**
+ * Access to a unit as a whole (catalogs, which hold several asset types): a
+ * grant limited to one asset type gives at most view.
+ */
+export function unitLevel(principal: Pick<Principal, 'isAdmin' | 'grants'>, unitPath: readonly string[]): AccessLevel {
+  if (principal.isAdmin) return 'manage';
+  let level: AccessLevel = 'none';
+  for (const g of principal.grants) {
+    if (g.unitId !== null && !unitPath.includes(g.unitId)) continue;
+    level = maxLevel(level, g.assetTypeId === null ? g.level : 'view');
+  }
+  return level;
+}
+
+/** Org-tree scopes for unit-level things (catalogs): asset-type limits dropped. */
+export function unitScopesFor(principal: Pick<Principal, 'isAdmin' | 'grants'>, required: AccessLevel): Scope[] {
+  const scopes = scopesFor(principal, required);
+  if (scopes.some((s) => s.unitId === null)) return [{ unitId: null, assetTypeId: null }];
+  return [...new Set(scopes.map((s) => s.unitId!))].map((unitId) => ({ unitId, assetTypeId: null }));
 }

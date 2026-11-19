@@ -40,7 +40,7 @@ function setup(level: AccessLevel = 'edit') {
     },
     delete: async (keys) => keys.forEach((k) => objects.delete(k)),
   };
-  const access: AssetAccess = { check: async (_t, id): Promise<AccessCheck | null> => (id === ASSET && level !== 'none' ? { assetId: id, assetTypeId: 't', unitId: 'p', level } : null) };
+  const access: AssetAccess = { check: async (_t, id): Promise<AccessCheck | null> => (id === ASSET && level !== 'none' ? { assetId: id, assetTypeId: 't', unitId: 'p', catalogId: null, level } : null) };
   return { service: new FileService(store, storage, access, 10_000), objects, rows };
 }
 

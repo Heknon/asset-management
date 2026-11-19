@@ -1,13 +1,14 @@
 import { randomBytes } from 'node:crypto';
-import { AppError, addDuration, type IsoDate, type ObligationQuery, type Scope, type TrackedDate } from '@am/core';
-import { inSubtree, scopeFilter } from '@am/platform';
+import { AppError, addDuration, type AccessLevel, type CatalogChanged, type EventMap, type EventName, type IsoDate, type ObligationQuery, type TrackedDate, type Visibility } from '@am/core';
+import { catalogShareLevel, enqueue, inSubtree, visibleFilter } from '@am/platform';
 import { sql, type Kysely, type Selectable } from 'kysely';
 import type { ObligationWithAsset, SchedulerStore, UserRef } from '../application/ports.js';
-import type { AssetRef, ObligationRecord } from '../domain/obligation.js';
+import type { AssetRef, ObligationRecord, RenewalCheckRecord } from '../domain/obligation.js';
 import type { SchedulerDB } from './schema.js';
 
 const json = (v: unknown) => JSON.stringify(v);
 const ACTIVE = ['open', 'snoozed'] as const;
+const VISIBLE_COLS = { unitPath: 'units_ref.path', assetType: 'assets_ref.asset_type_id', catalog: 'assets_ref.catalog_id' };
 
 type Row = Selectable<SchedulerDB['obligations']> & Selectable<SchedulerDB['assets_ref']> & { unit_path: string[] | null };
 
@@ -27,6 +28,20 @@ const toObligation = (r: Row): ObligationRecord => ({
   resolvedAt: r.resolved_at,
   resolvedBy: r.resolved_by,
   note: r.note,
+  confirmBefore: r.confirm_before,
+  check: r.check_status
+    ? {
+        status: r.check_status,
+        askedAt: r.check_asked_at,
+        askedById: r.check_asked_by,
+        askedByName: r.check_asked_by_name,
+        message: r.check_message,
+        answeredAt: r.check_answered_at,
+        answeredById: r.check_answered_by,
+        answeredByName: r.check_answered_by_name,
+        note: r.check_note,
+      }
+    : null,
 });
 
 const toAsset = (r: Row): AssetRef => ({
@@ -36,6 +51,7 @@ const toAsset = (r: Row): AssetRef => ({
   assetTypeName: r.asset_type_name,
   unitId: r.unit_id,
   unitPath: r.unit_path ?? [r.unit_id],
+  catalogId: r.catalog_id,
   ownerId: r.owner_id,
   active: r.active,
   spend: r.spend,
@@ -77,6 +93,7 @@ export class PgSchedulerStore implements SchedulerStore {
       asset_type_id: ref.assetTypeId,
       asset_type_name: ref.assetTypeName,
       unit_id: ref.unitId,
+      catalog_id: ref.catalogId,
       owner_id: ref.ownerId,
       active: ref.active,
       spend: json(ref.spend),
@@ -111,6 +128,7 @@ export class PgSchedulerStore implements SchedulerStore {
       recurring: !!t.recurrence,
       reminders: json(t.reminders),
       notify: json({ ...t.notify, emails: t.notify.emails.map((e) => e.toLowerCase()) }),
+      confirm_before: json(t.confirmBefore ?? null),
     };
   }
 
@@ -164,13 +182,13 @@ export class PgSchedulerStore implements SchedulerStore {
 
   // ─── Queries ─────────────────────────────────────────────────────────────
 
-  async query(q: ObligationQuery, scopes: Scope[], userId: string) {
+  async query(q: ObligationQuery, visibility: Visibility, userId: string) {
     let base = this.db
       .selectFrom('obligations')
       .innerJoin('assets_ref', 'assets_ref.asset_id', 'obligations.asset_id')
       .leftJoin('units_ref', 'units_ref.id', 'assets_ref.unit_id')
       .where('assets_ref.deleted', '=', false)
-      .where(scopeFilter(scopes, 'units_ref.path', 'assets_ref.asset_type_id'));
+      .where(visibleFilter(visibility, VISIBLE_COLS));
     if (q.unitId) base = base.where(inSubtree(q.unitId, 'units_ref.path'));
     if (q.state === 'active') base = base.where('obligations.state', 'in', ACTIVE);
     else if (q.state === 'all') base = base.where('obligations.state', '!=', 'superseded');
@@ -179,6 +197,8 @@ export class PgSchedulerStore implements SchedulerStore {
     if (q.to) base = base.where('obligations.due_date', '<=', q.to);
     if (q.assetId) base = base.where('obligations.asset_id', '=', q.assetId);
     if (q.dateKindId) base = base.where(sql`obligations.date_kind->>'id'`, '=', q.dateKindId);
+    if (q.check === 'asked') base = base.where('obligations.check_status', '=', 'asked');
+    else if (q.check === 'answered') base = base.where('obligations.check_status', 'in', ['renew', 'change', 'cancel']);
     if (q.mine) {
       base = base.where((eb) => eb.or([eb('assets_ref.owner_id', '=', userId), eb(sql`obligations.notify->'userIds'`, '@>', sql`${json([userId])}::jsonb`)]));
     }
@@ -195,7 +215,7 @@ export class PgSchedulerStore implements SchedulerStore {
   }
 
   /** Active obligations of active assets due within a year, in scope. */
-  private async upcomingRows(scopes: Scope[], today: IsoDate, filter: { unitId?: string; userId?: string }) {
+  private async upcomingRows(visibility: Visibility, today: IsoDate, filter: { unitId?: string; userId?: string }) {
     let q = this.db
       .selectFrom('obligations')
       .innerJoin('assets_ref', 'assets_ref.asset_id', 'obligations.asset_id')
@@ -205,14 +225,14 @@ export class PgSchedulerStore implements SchedulerStore {
       .where('assets_ref.active', '=', true)
       .where('obligations.state', 'in', ACTIVE)
       .where('obligations.due_date', '<=', addDuration(today, { amount: 365, unit: 'day' }))
-      .where(scopeFilter(scopes, 'units_ref.path', 'assets_ref.asset_type_id'));
+      .where(visibleFilter(visibility, VISIBLE_COLS));
     if (filter.unitId) q = q.where(inSubtree(filter.unitId, 'units_ref.path'));
     if (filter.userId) q = q.where((eb) => eb.or([eb('assets_ref.owner_id', '=', filter.userId!), eb(sql`obligations.notify->'userIds'`, '@>', sql`${json([filter.userId])}::jsonb`)]));
     return q.execute();
   }
 
-  async summary(scopes: Scope[], today: IsoDate, filter: { unitId?: string; userId?: string } = {}) {
-    const rows = await this.upcomingRows(scopes, today, filter);
+  async summary(visibility: Visibility, today: IsoDate, filter: { unitId?: string; userId?: string } = {}) {
+    const rows = await this.upcomingRows(visibility, today, filter);
     const week = addDuration(today, { amount: 7, unit: 'day' });
     const month = addDuration(today, { amount: 30, unit: 'day' });
     const quarter = addDuration(today, { amount: 90, unit: 'day' });
@@ -235,8 +255,8 @@ export class PgSchedulerStore implements SchedulerStore {
   }
 
   /** What renews beneath each direct child of a unit (and on the unit itself). */
-  async rollup(scopes: Scope[], today: IsoDate, unitId: string) {
-    const rows = await this.upcomingRows(scopes, today, { unitId });
+  async rollup(visibility: Visibility, today: IsoDate, unitId: string) {
+    const rows = await this.upcomingRows(visibility, today, { unitId });
     const quarter = addDuration(today, { amount: 90, unit: 'day' });
     const acc = new Map<string, { open: number; overdue: number; renewing: Set<string>; spend: Map<string, Map<string, number>> }>();
     for (const r of rows) {
@@ -392,6 +412,64 @@ export class PgSchedulerStore implements SchedulerStore {
   async userByCalendarToken(token: string) {
     const r = await this.db.selectFrom('users_ref').selectAll().where('calendar_token', '=', token).executeTakeFirst();
     return r ? toUser(r) : null;
+  }
+
+  // ─── Renewal checks ──────────────────────────────────────────────────────
+
+  async setCheck(id: string, check: RenewalCheckRecord) {
+    await this.db
+      .updateTable('obligations')
+      .set({
+        check_status: check.status,
+        check_asked_at: check.askedAt,
+        check_asked_by: check.askedById,
+        check_asked_by_name: check.askedByName,
+        check_message: check.message,
+        check_answered_at: check.answeredAt,
+        check_answered_by: check.answeredById,
+        check_answered_by_name: check.answeredByName,
+        check_note: check.note,
+        updated_at: sql`now()`,
+      })
+      .where('id', '=', id)
+      .execute();
+  }
+
+  async confirmable(today: IsoDate) {
+    const rows = await this.joined()
+      .where('obligations.state', 'in', ACTIVE)
+      .where('obligations.recurring', '=', true)
+      .where('obligations.check_status', 'is', null)
+      .where(sql`obligations.confirm_before`, 'is not', null)
+      .where(sql`obligations.confirm_before`, '!=', sql`'null'::jsonb`)
+      .where('obligations.due_date', '>=', today)
+      .where('assets_ref.active', '=', true)
+      .where('assets_ref.deleted', '=', false)
+      .execute();
+    return rows.map((r) => toPair(r as Row));
+  }
+
+  // ─── Catalog sharing projection ──────────────────────────────────────────
+
+  async applyCatalog(e: CatalogChanged) {
+    const r = await this.db
+      .insertInto('catalogs_ref')
+      .values({ id: e.catalogId, version: e.version, deleted: e.deleted })
+      .onConflict((oc) => oc.column('id').doUpdateSet({ version: e.version, deleted: e.deleted }).where('catalogs_ref.version', '<=', e.version))
+      .returning('id')
+      .executeTakeFirst();
+    if (!r) return false; // older than what we hold
+    await this.db.deleteFrom('catalog_shares').where('catalog_id', '=', e.catalogId).execute();
+    if (e.shares.length) await this.db.insertInto('catalog_shares').values(e.shares.map((x) => ({ catalog_id: e.catalogId, subject_key: x.subjectKey, level: x.level }))).execute();
+    return true;
+  }
+
+  catalogShareLevel(catalogId: string | null, shareKeys: readonly string[]): Promise<AccessLevel> {
+    return catalogShareLevel(this.db, catalogId, shareKeys);
+  }
+
+  publish<E extends EventName>(event: E, payload: EventMap[E]) {
+    return enqueue(this.db, event, payload);
   }
 }
 

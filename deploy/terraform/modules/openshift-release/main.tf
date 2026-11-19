@@ -108,6 +108,9 @@ resource "helm_release" "app" {
             S3_SSE              = (var.s3.kms_key_id == null ? "AES256" : "aws:kms")
           }
         }
+        registry = {
+          env = { CSV_EXPORT_ENABLED = tostring(var.csv_export_enabled) }
+        }
         scheduler = {
           env = { MAIL_FROM = var.mail_from, REMINDER_TIMEZONE = var.reminder_timezone, REQUEST_INBOX_EMAILS = join(",", var.request_inbox_emails) }
         }

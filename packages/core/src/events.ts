@@ -13,6 +13,7 @@ export interface AssetChanged {
   assetTypeId: string;
   assetTypeName: string;
   unitId: string;
+  catalogId: string | null;
   ownerId: string | null;
   status: string;
   /** False when the status is inactive (retired, cancelled): no reminders. */
@@ -73,12 +74,59 @@ export interface RequestChanged {
   kind: 'created' | 'status' | 'comment' | 'assigned' | 'fulfilled';
 }
 
+/** Full state of a catalog's sharing (consumers replace what they hold). */
+export interface CatalogChanged {
+  catalogId: string;
+  unitId: string;
+  name: string;
+  deleted: boolean;
+  /** "unit:<id>" / "user:<id>" → level. */
+  shares: Array<{ subjectKey: string; level: 'view' | 'edit' }>;
+  version: number;
+}
+
+export interface AssetCommented {
+  assetId: string;
+  assetName: string;
+  commentId: string;
+  authorId: string;
+  authorName: string;
+  /** Plain text, trimmed for notifications. */
+  excerpt: string;
+  mentionIds: string[];
+  ownerId: string | null;
+}
+
+/** A renewal check was asked or answered (emails, and a line in the asset's conversation). */
+export interface RenewalCheckChanged {
+  obligationId: string;
+  assetId: string;
+  assetName: string;
+  label: string;
+  dueDate: IsoDate;
+  kind: 'asked' | 'answered';
+  /** 'asked' or the owner's decision. */
+  status: 'asked' | 'renew' | 'change' | 'cancel';
+  /** Null when the scheduler asked automatically. */
+  actorId: string | null;
+  actorName: string;
+  /** The question or the answer's note. */
+  text: string | null;
+  askedById: string | null;
+  ownerId: string | null;
+  unitId: string;
+  at: string;
+}
+
 export interface EventMap {
   'unit.changed': UnitChanged;
   'request.changed': RequestChanged;
   'asset.changed': AssetChanged;
   'asset.deleted': AssetDeleted;
   'user.changed': UserChanged;
+  'catalog.changed': CatalogChanged;
+  'asset.commented': AssetCommented;
+  'renewal.check': RenewalCheckChanged;
 }
 
 export type EventName = keyof EventMap;

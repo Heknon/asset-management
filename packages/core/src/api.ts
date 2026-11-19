@@ -187,9 +187,11 @@ export interface Asset {
   status: string;
   ownerId: string | null;
   unitId: string;
+  /** The catalog this asset is filed in (its owners can share a catalog with other units). */
+  catalogId: string | null;
   attributes: Attributes;
   reminderOverrides: Record<string, Duration[]>;
-  /** The caller's effective access to this asset. */
+  /** The caller's effective access to this asset (org grants and catalog shares combined). */
   access: AccessLevel;
   createdAt: string;
   updatedAt: string;
@@ -206,6 +208,7 @@ export const assetCreateSchema = z.object({
   status: fieldKeySchema.optional(),
   ownerId: uuid.nullable().default(null),
   unitId: uuid,
+  catalogId: uuid.nullable().default(null),
   /** The request this asset fulfils, if any. */
   requestId: uuid.optional(),
   attributes: attributesInput.default({}),
@@ -219,6 +222,7 @@ export const assetUpdateSchema = z
     status: fieldKeySchema,
     ownerId: uuid.nullable(),
     unitId: uuid,
+    catalogId: uuid.nullable(),
     attributes: attributesInput,
     reminderOverrides: reminderOverridesSchema,
   })
@@ -260,12 +264,102 @@ export const assetQuerySchema = pageQuerySchema.extend({
   includeSubunits: queryBool(true),
   status: z.string().optional(),
   ownerId: uuid.optional(),
+  catalogId: uuid.optional(),
   q: z.string().max(200).optional(),
   filters: jsonParam(z.array(assetFilterSchema).max(20)).default([]),
   sort: z.string().max(60).default('updatedAt'),
   order: z.enum(['asc', 'desc']).default('desc'),
 });
 export type AssetQuery = z.infer<typeof assetQuerySchema>;
+
+/** CSV export: the same query as the table (filters, search, sort), every page. */
+export const assetExportSchema = assetQuerySchema.omit({ limit: true, offset: true });
+export type AssetExportQuery = z.infer<typeof assetExportSchema>;
+/** Exports stop here; narrow the filters for more. */
+export const EXPORT_ROW_LIMIT = 50_000;
+
+// ─── Catalogs & sharing ────────────────────────────────────────────────────
+
+/**
+ * A named collection of a unit's assets ("R&D Labs", "Design licenses") that
+ * the unit can share with other units, divisions or people. Each asset is in
+ * at most one catalog; the catalog belongs to the asset's unit or an ancestor.
+ */
+export interface Catalog {
+  id: string;
+  unitId: string;
+  name: string;
+  description: string | null;
+  icon: string;
+  color: string;
+  assetCount: number;
+  /** The caller's access: manage (can edit and share), edit or view (through the org tree or a share). */
+  access: AccessLevel;
+  /** True when the caller reaches it through a share rather than the org tree. */
+  sharedWithMe: boolean;
+  shares: CatalogShare[];
+  createdByName: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CatalogShare {
+  subjectKind: 'unit' | 'user';
+  subjectId: string;
+  level: 'view' | 'edit';
+  createdByName: string;
+  createdAt: string;
+}
+
+const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/);
+
+export const catalogInputSchema = z.object({
+  unitId: uuid,
+  name: z.string().trim().min(1).max(120),
+  description: z.string().trim().max(2000).nullable().default(null),
+  icon: z.string().min(1).max(40).default('folder'),
+  color: hexColor.default('#6366f1'),
+});
+export type CatalogInput = z.infer<typeof catalogInputSchema>;
+
+export const catalogShareInputSchema = z.object({
+  subjectKind: z.enum(['unit', 'user']),
+  subjectId: uuid,
+  level: z.enum(['view', 'edit']),
+});
+export type CatalogShareInput = z.infer<typeof catalogShareInputSchema>;
+
+export const catalogQuerySchema = z.object({
+  /** Catalogs owned by this unit (and beneath it). */
+  unitId: uuid.optional(),
+  /** "shared": only catalogs shared with me; "owned": only my org tree's; "all" (default). */
+  scope: z.enum(['all', 'owned', 'shared']).default('all'),
+});
+export type CatalogQuery = z.infer<typeof catalogQuerySchema>;
+
+// ─── Conversations ─────────────────────────────────────────────────────────
+
+/** A message on an asset's conversation. Anyone who can see the asset can read and post. */
+export interface AssetComment {
+  id: string;
+  assetId: string;
+  /** "message" (people), or "renewal_check" (posted when a renewal is asked about / answered). */
+  kind: 'message' | 'renewal_check';
+  authorId: string;
+  authorName: string;
+  body: string;
+  mentionIds: string[];
+  createdAt: string;
+  editedAt: string | null;
+  deleted: boolean;
+}
+
+export const commentInputSchema = z.object({
+  body: z.string().trim().min(1).max(5000),
+  /** People mentioned with @; they are emailed. */
+  mentionIds: z.array(uuid).max(20).default([]),
+});
+export type CommentInput = z.infer<typeof commentInputSchema>;
 
 export interface ActivityEntry {
   id: string;
@@ -281,6 +375,7 @@ export interface AccessCheck {
   assetId: string;
   assetTypeId: string;
   unitId: string;
+  catalogId: string | null;
   level: AccessLevel;
 }
 
@@ -345,6 +440,34 @@ export interface Obligation {
   resolvedAt: string | null;
   resolvedBy: string | null;
   nextReminder: IsoDate | null;
+  /** "Do you still need this?": the owner's answer before a renewal. */
+  check: RenewalCheck | null;
+  /** When the owner is asked automatically (from the date's settings), if not asked yet. */
+  confirmOn: IsoDate | null;
+}
+
+export const renewalDecisions = ['renew', 'change', 'cancel'] as const;
+export type RenewalDecision = (typeof renewalDecisions)[number];
+
+export const renewalDecisionMeta: Record<RenewalDecision | 'asked', { label: string; tone: 'neutral' | 'accent' | 'warning' | 'success' | 'danger' }> = {
+  asked: { label: 'Waiting for owner', tone: 'warning' },
+  renew: { label: 'Owner: renew', tone: 'success' },
+  change: { label: 'Owner: renew with changes', tone: 'accent' },
+  cancel: { label: "Owner: don't renew", tone: 'danger' },
+};
+
+/**
+ * Before paying for a renewal, the people who buy ask the people who use it.
+ * One check per occurrence of the date; a new cycle starts unanswered.
+ */
+export interface RenewalCheck {
+  status: 'asked' | RenewalDecision;
+  askedAt: string | null;
+  askedByName: string | null;
+  message: string | null;
+  answeredAt: string | null;
+  answeredByName: string | null;
+  note: string | null;
 }
 
 export const obligationQuerySchema = pageQuerySchema.extend({
@@ -357,6 +480,8 @@ export const obligationQuerySchema = pageQuerySchema.extend({
   mine: queryBool(false),
   /** Only items of this unit and everything beneath it. */
   unitId: uuid.optional(),
+  /** Renewal checks: waiting for the owner, or answered. */
+  check: z.enum(['asked', 'answered']).optional(),
 });
 export type ObligationQuery = z.infer<typeof obligationQuerySchema>;
 
@@ -365,6 +490,10 @@ export const obligationActionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('dismiss'), note: z.string().max(1000).optional() }),
   z.object({ action: z.literal('snooze'), until: isoDateSchema }),
   z.object({ action: z.literal('reopen') }),
+  /** Ask the owner whether this should be renewed (needs edit). */
+  z.object({ action: z.literal('ask'), message: z.string().trim().max(1000).optional() }),
+  /** The owner's (or anyone who can see it) answer. */
+  z.object({ action: z.literal('answer'), decision: z.enum(renewalDecisions), note: z.string().trim().max(2000).optional() }),
 ]);
 export type ObligationAction = z.infer<typeof obligationActionSchema>;
 

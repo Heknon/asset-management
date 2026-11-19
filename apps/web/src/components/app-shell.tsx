@@ -8,6 +8,7 @@ import {
   Building2,
   CalendarDays,
   ChevronDown,
+  FolderOpen,
   Inbox,
   KeyRound,
   LayoutTemplate,
@@ -115,6 +116,9 @@ function Sidebar({ me, onSearch }: { me: Me; onSearch: () => void }) {
         </NavItem>
         <NavItem to="/assets" icon={<Shapes />} active={path === '/assets' && !typeParam}>
           All assets
+        </NavItem>
+        <NavItem to="/catalogs" icon={<FolderOpen />} active={path.startsWith('/catalogs')}>
+          Catalogs
         </NavItem>
         <NavItem to="/calendar" icon={<CalendarDays />} active={path === '/calendar'}>
           Calendar
@@ -262,6 +266,7 @@ function CommandPalette({ open, onOpenChange, isAdmin }: { open: boolean; onOpen
     { label: 'Requests', icon: <ShoppingCart />, run: () => void navigate({ to: '/requests' }) },
     { label: 'All assets', icon: <Shapes />, run: () => void navigate({ to: '/assets' }) },
     { label: 'Calendar', icon: <CalendarDays />, run: () => void navigate({ to: '/calendar' }) },
+    { label: 'Catalogs', icon: <FolderOpen />, run: () => void navigate({ to: '/catalogs' }) },
     { label: 'Profile & notifications', icon: <User />, run: () => void navigate({ to: '/profile' }) },
     ...(isAdmin
       ? [

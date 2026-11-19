@@ -1,6 +1,12 @@
 import {
   assetCreateSchema,
+  assetExportSchema,
   assetQuerySchema,
+  catalogInputSchema,
+  catalogQuerySchema,
+  catalogShareInputSchema,
+  commentInputSchema,
+  csvFilename,
   assetTypeInputSchema,
   assetUpdateSchema,
   dateKindInputSchema,
@@ -12,70 +18,114 @@ import {
   savedViewInputSchema,
   searchQuerySchema,
 } from '@am/core';
-import { parse, requireAdmin, requirePrincipal } from '@am/platform';
+import { AppError } from '@am/core';
+import { metrics, parse, requireAdmin, requirePrincipal } from '@am/platform';
+import { Readable } from 'node:stream';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { AssetService } from '../application/asset-service.js';
 import type { CatalogService } from '../application/catalog-service.js';
+import type { CommentService } from '../application/comment-service.js';
+import type { ExportService } from '../application/export-service.js';
+import type { TypeService } from '../application/type-service.js';
 import type { RequestService } from '../application/request-service.js';
 import type { SearchService } from '../application/search-service.js';
 
 const PREFIX = '/api/registry';
 const idParam = z.object({ id: z.string().uuid() });
+const exportsTotal = metrics.counter({ name: 'am_exports_total', help: 'CSV exports', labelNames: ['kind'] });
+const exportedRows = metrics.counter({ name: 'am_exported_rows_total', help: 'Rows exported to CSV', labelNames: ['kind'] });
 
-export function registerRoutes(app: FastifyInstance, catalog: CatalogService, assets: AssetService, requests: RequestService, search: SearchService): void {
+export interface Services {
+  types: TypeService;
+  assets: AssetService;
+  catalogs: CatalogService;
+  comments: CommentService;
+  exports: ExportService;
+  requests: RequestService;
+  search: SearchService;
+}
+
+export interface Features {
+  /** CSV export of tables (on by default; CSV_EXPORT_ENABLED=false turns it off for everyone). */
+  csvExport: boolean;
+}
+
+export function registerRoutes(app: FastifyInstance, { types, assets, catalogs, comments, exports, requests, search }: Services, features: Features): void {
+  app.get(`${PREFIX}/features`, async (req) => {
+    requirePrincipal(req);
+    return features;
+  });
+
   // ─── Date kinds ──────────────────────────────────────────────────────────
   app.get(`${PREFIX}/date-kinds`, async (req) => {
     requirePrincipal(req);
-    return catalog.listDateKinds();
+    return types.listDateKinds();
   });
   app.post(`${PREFIX}/date-kinds`, async (req) => {
     requireAdmin(req);
-    return catalog.createDateKind(parse(dateKindInputSchema, req.body));
+    return types.createDateKind(parse(dateKindInputSchema, req.body));
   });
   app.put(`${PREFIX}/date-kinds/:id`, async (req) => {
     requireAdmin(req);
     const body = parse(dateKindInputSchema.extend({ archived: z.boolean().default(false) }), req.body);
-    return catalog.updateDateKind(parse(idParam, req.params).id, body);
+    return types.updateDateKind(parse(idParam, req.params).id, body);
   });
 
   // ─── Asset types (templates) ─────────────────────────────────────────────
   app.get(`${PREFIX}/asset-types`, async (req) => {
     requirePrincipal(req);
     const { archived } = parse(z.object({ archived: z.enum(['true', 'false']).default('false') }), req.query);
-    return catalog.listTypes(archived === 'true');
+    return types.listTypes(archived === 'true');
   });
   app.get(`${PREFIX}/asset-types/:id`, async (req) => {
     requirePrincipal(req);
-    return catalog.getType(parse(idParam, req.params).id);
+    return types.getType(parse(idParam, req.params).id);
   });
   app.post(`${PREFIX}/asset-types`, async (req) => {
     requireAdmin(req);
-    return catalog.createType(parse(assetTypeInputSchema, req.body));
+    return types.createType(parse(assetTypeInputSchema, req.body));
   });
   app.put(`${PREFIX}/asset-types/:id`, async (req) => {
     requireAdmin(req);
     const body = parse(assetTypeInputSchema.extend({ version: z.number().int().positive() }), req.body);
     const { version, ...input } = body;
-    return catalog.updateType(parse(idParam, req.params).id, input, version);
+    return types.updateType(parse(idParam, req.params).id, input, version);
   });
   app.post(`${PREFIX}/asset-types/:id/archive`, async (req) => {
     requireAdmin(req);
     const { archived } = parse(z.object({ archived: z.boolean() }), req.body);
-    return catalog.setArchived(parse(idParam, req.params).id, archived);
+    return types.setArchived(parse(idParam, req.params).id, archived);
   });
 
   app.get(`${PREFIX}/templates`, async (req) => {
     requireAdmin(req);
-    return catalog.templates();
+    return types.templates();
   });
   app.post(`${PREFIX}/templates/:key/instantiate`, async (req) => {
     requireAdmin(req);
-    return catalog.createFromTemplate(parse(z.object({ key: fieldKeySchema }), req.params).key);
+    return types.createFromTemplate(parse(z.object({ key: fieldKeySchema }), req.params).key);
   });
 
   // ─── Assets ──────────────────────────────────────────────────────────────
   app.get(`${PREFIX}/assets`, async (req) => assets.list(requirePrincipal(req), parse(assetQuerySchema, req.query)));
+  app.get(`${PREFIX}/assets/export.csv`, async (req, reply) => {
+    const principal = requirePrincipal(req);
+    if (!features.csvExport) throw AppError.forbidden('CSV export is turned off');
+    const query = parse(assetExportSchema.extend({ title: z.string().max(120).default('Assets') }), req.query);
+    const { title, ...rest } = query;
+    const filename = csvFilename(title, new Date().toISOString().slice(0, 10));
+    exportsTotal.inc({ kind: 'assets' });
+    const csv = exports.assetsCsv(principal, rest, (rows) => {
+      exportedRows.inc({ kind: 'assets' }, rows);
+      req.log.info({ export: 'assets', rows, userId: principal.userId, query: rest }, 'csv export');
+    });
+    return reply
+      .header('content-type', 'text/csv; charset=utf-8')
+      .header('content-disposition', `attachment; filename="${filename.replace(/[^\x20-\x7e]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(filename)}`)
+      .header('cache-control', 'no-store')
+      .send(Readable.from(csv));
+  });
   app.post(`${PREFIX}/assets`, async (req, reply) => {
     const asset = await assets.create(requirePrincipal(req), parse(assetCreateSchema, req.body));
     return reply.status(201).send(asset);
@@ -93,6 +143,31 @@ export function registerRoutes(app: FastifyInstance, catalog: CatalogService, as
   app.get(`${PREFIX}/assets/:id/activity`, async (req) => assets.activity(requirePrincipal(req), parse(idParam, req.params).id));
   app.get(`${PREFIX}/assets/:id/access`, async (req) => assets.access(requirePrincipal(req), parse(idParam, req.params).id));
   app.get(`${PREFIX}/assets/:id/request`, async (req) => (await requests.forAsset(requirePrincipal(req), parse(idParam, req.params).id)) ?? {});
+
+  // ─── Conversations ───────────────────────────────────────────────────────
+  app.get(`${PREFIX}/assets/:id/comments`, async (req) => comments.list(requirePrincipal(req), parse(idParam, req.params).id));
+  app.post(`${PREFIX}/assets/:id/comments`, async (req, reply) =>
+    reply.status(201).send(await comments.create(requirePrincipal(req), parse(idParam, req.params).id, parse(commentInputSchema, req.body))),
+  );
+  app.put(`${PREFIX}/comments/:id`, async (req) => comments.update(requirePrincipal(req), parse(idParam, req.params).id, parse(commentInputSchema, req.body)));
+  app.delete(`${PREFIX}/comments/:id`, async (req) => comments.remove(requirePrincipal(req), parse(idParam, req.params).id));
+
+  // ─── Catalogs & sharing ──────────────────────────────────────────────────
+  app.get(`${PREFIX}/catalogs`, async (req) => catalogs.list(requirePrincipal(req), parse(catalogQuerySchema, req.query)));
+  app.post(`${PREFIX}/catalogs`, async (req, reply) => reply.status(201).send(await catalogs.create(requirePrincipal(req), parse(catalogInputSchema, req.body))));
+  app.get(`${PREFIX}/catalogs/:id`, async (req) => catalogs.get(requirePrincipal(req), parse(idParam, req.params).id));
+  app.put(`${PREFIX}/catalogs/:id`, async (req) =>
+    catalogs.update(requirePrincipal(req), parse(idParam, req.params).id, parse(catalogInputSchema.omit({ unitId: true }), req.body)),
+  );
+  app.delete(`${PREFIX}/catalogs/:id`, async (req, reply) => {
+    await catalogs.remove(requirePrincipal(req), parse(idParam, req.params).id);
+    return reply.status(204).send();
+  });
+  app.post(`${PREFIX}/catalogs/:id/shares`, async (req) => catalogs.share(requirePrincipal(req), parse(idParam, req.params).id, parse(catalogShareInputSchema, req.body)));
+  app.delete(`${PREFIX}/catalogs/:id/shares/:subjectKind/:subjectId`, async (req) => {
+    const p = parse(z.object({ id: z.string().uuid(), subjectKind: z.enum(['unit', 'user']), subjectId: z.string().uuid() }), req.params);
+    return catalogs.unshare(requirePrincipal(req), p.id, p);
+  });
 
   // ─── Requests ────────────────────────────────────────────────────────────
   app.get(`${PREFIX}/requests`, async (req) => requests.list(requirePrincipal(req), parse(requestQuerySchema, req.query)));

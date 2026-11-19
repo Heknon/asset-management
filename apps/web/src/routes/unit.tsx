@@ -1,4 +1,5 @@
-import { addDuration, type OrgUnit, type UnitPerson, type UnitRollup, type UnitRole } from '@am/core';
+import { addDuration, atLeast, unitLevel, type Catalog, type OrgUnit, type UnitPerson, type UnitRollup, type UnitRole } from '@am/core';
+import { CatalogCard, CatalogFormDialog } from '@/components/catalogs';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { Building2, ChevronRight, Inbox, Plus, Trash2, Users } from 'lucide-react';
@@ -10,12 +11,12 @@ import { ObligationList } from '@/components/obligations';
 import { PersonPicker } from '@/components/pickers';
 import { useNewRequest } from '@/components/request-form';
 import { Button } from '@/components/ui/button';
-import { DataTable, type DataColumn } from '@/components/ui/data-table';
+import { DataTable, ExportButton, exportRows, type DataColumn } from '@/components/ui/data-table';
 import { Avatar, Badge, Card, EmptyState, IconTile, PageHeader, Spinner, Stat, Tabs } from '@/components/ui/display';
 import { Select } from '@/components/ui/form';
 import { api, ApiError } from '@/lib/api';
 import { useMyOrg } from '@/lib/org';
-import { keys, useAssets, useLookups, useObligations, useRequests, useRollup, useSummary, useUnitPeople } from '@/lib/queries';
+import { keys, useAssets, useCatalogs, useLookups, useMe, useObligations, useRequests, useRollup, useSummary, useUnitPeople } from '@/lib/queries';
 import { formatMoney, relativeDays, todayIso } from '@/lib/utils';
 
 const money = (list: Array<{ currency: string; amount: number }> | undefined) => (list?.length ? list.map((s) => formatMoney(s.amount, s.currency, true)).join(' + ') : '—');
@@ -38,6 +39,7 @@ export function UnitPage() {
   const spend = summary.data?.spend.map((s) => ({ currency: s.currency, amount: s.next365 }));
   const managers = (people.data ?? []).filter((p) => p.role === 'manager');
   const myRole = mine.find((m) => m.unit.id === unit.id)?.role;
+  const catalogs = useCatalogs({ unitId: unit.id });
   const canManagePeople = !!me?.isAdmin || mine.some((m) => m.role === 'manager' && unit.path.includes(m.unit.id));
 
   return (
@@ -85,6 +87,7 @@ export function UnitPage() {
             { value: 'overview', label: 'Overview' },
             { value: 'assets', label: 'Assets', count: assets.data?.total },
             { value: 'requests', label: 'Requests', count: openRequests.data?.total },
+            { value: 'catalogs', label: 'Catalogs', count: catalogs.data?.length },
             { value: 'people', label: 'People', count: people.data ? new Set(people.data.map((p) => p.id)).size : undefined },
           ]}
         />
@@ -109,8 +112,43 @@ export function UnitPage() {
           <RequestList items={openRequests.data?.items ?? []} title="Open requests" empty="No open requests for this team." />
         </div>
       )}
+      {tab === 'catalogs' && <CatalogsTab unitId={unit.id} catalogs={catalogs.data ?? []} />}
       {tab === 'people' && <PeopleTab unitId={unit.id} people={people.data ?? []} editable={canManagePeople} />}
     </>
+  );
+}
+
+/** Catalogs owned by this unit and its sub-units, plus creating one (managers). */
+function CatalogsTab({ unitId, catalogs }: { unitId: string; catalogs: Catalog[] }) {
+  const me = useMe().data;
+  const { unitById } = useLookups();
+  const navigate = useNavigate();
+  const [creating, setCreating] = useState(false);
+  const unit = unitById.get(unitId);
+  const canCreate = !!me && !!unit && atLeast(unitLevel(me, unit.path), 'manage');
+  return (
+    <div className="mx-auto w-full max-w-5xl space-y-4 px-6 py-6">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[13px] text-muted">Collections of this unit’s assets that it can share with other teams, divisions or people.</p>
+        {canCreate && (
+          <Button icon={<Plus className="size-3.5" />} onClick={() => setCreating(true)}>
+            New catalog
+          </Button>
+        )}
+      </div>
+      {catalogs.length ? (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {catalogs.map((c) => (
+            <CatalogCard key={c.id} catalog={c} />
+          ))}
+        </div>
+      ) : (
+        <Card>
+          <EmptyState title="No catalogs" description={canCreate ? 'Group assets — licenses, lab equipment, tools — into a catalog to share them with the teams that use them.' : 'Its managers can create catalogs to share assets with other teams.'} />
+        </Card>
+      )}
+      <CatalogFormDialog open={creating} onOpenChange={setCreating} unitId={unitId} onSaved={(c) => void navigate({ to: '/catalogs/$catalogId', params: { catalogId: c.id } })} />
+    </div>
   );
 }
 
@@ -128,7 +166,10 @@ function SubUnits({ unitId, childIds }: { unitId: string; childIds: string[] }) 
   if (!childIds.length) return null;
   return (
     <Card padded={false} className="overflow-hidden">
-      <div className="border-b border-border px-4 py-2.5 text-[13px] font-semibold">Sub-units</div>
+      <div className="flex items-center justify-between border-b border-border px-4 py-1.5">
+        <span className="text-[13px] font-semibold">Sub-units</span>
+        <ExportButton onExport={() => exportRows(`${unitById.get(unitId)?.name ?? 'Unit'} sub-units`, SUB_UNIT_COLUMNS, rows)} />
+      </div>
       <DataTable
         columns={SUB_UNIT_COLUMNS}
         data={rows}
@@ -164,7 +205,7 @@ const SUB_UNIT_COLUMNS: Array<DataColumn<SubUnitRow>> = [
     cell: ({ row }) => (row.original.r?.overdue ? <span className="font-medium text-danger">{row.original.r.overdue}</span> : 0),
   },
   { id: 'renewing', header: 'Renewing ≤ 90 days', meta: { sortKey: 'renewing', align: 'right', sortValue: (row) => row.r?.renewingNext90 ?? 0 }, cell: ({ row }) => row.original.r?.renewingNext90 ?? 0 },
-  { id: 'spend', header: 'Next 12 months', meta: { sortKey: 'spend', align: 'right', sortValue: (row) => spendTotal(row.r) }, cell: ({ row }) => money(row.original.r?.spendNext365) },
+  { id: 'spend', header: 'Next 12 months', meta: { sortKey: 'spend', align: 'right', sortValue: (row) => spendTotal(row.r), csvValue: (row) => money(row.r?.spendNext365) }, cell: ({ row }) => money(row.original.r?.spendNext365) },
 ];
 
 function UpcomingFor({ unitId, canEdit }: { unitId: string; canEdit: Parameters<typeof ObligationList>[0]['canEdit'] }) {

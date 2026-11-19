@@ -1,4 +1,7 @@
-import { addDuration, type Obligation } from '@am/core';
+import { addDuration, type Obligation, type RenewalDecision } from '@am/core';
+import { AnswerDialog } from '@/components/renewal-check';
+import { CircleHelp } from 'lucide-react';
+import { formatDate } from '@/lib/utils';
 import { useMyOrg } from '@/lib/org';
 import { CheckCircle2, Inbox } from 'lucide-react';
 import { useMemo, useState } from 'react';
@@ -29,10 +32,11 @@ export function UpcomingPage() {
   const me = useMe().data!;
   const [scope, setScope] = useState<'all' | 'mine'>('all');
   const [kind, setKind] = useState('');
+  const [check, setCheck] = useState<'' | 'asked' | 'answered'>('');
   const kinds = useDateKinds();
   const summary = useSummary({ mine: scope === 'mine' });
   const today = todayIso();
-  const obligations = useObligations({ state: 'active', to: addDuration(today, { amount: 1, unit: 'year' }), mine: scope === 'mine', dateKindId: kind || undefined, limit: 500 });
+  const obligations = useObligations({ state: 'active', to: addDuration(today, { amount: 1, unit: 'year' }), mine: scope === 'mine', dateKindId: kind || undefined, check: check || undefined, limit: 500 });
   const groups = useMemo(() => groupsOf(obligations.data?.items ?? [], today), [obligations.data, today]);
   const canEdit = useCanEditObligation();
   const spend = summary.data?.spend[0];
@@ -55,6 +59,11 @@ export function UpcomingPage() {
                   </option>
                 ))}
             </Select>
+            <Select className="w-44" value={check} onChange={(e) => setCheck(e.target.value as typeof check)} aria-label="Renewal checks">
+              <option value="">Any renewal check</option>
+              <option value="asked">Waiting for owner</option>
+              <option value="answered">Owner answered</option>
+            </Select>
             <Segmented value={scope} onChange={setScope} options={[{ value: 'all', label: 'Everything' }, { value: 'mine', label: 'Mine' }]} />
           </>
         }
@@ -67,6 +76,7 @@ export function UpcomingPage() {
           <Stat label="Renewing in 90 days" value={spend ? formatMoney(spend.next90, spend.currency, true) : '–'} hint={spend ? `${formatMoney(spend.next30, spend.currency, true)} in the next 30 days` : 'Recurring spend'} />
         </div>
 
+        <ChecksStrip />
         <RequestsStrip />
 
         {obligations.isLoading ? (
@@ -106,6 +116,53 @@ export function UpcomingPage() {
 function useCanEditObligation() {
   const { canEditIn } = useMyOrg();
   return (o: Obligation) => canEditIn(o.unitId, o.assetTypeId);
+}
+
+/** "Do you still need it?" questions waiting for me, with one-click answers. */
+function ChecksStrip() {
+  const me = useMe().data!;
+  const asked = useObligations({ check: 'asked', mine: true, limit: 20 });
+  const [answering, setAnswering] = useState<{ o: Obligation; decision?: RenewalDecision } | null>(null);
+  const mine = (asked.data?.items ?? []).filter((o) => o.ownerId === me.userId);
+  if (!mine.length) return null;
+  return (
+    <section>
+      <div className="mb-2 flex items-center gap-2 px-1">
+        <CircleHelp className="size-4 text-warning" />
+        <h2 className="text-[13px] font-semibold">Waiting for your answer</h2>
+        <span className="text-xs text-subtle">{mine.length}</span>
+      </div>
+      <Card padded={false} className="divide-y divide-border overflow-hidden border-warning/40">
+        {mine.map((o) => (
+          <div key={o.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
+            <div className="min-w-0 flex-1">
+              <p className="text-[13px]">
+                <Link to="/assets/$assetId" params={{ assetId: o.assetId }} className="font-medium hover:underline">
+                  Do you still need {o.assetName}?
+                </Link>
+              </p>
+              <p className="truncate text-xs text-muted">
+                {o.label} {formatDate(o.dueDate)} · asked by {o.check?.askedByName}
+                {o.check?.message ? ` — “${o.check.message}”` : ''}
+              </p>
+            </div>
+            <div className="flex gap-1.5">
+              <Button size="sm" onClick={() => setAnswering({ o, decision: 'renew' })}>
+                Renew
+              </Button>
+              <Button size="sm" onClick={() => setAnswering({ o, decision: 'change' })}>
+                With changes
+              </Button>
+              <Button size="sm" onClick={() => setAnswering({ o, decision: 'cancel' })}>
+                Don’t renew
+              </Button>
+            </div>
+          </div>
+        ))}
+      </Card>
+      <AnswerDialog obligation={answering?.o ?? null} initial={answering?.decision} onClose={() => setAnswering(null)} />
+    </section>
+  );
 }
 
 /** Handlers see what waits for them; everyone sees where their own requests stand. */

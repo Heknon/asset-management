@@ -1,14 +1,15 @@
 import { addDuration, type Obligation } from '@am/core';
 import { useMutation } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { AlarmClock, Check, MoreHorizontal, RefreshCcw, RotateCcw, XCircle } from 'lucide-react';
+import { AlarmClock, Check, CircleHelp, MessageCircleQuestion, MoreHorizontal, RefreshCcw, RotateCcw, XCircle } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { api, ApiError } from '@/lib/api';
-import { useInvalidateAssets, useLookups } from '@/lib/queries';
+import { useInvalidateAssets, useLookups, useMe } from '@/lib/queries';
 import { cn, formatDate, formatMoney, todayIso } from '@/lib/utils';
 import { DateKindBadge, DueBadge } from './badges';
 import { PersonName, UnitPath } from './pickers';
+import { AnswerDialog, AskOwnerDialog, CheckBadge } from './renewal-check';
 import { TypeIcon } from './type-icon';
 import { Button } from './ui/button';
 import { Input } from './ui/form';
@@ -78,11 +79,29 @@ function SnoozeDialog({ obligation, onClose, onSnooze }: { obligation: Obligatio
   );
 }
 
-/** Obligations as a list; used on the home screen and inside an asset. */
-export function ObligationList({ items, showAsset = true, canEdit }: { items: Obligation[]; showAsset?: boolean; canEdit: (o: Obligation) => boolean }) {
+/** Obligations as a list; used on the home screen, unit pages and inside an asset. */
+export function ObligationList({
+  items,
+  showAsset = true,
+  canEdit,
+  answering,
+  onAnsweringChange,
+}: {
+  items: Obligation[];
+  showAsset?: boolean;
+  canEdit: (o: Obligation) => boolean;
+  /** Controlled "answer the renewal check" dialog (e.g. opened from an email link). */
+  answering?: Obligation | null;
+  onAnsweringChange?: (o: Obligation | null) => void;
+}) {
   const actions = useObligationActions();
   const { typeById } = useLookups();
+  const me = useMe().data;
   const [snoozing, setSnoozing] = useState<Obligation | null>(null);
+  const [asking, setAsking] = useState<Obligation | null>(null);
+  const [localAnswering, setLocalAnswering] = useState<Obligation | null>(null);
+  const answer = answering !== undefined ? answering : localAnswering;
+  const setAnswer = onAnsweringChange ?? setLocalAnswering;
 
   return (
     <>
@@ -128,9 +147,15 @@ export function ObligationList({ items, showAsset = true, canEdit }: { items: Ob
                   )}
                   {!showAsset && <DueBadge obligation={o} />}
                   {!showAsset && <DateKindBadge kind={o.dateKind} />}
+                  <CheckBadge check={o.check} />
                 </div>
               </div>
               {showAsset && <DueBadge obligation={o} />}
+              {active && o.check?.status === 'asked' && o.ownerId === me?.userId && (
+                <Button size="sm" variant="primary" icon={<CircleHelp className="size-3.5" />} onClick={() => setAnswer(o)}>
+                  Still needed?
+                </Button>
+              )}
               {editable && active && (
                 <Button
                   size="sm"
@@ -147,6 +172,13 @@ export function ObligationList({ items, showAsset = true, canEdit }: { items: Ob
                 <Menu trigger={<Button size="icon" variant="ghost" aria-label="More actions" icon={<MoreHorizontal className="size-4" />} />}>
                   {active ? (
                     <>
+                      <MenuItem icon={<MessageCircleQuestion />} onSelect={() => setAsking(o)}>
+                        {o.check?.status === 'asked' ? 'Ask the owner again…' : 'Ask the owner if still needed…'}
+                      </MenuItem>
+                      <MenuItem icon={<CircleHelp />} onSelect={() => setAnswer(o)}>
+                        {o.check && o.check.status !== 'asked' ? 'Change the answer…' : 'Answer for the owner…'}
+                      </MenuItem>
+                      <MenuSeparator />
                       <MenuItem icon={<AlarmClock />} onSelect={() => setSnoozing(o)}>
                         Snooze…
                       </MenuItem>
@@ -166,6 +198,8 @@ export function ObligationList({ items, showAsset = true, canEdit }: { items: Ob
           );
         })}
       </ul>
+      <AskOwnerDialog obligation={asking} onClose={() => setAsking(null)} />
+      <AnswerDialog obligation={answer} onClose={() => setAnswer(null)} />
       <SnoozeDialog
         obligation={snoozing}
         onClose={() => setSnoozing(null)}

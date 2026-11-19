@@ -12,6 +12,7 @@ interface TemplateTracking {
   derive?: unknown;
   recurrence?: unknown;
   notify?: unknown;
+  confirmBefore?: unknown;
 }
 export interface AssetTemplate extends Omit<AssetTypeInput, 'fields' | 'statuses'> {
   statuses?: AssetTypeInput['statuses'];
@@ -48,7 +49,7 @@ export const starterTemplates: AssetTemplate[] = [
         required: true,
         showInTable: true,
         section: 'Term',
-        tracking: { dateKind: 'renewal', recurrence: { mode: 'field', field: 'term_months', unit: 'month' } },
+        tracking: { dateKind: 'renewal', recurrence: { mode: 'field', field: 'term_months', unit: 'month' }, confirmBefore: { amount: 60, unit: 'day' } },
       }),
       f('notice_deadline', 'Cancellation deadline', 'date', {
         showInTable: true,
@@ -113,7 +114,7 @@ export const starterTemplates: AssetTemplate[] = [
       f('fqdn', 'Domain', 'text', { required: true, showInTable: true }),
       f('registrar', 'Registrar / CA', 'text', { showInTable: true }),
       f('annual_cost', 'Annual cost', 'currency', { config: { currency: 'USD', countsTowardSpend: true } }),
-      f('expires_on', 'Expires on', 'date', { required: true, showInTable: true, tracking: { dateKind: 'renewal', recurrence: { mode: 'fixed', every: { amount: 1, unit: 'year' } } } }),
+      f('expires_on', 'Expires on', 'date', { required: true, showInTable: true, tracking: { dateKind: 'renewal', recurrence: { mode: 'fixed', every: { amount: 1, unit: 'year' } }, confirmBefore: { amount: 45, unit: 'day' } } }),
     ],
   },
 ];

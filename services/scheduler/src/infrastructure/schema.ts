@@ -12,6 +12,7 @@ export interface SchedulerDB extends OutboxTable {
     asset_type_id: string;
     asset_type_name: string;
     unit_id: string;
+    catalog_id: string | null;
     owner_id: string | null;
     active: boolean;
     deleted: Generated<boolean>;
@@ -54,9 +55,22 @@ export interface SchedulerDB extends OutboxTable {
     resolved_at: Timestamp | null;
     resolved_by: string | null;
     note: string | null;
+    confirm_before: Json<Duration | null>;
+    check_status: 'asked' | 'renew' | 'change' | 'cancel' | null;
+    check_asked_at: Timestamp | null;
+    check_asked_by: string | null;
+    check_asked_by_name: string | null;
+    check_message: string | null;
+    check_answered_at: Timestamp | null;
+    check_answered_by: string | null;
+    check_answered_by_name: string | null;
+    check_note: string | null;
     created_at: Timestamp;
     updated_at: Timestamp;
   };
+  /** Projection of catalog sharing (owned by the registry). */
+  catalogs_ref: { id: string; version: number; deleted: boolean };
+  catalog_shares: { catalog_id: string; subject_key: string; level: 'view' | 'edit' };
   deliveries: {
     obligation_id: string;
     recipient: string;
@@ -162,6 +176,38 @@ export const migrations: Record<string, Migration> = {
         .addColumn('manager_ids', sql`uuid[]`, (c) => c.notNull().defaultTo(sql`'{}'`))
         .execute();
       await sql`create index units_ref_path on units_ref using gin (path)`.execute(db);
+    },
+  },
+  '0004_catalogs_renewal_checks': {
+    async up(db) {
+      await sql`alter table assets_ref add column catalog_id uuid`.execute(db);
+      await db.schema.createIndex('assets_ref_catalog').on('assets_ref').column('catalog_id').execute();
+      await db.schema
+        .createTable('catalogs_ref')
+        .addColumn('id', 'uuid', (c) => c.primaryKey())
+        .addColumn('version', 'integer', (c) => c.notNull())
+        .addColumn('deleted', 'boolean', (c) => c.notNull())
+        .execute();
+      await db.schema
+        .createTable('catalog_shares')
+        .addColumn('catalog_id', 'uuid', (c) => c.notNull())
+        .addColumn('subject_key', 'text', (c) => c.notNull())
+        .addColumn('level', 'text', (c) => c.notNull())
+        .addPrimaryKeyConstraint('catalog_shares_pk', ['catalog_id', 'subject_key'])
+        .execute();
+      await db.schema.createIndex('catalog_shares_subject').on('catalog_shares').columns(['subject_key', 'level']).execute();
+      await sql`alter table obligations
+        add column confirm_before jsonb,
+        add column check_status text check (check_status in ('asked','renew','change','cancel')),
+        add column check_asked_at timestamptz,
+        add column check_asked_by uuid,
+        add column check_asked_by_name text,
+        add column check_message text,
+        add column check_answered_at timestamptz,
+        add column check_answered_by uuid,
+        add column check_answered_by_name text,
+        add column check_note text`.execute(db);
+      await sql`create index obligations_check on obligations (check_status) where check_status is not null`.execute(db);
     },
   },
 };

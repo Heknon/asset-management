@@ -1,5 +1,5 @@
-import type { IsoDate, ObligationQuery, ObligationSummary, Scope, TrackedDate, UnitRollup } from '@am/core';
-import type { AssetRef, ObligationRecord } from '../domain/obligation.js';
+import type { AccessLevel, CatalogChanged, EventMap, EventName, IsoDate, ObligationQuery, ObligationSummary, TrackedDate, UnitRollup, Visibility } from '@am/core';
+import type { AssetRef, ObligationRecord, RenewalCheckRecord } from '../domain/obligation.js';
 
 export interface UserRef {
   id: string;
@@ -29,9 +29,9 @@ export interface SchedulerStore {
   reopen(id: string): Promise<void>;
   getObligation(id: string): Promise<ObligationWithAsset | null>;
 
-  query(q: ObligationQuery, scopes: Scope[], userId: string): Promise<{ items: ObligationWithAsset[]; total: number }>;
-  summary(scopes: Scope[], today: IsoDate, filter?: { unitId?: string; userId?: string }): Promise<ObligationSummary>;
-  rollup(scopes: Scope[], today: IsoDate, unitId: string): Promise<UnitRollup[]>;
+  query(q: ObligationQuery, visibility: Visibility, userId: string): Promise<{ items: ObligationWithAsset[]; total: number }>;
+  summary(visibility: Visibility, today: IsoDate, filter?: { unitId?: string; userId?: string }): Promise<ObligationSummary>;
+  rollup(visibility: Visibility, today: IsoDate, unitId: string): Promise<UnitRollup[]>;
   upsertUnit(u: { id: string; name: string; parentId: string | null; path: string[]; archived: boolean; managerIds: string[] }): Promise<void>;
   /** Managers of the nearest unit, walking up from the given unit. */
   nearestManagers(unitPath: string[]): Promise<string[]>;
@@ -54,6 +54,14 @@ export interface SchedulerStore {
   users(ids: string[]): Promise<Map<string, UserRef>>;
   calendarToken(userId: string, rotate: boolean): Promise<string>;
   userByCalendarToken(token: string): Promise<UserRef | null>;
+
+  setCheck(id: string, check: RenewalCheckRecord): Promise<void>;
+  /** Active recurring obligations with an automatic "still needed?" that nobody has asked yet. */
+  confirmable(today: IsoDate): Promise<ObligationWithAsset[]>;
+  /** Replaces a catalog's shares; false when the event is older than what we hold. */
+  applyCatalog(e: CatalogChanged): Promise<boolean>;
+  catalogShareLevel(catalogId: string | null, shareKeys: readonly string[]): Promise<AccessLevel>;
+  publish<E extends EventName>(event: E, payload: EventMap[E]): Promise<void>;
 }
 
 /** Outbound email; reminders and Outlook invites both go through it. */
