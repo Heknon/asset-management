@@ -1,7 +1,6 @@
 import type { Asset, AssetType, FieldDefinition, SavedQuery, SavedView } from '@am/core';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
-import type { ColumnDef } from '@tanstack/react-table';
 import { Bookmark, Search, Shapes, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
@@ -16,7 +15,7 @@ import { Highlight } from './highlight';
 import { PersonName, UnitPath, UnitPicker, AssetTypeSelect } from './pickers';
 import { TypeIcon } from './type-icon';
 import { Button } from './ui/button';
-import { DataTable, type SortState } from './ui/data-table';
+import { DataTable, type DataColumn, type SortState } from './ui/data-table';
 import { EmptyState } from './ui/display';
 import { Checkbox, Field, Input, Select } from './ui/form';
 import { Dialog } from './ui/overlay';
@@ -33,7 +32,7 @@ function matchedPart(snippet: string): string {
 }
 
 /** Columns come from the type's fields, so every template gets a tailored table. */
-function columnsFor(type: AssetType | undefined, lookups: ReturnType<typeof useLookups>, searching: boolean): Array<ColumnDef<Asset, unknown> & { meta?: { sortKey?: string; align?: 'right' } }> {
+function columnsFor(type: AssetType | undefined, lookups: ReturnType<typeof useLookups>, searching: boolean): Array<DataColumn<Asset>> {
   const fieldCols = (type?.fields ?? [])
     .filter((f) => f.showInTable)
     .slice(0, 6)
@@ -61,11 +60,11 @@ function columnsFor(type: AssetType | undefined, lookups: ReturnType<typeof useL
         );
       },
     },
-    ...(type ? [] : [{ id: 'type', header: 'Type', cell: ({ row }: { row: { original: Asset } }) => <span className="text-muted">{lookups.typeById.get(row.original.assetTypeId)?.name}</span> }]),
+    ...(type ? [] : [{ id: 'type', header: 'Type', meta: { sortKey: 'type' }, cell: ({ row }: { row: { original: Asset } }) => <span className="text-muted">{lookups.typeById.get(row.original.assetTypeId)?.name}</span> }]),
     { id: 'status', header: 'Status', meta: { sortKey: 'status' }, cell: ({ row }) => <StatusBadge type={lookups.typeById.get(row.original.assetTypeId)} status={row.original.status} /> },
     ...fieldCols,
-    { id: 'unit', header: 'Team', cell: ({ row }) => <UnitPath id={row.original.unitId} className="max-w-56" /> },
-    { id: 'owner', header: 'Owner', cell: ({ row }) => <PersonName id={row.original.ownerId} /> },
+    { id: 'unit', header: 'Team', meta: { sortKey: 'unit' }, cell: ({ row }) => <UnitPath id={row.original.unitId} className="max-w-56" /> },
+    { id: 'owner', header: 'Owner', meta: { sortKey: 'owner' }, cell: ({ row }) => <PersonName id={row.original.ownerId} /> },
     { id: 'updated', header: 'Updated', meta: { sortKey: 'updatedAt' }, cell: ({ row }) => <span className="text-muted">{formatDateTime(row.original.updatedAt)}</span> },
   ];
 }

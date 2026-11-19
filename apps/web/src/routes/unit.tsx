@@ -1,8 +1,8 @@
-import { addDuration, type UnitPerson, type UnitRole } from '@am/core';
+import { addDuration, type OrgUnit, type UnitPerson, type UnitRollup, type UnitRole } from '@am/core';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { Building2, ChevronRight, Inbox, Plus, Trash2, Users } from 'lucide-react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { AssetExplorer } from '@/components/asset-explorer';
 import { RequestStatusBadge } from '@/components/badges';
@@ -10,6 +10,7 @@ import { ObligationList } from '@/components/obligations';
 import { PersonPicker } from '@/components/pickers';
 import { useNewRequest } from '@/components/request-form';
 import { Button } from '@/components/ui/button';
+import { DataTable, type DataColumn } from '@/components/ui/data-table';
 import { Avatar, Badge, Card, EmptyState, IconTile, PageHeader, Spinner, Stat, Tabs } from '@/components/ui/display';
 import { Select } from '@/components/ui/form';
 import { api, ApiError } from '@/lib/api';
@@ -117,48 +118,54 @@ function SubUnits({ unitId, childIds }: { unitId: string; childIds: string[] }) 
   const rollup = useRollup(unitId);
   const { unitById } = useLookups();
   const navigate = useNavigate();
+  const rows = useMemo(() => {
+    const byId = new Map((rollup.data ?? []).map((r) => [r.unitId, r]));
+    return childIds.flatMap((id) => {
+      const unit = unitById.get(id);
+      return unit ? [{ unit, r: byId.get(id) }] : [];
+    });
+  }, [childIds, unitById, rollup.data]);
   if (!childIds.length) return null;
-  const byId = new Map((rollup.data ?? []).map((r) => [r.unitId, r]));
   return (
     <Card padded={false} className="overflow-hidden">
       <div className="border-b border-border px-4 py-2.5 text-[13px] font-semibold">Sub-units</div>
-      <table className="w-full text-[13px]">
-        <thead>
-          <tr className="text-left text-xs text-muted">
-            <th className="px-4 py-2 font-medium">Unit</th>
-            <th className="px-3 py-2 text-right font-medium">Open items</th>
-            <th className="px-3 py-2 text-right font-medium">Overdue</th>
-            <th className="px-3 py-2 text-right font-medium">Renewing ≤ 90 days</th>
-            <th className="px-4 py-2 text-right font-medium">Next 12 months</th>
-          </tr>
-        </thead>
-        <tbody>
-          {childIds
-            .map((id) => unitById.get(id)!)
-            .sort((a, b) => a.name.localeCompare(b.name))
-            .map((u) => {
-              const r = byId.get(u.id);
-              return (
-                <tr key={u.id} onClick={() => void navigate({ to: '/units/$unitId', params: { unitId: u.id } })} className="cursor-pointer border-t border-border transition-colors hover:bg-surface-2/60">
-                  <td className="px-4 py-2.5">
-                    <span className="flex items-center gap-2 font-medium">
-                      <span className="size-2 rounded-full" style={{ background: u.color }} />
-                      {u.name}
-                      <span className="text-xs font-normal text-subtle">{u.kind}</span>
-                    </span>
-                  </td>
-                  <td className="px-3 py-2.5 text-right tabular-nums">{r?.openItems ?? 0}</td>
-                  <td className="px-3 py-2.5 text-right tabular-nums">{r?.overdue ? <span className="font-medium text-danger">{r.overdue}</span> : 0}</td>
-                  <td className="px-3 py-2.5 text-right tabular-nums">{r?.renewingNext90 ?? 0}</td>
-                  <td className="px-4 py-2.5 text-right tabular-nums">{money(r?.spendNext365)}</td>
-                </tr>
-              );
-            })}
-        </tbody>
-      </table>
+      <DataTable
+        columns={SUB_UNIT_COLUMNS}
+        data={rows}
+        sort={{ sort: 'name', order: 'asc' }}
+        rowKey={(row) => row.unit.id}
+        onRowClick={(row) => void navigate({ to: '/units/$unitId', params: { unitId: row.unit.id } })}
+      />
     </Card>
   );
 }
+
+type SubUnitRow = { unit: OrgUnit; r?: UnitRollup };
+/** Orders by face value; mixed currencies are not converted (the cell shows each one). */
+const spendTotal = (r?: UnitRollup) => r?.spendNext365.reduce((n, s) => n + s.amount, 0) ?? 0;
+const SUB_UNIT_COLUMNS: Array<DataColumn<SubUnitRow>> = [
+  {
+    id: 'name',
+    header: 'Unit',
+    meta: { sortKey: 'name', sortValue: (row) => row.unit.name },
+    cell: ({ row: { original: { unit } } }) => (
+      <span className="flex items-center gap-2 font-medium">
+        <span className="size-2 rounded-full" style={{ background: unit.color }} />
+        {unit.name}
+        <span className="text-xs font-normal text-subtle">{unit.kind}</span>
+      </span>
+    ),
+  },
+  { id: 'open', header: 'Open items', meta: { sortKey: 'open', align: 'right', sortValue: (row) => row.r?.openItems ?? 0 }, cell: ({ row }) => row.original.r?.openItems ?? 0 },
+  {
+    id: 'overdue',
+    header: 'Overdue',
+    meta: { sortKey: 'overdue', align: 'right', sortValue: (row) => row.r?.overdue ?? 0 },
+    cell: ({ row }) => (row.original.r?.overdue ? <span className="font-medium text-danger">{row.original.r.overdue}</span> : 0),
+  },
+  { id: 'renewing', header: 'Renewing ≤ 90 days', meta: { sortKey: 'renewing', align: 'right', sortValue: (row) => row.r?.renewingNext90 ?? 0 }, cell: ({ row }) => row.original.r?.renewingNext90 ?? 0 },
+  { id: 'spend', header: 'Next 12 months', meta: { sortKey: 'spend', align: 'right', sortValue: (row) => spendTotal(row.r) }, cell: ({ row }) => money(row.original.r?.spendNext365) },
+];
 
 function UpcomingFor({ unitId, canEdit }: { unitId: string; canEdit: Parameters<typeof ObligationList>[0]['canEdit'] }) {
   const today = todayIso();

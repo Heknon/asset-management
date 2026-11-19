@@ -103,6 +103,12 @@ const toRequest = (r: RequestRowDb): RequestState & { snippet?: string } => ({
 type Visibility = { userId: string; viewScopes: Scope[]; editScopes: Scope[]; myUnitIds: string[] };
 
 const SORT_COLUMNS = { name: 'name', status: 'status', createdAt: 'created_at', updatedAt: 'updated_at' } as const;
+/** Columns shown by name rather than id sort by that name (case-insensitive). */
+const SORT_LOOKUPS = {
+  type: sql`(select lower(t.name) from asset_types t where t.id = assets.asset_type_id)`,
+  unit: sql`lower(units_ref.name)`,
+  owner: sql`(select lower(u.display_name) from users_ref u where u.id = assets.owner_id)`,
+} as const;
 
 export class PgRegistryStore implements RegistryStore {
   /** Types are cached only within a transaction, never across requests or replicas. */
@@ -253,6 +259,8 @@ export class PgRegistryStore implements RegistryStore {
       const key = query.sort.slice('attributes.'.length);
       if (!/^[a-z][a-z0-9_]*$/.test(key)) throw AppError.validation('Invalid sort field');
       page = page.orderBy(sql`assets.attributes -> ${key}`, sql.raw(`${query.order} nulls last`));
+    } else if (query.sort in SORT_LOOKUPS) {
+      page = page.orderBy(SORT_LOOKUPS[query.sort as keyof typeof SORT_LOOKUPS], sql.raw(`${query.order} nulls last`));
     } else {
       const col = SORT_COLUMNS[(query.sort === 'relevance' ? 'updatedAt' : query.sort) as keyof typeof SORT_COLUMNS];
       if (!col) throw AppError.validation('Invalid sort field');
