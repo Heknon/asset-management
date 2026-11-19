@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { useAsset, useAssets } from '@/lib/queries';
 import { formatDate, formatMoney, relativeDays } from '@/lib/utils';
 import { Badge } from './ui/display';
-import { Checkbox, Input, Select, Textarea } from './ui/form';
+import { Checkbox, Input, Select, TagInput, Textarea } from './ui/form';
 import { PersonName, PersonPicker } from './pickers';
 
 /** Read-only rendering of any attribute value; used in tables, detail pages and previews. */
@@ -66,7 +66,30 @@ export function AttributeValue({ field, value, compact }: { field: FieldDefiniti
     case 'secret':
       return <SecretValue value={value as string} />;
     case 'assetRef':
-      return <AssetRefValue id={value as string} />;
+      return Array.isArray(value) ? (
+        <span className={compact ? 'block max-w-64 truncate' : 'flex flex-wrap gap-x-2 gap-y-1'}>
+          {value.map((v, i) => (
+            <span key={v}>
+              <AssetRefValue id={v} />
+              {compact && i < value.length - 1 && ', '}
+            </span>
+          ))}
+        </span>
+      ) : (
+        <AssetRefValue id={value as string} />
+      );
+    case 'list':
+      return compact ? (
+        <span className="block max-w-64 truncate font-mono text-xs">{(value as string[]).join(', ')}</span>
+      ) : (
+        <span className="flex flex-wrap gap-1">
+          {(value as string[]).map((v) => (
+            <code key={v} className="rounded bg-surface-2 px-1.5 py-0.5 text-xs">
+              {v}
+            </code>
+          ))}
+        </span>
+      );
     case 'longText':
       return <span className={compact ? 'block max-w-64 truncate' : 'whitespace-pre-wrap'}>{value as string}</span>;
     default:
@@ -162,8 +185,56 @@ export function AttributeInput({ field, value, onChange, id, invalid }: { field:
     case 'user':
       return <PersonPicker id={id} value={(value as string) ?? null} onChange={(v) => onChange(v ?? undefined)} />;
     case 'assetRef':
-      return <AssetRefInput id={id} typeId={field.config.assetTypeId} value={(value as string) ?? ''} onChange={(v) => onChange(v || undefined)} />;
+      return field.config.multiple ? (
+        <AssetRefsInput id={id} typeId={field.config.assetTypeId} value={(value as string[]) ?? []} onChange={(v) => onChange(v.length ? v : undefined)} />
+      ) : (
+        <AssetRefInput id={id} typeId={field.config.assetTypeId} value={(value as string) ?? ''} onChange={(v) => onChange(v || undefined)} />
+      );
+    case 'list': {
+      const re = field.config.pattern ? new RegExp(field.config.pattern) : null;
+      return (
+        <TagInput
+          id={id}
+          value={(value as string[]) ?? []}
+          onChange={(v) => onChange(v.length ? v : undefined)}
+          placeholder={field.config.placeholder ?? 'Type and press Enter; paste several at once'}
+          validate={(v) => !re || re.test(v)}
+        />
+      );
+    }
   }
+}
+
+/** Several linked items, e.g. the machines that use a license. */
+function AssetRefsInput({ id, typeId, value, onChange }: { id: string; typeId?: string; value: string[]; onChange: (v: string[]) => void }) {
+  const assets = useAssets({ assetTypeId: typeId, limit: 500, sort: 'name', order: 'asc' });
+  const byId = new Map((assets.data?.items ?? []).map((a) => [a.id, a]));
+  return (
+    <div className="space-y-1.5">
+      {value.length > 0 && (
+        <ul className="flex flex-wrap gap-1.5">
+          {value.map((v) => (
+            <li key={v} className="inline-flex items-center gap-1 rounded-md bg-surface-2 py-0.5 pr-1 pl-2 text-xs">
+              {byId.get(v)?.name ?? '…'}
+              <button type="button" aria-label="Remove" className="text-subtle hover:text-fg" onClick={() => onChange(value.filter((x) => x !== v))}>
+                ×
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <Select id={id} value="" onChange={(e) => e.target.value && onChange([...value, e.target.value])}>
+        <option value="">Add…</option>
+        {(assets.data?.items ?? [])
+          .filter((a) => !value.includes(a.id))
+          .map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.reference} · {a.name}
+            </option>
+          ))}
+      </Select>
+    </div>
+  );
 }
 
 function AssetRefInput({ id, typeId, value, onChange }: { id: string; typeId?: string; value: string; onChange: (v: string) => void }) {

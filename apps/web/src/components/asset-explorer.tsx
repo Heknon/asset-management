@@ -1,4 +1,4 @@
-import type { Asset, AssetType, FieldDefinition, SavedQuery, SavedView } from '@am/core';
+import type { Asset, AssetType, FieldDefinition, SavedQuery, SavedView, TypeVariant } from '@am/core';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { Bookmark, Search, Shapes, X } from 'lucide-react';
@@ -33,8 +33,9 @@ function matchedPart(snippet: string): string {
 }
 
 /** Columns come from the type's fields, so every template gets a tailored table. */
-function columnsFor(type: AssetType | undefined, lookups: ReturnType<typeof useLookups>, searching: boolean): Array<DataColumn<Asset>> {
-  const fieldCols = (type?.fields ?? [])
+function columnsFor(type: AssetType | undefined, variant: TypeVariant | undefined, lookups: ReturnType<typeof useLookups>, searching: boolean): Array<DataColumn<Asset>> {
+  // With a variant chosen, its own fields become columns too.
+  const fieldCols = [...(type?.fields ?? []), ...(variant?.fields ?? [])]
     .filter((f) => f.showInTable)
     .slice(0, 6)
     .map((f: FieldDefinition) => ({
@@ -54,14 +55,22 @@ function columnsFor(type: AssetType | undefined, lookups: ReturnType<typeof useL
           <span className="flex min-w-0 items-start gap-2.5">
             {!type && t && <TypeIcon icon={t.icon} color={t.color} size={22} />}
             <span className="min-w-0">
-              <span className="block max-w-80 truncate font-medium">{row.original.name}</span>
+              <span className="flex max-w-80 items-baseline gap-1.5">
+                <span className="truncate font-medium">{row.original.name}</span>
+                <span className="shrink-0 font-mono text-[11px] text-subtle">{row.original.reference}</span>
+              </span>
               {searching && row.original.snippet && <Highlight snippet={matchedPart(row.original.snippet)} className="block max-w-[32rem] truncate text-xs text-muted" />}
             </span>
           </span>
         );
       },
     },
-    ...(type ? [] : [{ id: 'type', header: 'Type', meta: { sortKey: 'type' }, cell: ({ row }: { row: { original: Asset } }) => <span className="text-muted">{lookups.typeById.get(row.original.assetTypeId)?.name}</span> }]),
+    ...(type
+      ? []
+      : [{ id: 'type', header: 'Type', meta: { sortKey: 'type' }, cell: ({ row }: { row: { original: Asset } }) => <span className="text-muted">{lookups.schemaOf(row.original.assetTypeId, row.original.variantId)?.name}</span> }]),
+    ...(type && !variant && lookups.variants.some((v) => v.assetTypeId === type.id)
+      ? [{ id: 'kind', header: 'Kind', cell: ({ row }: { row: { original: Asset } }) => <span className="text-muted">{row.original.variantId ? lookups.variantById.get(row.original.variantId)?.name : 'Standard'}</span> }]
+      : []),
     { id: 'status', header: 'Status', meta: { sortKey: 'status' }, cell: ({ row }) => <StatusBadge type={lookups.typeById.get(row.original.assetTypeId)} status={row.original.status} /> },
     ...fieldCols,
     { id: 'unit', header: 'Team', meta: { sortKey: 'unit' }, cell: ({ row }) => <UnitPath id={row.original.unitId} className="max-w-56" /> },
@@ -72,6 +81,7 @@ function columnsFor(type: AssetType | undefined, lookups: ReturnType<typeof useL
 
 export interface ExplorerQuery extends Required<Pick<SavedQuery, 'filters'>> {
   assetTypeId?: string;
+  variantId?: string;
   unitId?: string;
   includeSubunits: boolean;
   status?: string;
@@ -81,6 +91,7 @@ export interface ExplorerQuery extends Required<Pick<SavedQuery, 'filters'>> {
 
 const fromSaved = (s: SavedQuery = {}): ExplorerQuery => ({
   assetTypeId: s.assetTypeId,
+  variantId: s.variantId,
   unitId: s.unitId,
   includeSubunits: s.includeSubunits ?? true,
   status: s.status,
@@ -91,6 +102,7 @@ const fromSaved = (s: SavedQuery = {}): ExplorerQuery => ({
 
 const toSaved = (q: ExplorerQuery): SavedQuery => ({
   ...(q.assetTypeId && { assetTypeId: q.assetTypeId }),
+  ...(q.variantId && { variantId: q.variantId }),
   ...(q.unitId && { unitId: q.unitId, includeSubunits: q.includeSubunits }),
   ...(q.status && { status: q.status }),
   ...(q.q && { q: q.q }),
@@ -145,6 +157,7 @@ export function AssetExplorer({
     unitId: query.unitId,
     includeSubunits: query.includeSubunits,
     catalogId: fixed.catalogId,
+    variantId: query.variantId,
     status: query.status,
     q: search || undefined,
     filters: query.filters,
@@ -153,7 +166,9 @@ export function AssetExplorer({
   };
   const assets = useAssets({ ...listQuery, limit: PAGE, offset });
   const exportTitle = view?.name ?? title ?? type?.name ?? 'Assets';
-  const columns = useMemo(() => columnsFor(type, lookups, !!search), [type, lookups, search]);
+  const variant = query.variantId ? lookups.variantById.get(query.variantId) : undefined;
+  const typeVariants = type ? lookups.variants.filter((v) => v.assetTypeId === type.id && !v.archived) : [];
+  const columns = useMemo(() => columnsFor(type, variant, lookups, !!search), [type, variant, lookups, search]);
   const dirty = JSON.stringify(toSaved(query)) !== JSON.stringify(toSaved({ ...fromSaved(view?.query ?? initial), ...fixed }));
   const hasQuery = !!(query.q || query.filters.length || query.status || (query.unitId && !fixed.unitId) || (query.assetTypeId && !fixed.assetTypeId));
 
@@ -187,7 +202,7 @@ export function AssetExplorer({
         </div>
         {!fixed.assetTypeId && (
           <div className="w-44">
-            <AssetTypeSelect includeAll value={query.assetTypeId ?? null} onChange={(v) => update({ assetTypeId: v ?? undefined, status: undefined, filters: query.filters.filter((f) => !f.field.startsWith('attributes.')) })} />
+            <AssetTypeSelect includeAll value={query.assetTypeId ?? null} onChange={(v) => update({ assetTypeId: v ?? undefined, variantId: undefined, status: undefined, filters: query.filters.filter((f) => !f.field.startsWith('attributes.')) })} />
           </div>
         )}
         {!fixed.unitId && (
@@ -196,6 +211,16 @@ export function AssetExplorer({
           </div>
         )}
         {query.unitId && <Checkbox checked={query.includeSubunits} onChange={(includeSubunits) => update({ includeSubunits })} label={<span className="text-xs text-muted">Include sub-teams</span>} />}
+        {typeVariants.length > 0 && (
+          <Select className="w-44" value={query.variantId ?? ''} onChange={(e) => update({ variantId: e.target.value || undefined, filters: query.filters.filter((f) => !f.field.startsWith('attributes.') || type!.fields.some((x) => `attributes.${x.key}` === f.field)) })} aria-label="Kind">
+            <option value="">Every kind</option>
+            {typeVariants.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.name}
+              </option>
+            ))}
+          </Select>
+        )}
         {type && (
           <Select className="w-36" value={query.status ?? ''} onChange={(e) => update({ status: e.target.value || undefined })}>
             <option value="">Any status</option>
@@ -206,7 +231,7 @@ export function AssetExplorer({
             ))}
           </Select>
         )}
-        <FilterBar type={type} value={query.filters} onChange={(filters) => update({ filters })} />
+        <FilterBar type={type && variant ? { ...type, fields: [...type.fields, ...variant.fields] } : type} value={query.filters} onChange={(filters) => update({ filters })} />
         <span className="ml-auto flex items-center gap-2">
           <span className="text-xs text-subtle">{assets.data ? `${assets.data.total.toLocaleString()} ${assets.data.total === 1 ? 'result' : 'results'}` : ''}</span>
           <ExportButton disabled={!assets.data?.total} onExport={() => downloadUrl(withQuery('/api/registry/assets/export.csv', { ...listQuery, title: exportTitle }))} />

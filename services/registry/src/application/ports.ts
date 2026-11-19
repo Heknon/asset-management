@@ -3,6 +3,8 @@ import type {
   AssetComment,
   AssetQuery,
   CatalogInput,
+  TypeVariant,
+  TypeVariantInput,
   AssetType,
   AssetTypeInput,
   DateKind,
@@ -63,6 +65,15 @@ export interface RegistryStore {
   updateType(id: string, input: AssetTypeInput, expectedVersion: number): Promise<AssetType>;
   setTypeArchived(id: string, archived: boolean): Promise<AssetType>;
   countAssetsOfType(id: string): Promise<number>;
+
+  listVariants(where: { assetTypeId?: string; unitIds?: string[]; includeArchived?: boolean }): Promise<TypeVariant[]>;
+  getVariant(id: string): Promise<TypeVariant | null>;
+  insertVariant(assetTypeId: string, input: TypeVariantInput, byName: string): Promise<TypeVariant>;
+  updateVariant(id: string, input: Omit<TypeVariantInput, 'unitId'>, expectedVersion: number): Promise<TypeVariant>;
+  setVariantArchived(id: string, archived: boolean): Promise<TypeVariant>;
+  assetIdsOfVariant(id: string): Promise<string[]>;
+  /** Variant ids present in a query's results (CSV columns). */
+  variantIdsIn(query: AssetQuery, visibility: Visibility): Promise<string[]>;
 
   /** Assets the visibility allows (org scopes or catalog shares), with search snippets when `q` is set. */
   queryAssets(query: AssetQuery, visibility: Visibility, type: AssetType | null): Promise<{ items: Array<AssetState & { snippet?: string }>; total: number }>;

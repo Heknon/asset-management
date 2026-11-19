@@ -22,6 +22,7 @@ interface Draft {
   ownerId: string | null;
   unitId: string | null;
   catalogId: string | null;
+  variantId: string | null;
   attributes: Record<string, unknown>;
   reminderOverrides: Record<string, Duration[]>;
 }
@@ -32,6 +33,7 @@ const fromAsset = (type: AssetType, a: Asset | null, me: string | undefined, def
   ownerId: a?.ownerId ?? request?.requesterId ?? me ?? null,
   unitId: a?.unitId ?? request?.unitId ?? defaultUnit,
   catalogId: a ? a.catalogId : (catalog?.id ?? null),
+  variantId: a?.variantId ?? null,
   attributes: { ...(a?.attributes ?? {}) },
   reminderOverrides: { ...(a?.reminderOverrides ?? {}) },
 });
@@ -57,7 +59,7 @@ export function AssetFormSheet({
   catalog?: Catalog | null;
 }) {
   const me = useMe().data;
-  const { kindById, unitById } = useLookups();
+  const { kindById, unitById, schemaOf, variantsFor } = useLookups();
   const { mine, can } = useMyOrg();
   const navigate = useNavigate();
   const invalidate = useInvalidateAssets();
@@ -80,21 +82,24 @@ export function AssetFormSheet({
 
   const unit = draft.unitId ? unitById.get(draft.unitId) : undefined;
   const canRestricted = asset ? asset.permissions.includes('restricted') : !!me && !!unit && effectivePermissions(me, { unitPath: unit.path, assetTypeId: type.id }).has('restricted');
-  const derived = useMemo(() => computeDerivedDates(type.fields, draft.attributes as Attributes), [type.fields, draft.attributes]);
+  // A team variant adds its own fields to the template's.
+  const schema = schemaOf(type.id, draft.variantId) ?? type;
+  const variantOptions = variantsFor(type.id, draft.unitId);
+  const derived = useMemo(() => computeDerivedDates(schema.fields, draft.attributes as Attributes), [schema.fields, draft.attributes]);
 
   const sections = useMemo(() => {
     const groups = new Map<string, FieldDefinition[]>();
-    for (const f of type.fields) {
+    for (const f of schema.fields) {
       const key = f.section ?? '';
       groups.set(key, [...(groups.get(key) ?? []), f]);
     }
-    return [...groups.entries()].sort(([a], [b]) => (a === '' ? -1 : b === '' ? 1 : type.sections.indexOf(a) - type.sections.indexOf(b)));
-  }, [type]);
+    return [...groups.entries()].sort(([a], [b]) => (a === '' ? -1 : b === '' ? 1 : schema.sections.indexOf(a) - schema.sections.indexOf(b)));
+  }, [schema]);
 
   const save = useMutation({
     mutationFn: () => {
-      const attributes = Object.fromEntries(Object.entries(draft.attributes).filter(([k]) => canRestricted || !isRestricted(type.fields.find((f) => f.key === k)!)));
-      const body = { name: draft.name, status: draft.status, ownerId: draft.ownerId, unitId: draft.unitId, catalogId: draft.catalogId, attributes, reminderOverrides: draft.reminderOverrides };
+      const attributes = Object.fromEntries(Object.entries(draft.attributes).filter(([k]) => { const f = schema.fields.find((x) => x.key === k); return !!f && (canRestricted || !isRestricted(f)); }));
+      const body = { name: draft.name, status: draft.status, ownerId: draft.ownerId, unitId: draft.unitId, catalogId: draft.catalogId, variantId: draft.variantId, attributes, reminderOverrides: draft.reminderOverrides };
       return asset
         ? api.patch<Asset>(`/api/registry/assets/${asset.id}`, body)
         : api.post<Asset>('/api/registry/assets', { ...body, assetTypeId: type.id, ...(request && { requestId: request.id }) });
@@ -140,7 +145,15 @@ export function AssetFormSheet({
             {(id) => <Input id={id} autoFocus value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder={`e.g. ${type.name} for …`} />}
           </Field>
           <Field label="Team" required hint="Who it's for. Its people can see it; access follows the org chart.">
-            {(id) => <UnitPicker id={id} value={draft.unitId} onChange={(v) => setDraft({ ...draft, unitId: v })} filter={(u) => teamAllowed(u.id)} />}
+            {(id) => (
+              <UnitPicker
+                id={id}
+                value={draft.unitId}
+                // A variant belongs to one unit's subtree; moving elsewhere drops it.
+                onChange={(v) => setDraft({ ...draft, unitId: v, variantId: draft.variantId && v && variantsFor(type.id, v).some((x) => x.id === draft.variantId) ? draft.variantId : null })}
+                filter={(u) => teamAllowed(u.id)}
+              />
+            )}
           </Field>
           <Field label="Status">
             {(id) => (
@@ -153,6 +166,20 @@ export function AssetFormSheet({
               </Select>
             )}
           </Field>
+          {(variantOptions.length > 0 || draft.variantId) && (
+            <Field label="Kind" className="col-span-2" hint={draft.variantId ? schemaOf(type.id, draft.variantId)?.name && `Adds ${schema.fields.length - type.fields.length} fields this team tracks` : 'Your team has its own versions of this template'}>
+              {(id) => (
+                <Select id={id} value={draft.variantId ?? ''} onChange={(e) => setDraft({ ...draft, variantId: e.target.value || null })}>
+                  <option value="">Standard {type.name.toLowerCase()}</option>
+                  {variantOptions.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.name}
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </Field>
+          )}
           {unit && (
             <Field label="Catalog" className="col-span-2" hint="Everyone the catalog is shared with can see this item.">
               {(id) => <CatalogSelect id={id} value={draft.catalogId} unitPath={unit.path} onChange={(catalogId) => setDraft({ ...draft, catalogId })} />}
@@ -186,7 +213,7 @@ export function AssetFormSheet({
                 if (tracking?.derive) {
                   const value = derived[f.key] as string | undefined;
                   return (
-                    <Field key={f.key} label={f.label} className="col-span-2 sm:col-span-1" hint={`Calculated from ${type.fields.find((x) => x.key === tracking.derive!.from)?.label ?? tracking.derive.from}`}>
+                    <Field key={f.key} label={f.label} className="col-span-2 sm:col-span-1" hint={`Calculated from ${schema.fields.find((x) => x.key === tracking.derive!.from)?.label ?? tracking.derive.from}`}>
                       {() => (
                         <div className="flex h-8 items-center gap-1.5 rounded-lg bg-surface-2 px-2.5 text-[13px]">
                           <Sparkles className="size-3.5 text-accent" />
@@ -214,7 +241,7 @@ export function AssetFormSheet({
           </fieldset>
         ))}
 
-        <ReminderOverrides type={type} value={draft.reminderOverrides} onChange={(reminderOverrides) => setDraft({ ...draft, reminderOverrides })} />
+        <ReminderOverrides type={schema} value={draft.reminderOverrides} onChange={(reminderOverrides) => setDraft({ ...draft, reminderOverrides })} />
       </form>
     </Sheet>
   );

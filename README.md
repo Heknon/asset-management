@@ -170,6 +170,13 @@ Access adds up: what someone can do with an item is the union of everything that
 
 Where to change it: a unit's **Access** tab (its managers), **Share** on a catalog, and **Settings → Access** for the whole organization. Every screen shows inherited access read-only, so "why can she see this?" has an answer in one place. Changes reach people within 15 minutes (the access-token lifetime) or at their next sign-in. Enforcement is one rule in `@am/core` (`effectivePermissions`) and one SQL filter in `@am/platform` (`visibleFilter`), used by every service.
 
+## Templates, team variants and item IDs
+
+- **One template per kind of thing**, owned by the organization (administrators and Admins of the whole company, e.g. Procurement). The license template carries what buying needs: vendor, license/contract ID, purchase order, purchase date, seats, cost, term, renewal date, cancellation deadline, documents.
+- **Team variants.** A unit extends a template with what *it* tracks, without forking it: R&D's *Lab license* is a Software license plus the workstations that use it and their MAC addresses. Variants are created by the unit's managers (unit page → **Templates** → *Extend for R&D*) in the same builder, with the template's fields shown locked. Everyone in the unit and beneath it picks the variant as the item's *Kind*. Template changes flow into every variant; a template field may not reuse a variant's field key (the save explains the clash). Items, filters, columns, search, reminders and CSV exports all follow template + variant.
+- **Item IDs.** Every item gets a readable ID from its template's prefix: `LIC-42`, `SIM-7`, `HW-118`. IDs are shown everywhere, searchable (typing `lic-42` jumps straight to it), exported, and never reused. The prefix is editable per template; existing items were numbered in creation order by the migration.
+- **Lists and multiple links.** A *List* field holds several short values, each checked against a format (MAC address, IPv4, hostname, email or your own pattern); pasting a column adds them all. A *Linked asset* field can link several items (the machines that use a license).
+
 ## Catalogs, conversations and renewal checks
 
 - **Catalogs.** Managers of a unit create catalogs on the unit page (Catalogs tab) or under Catalogs. A catalog holds assets of its unit and every team beneath it; an asset is in at most one catalog (chosen in the asset form). Moving items into or out of a catalog needs *Edit items* on the catalog, because it changes who can see them.

@@ -1,4 +1,4 @@
-import { permissionsOfLevel, type Permission } from '@am/core';
+import { defaultRefPrefix, permissionsOfLevel, type Permission } from '@am/core';
 import { defaultDateKinds, type AssetStatus, type Attributes, type DateBehavior, type Duration, type FieldDefinition, type RequestEvent, type RequestStatus, type SavedQuery } from '@am/core';
 import { outboxMigration, trySavepoint, type OutboxTable } from '@am/platform';
 import { sql, type ColumnType, type Generated, type Migration } from 'kysely';
@@ -31,6 +31,23 @@ export interface RegistryDB extends OutboxTable {
     fields: Json<FieldDefinition[]>;
     version: number;
     archived: Generated<boolean>;
+    ref_prefix: string;
+    /** Last item number handed out ("LIC-42"). */
+    ref_seq: Generated<number>;
+    created_at: Timestamp;
+    updated_at: Timestamp;
+  };
+  type_variants: {
+    id: Generated<string>;
+    asset_type_id: string;
+    unit_id: string;
+    name: string;
+    description: string | null;
+    sections: Json<string[]>;
+    fields: Json<FieldDefinition[]>;
+    version: Generated<number>;
+    archived: Generated<boolean>;
+    created_by_name: string;
     created_at: Timestamp;
     updated_at: Timestamp;
   };
@@ -43,6 +60,8 @@ export interface RegistryDB extends OutboxTable {
     owner_id: string | null;
     unit_id: string;
     catalog_id: string | null;
+    variant_id: string | null;
+    ref_no: number;
     /** Non-restricted values: searchable and visible to every viewer. */
     attributes: Json<Attributes>;
     /** Restricted values (secrets, sensitive fields): only returned to `manage`. */
@@ -394,6 +413,44 @@ export const migrations: Record<string, Migration> = {
         .addColumn('source', 'text', (c) => c.notNull())
         .addColumn('member_count', 'integer', (c) => c.notNull().defaultTo(0))
         .execute();
+    },
+  },
+  '0007_variants_references': {
+    async up(db) {
+      // Item IDs: PREFIX-number per template ("LIC-42"), numbered in creation order.
+      await sql`alter table asset_types add column ref_prefix text, add column ref_seq integer not null default 0`.execute(db);
+      const known: Record<string, string> = { software_license: 'LIC', sim_line: 'SIM', hardware: 'HW', domain_certificate: 'DOM' };
+      for (const t of (await sql<{ id: string; key: string }>`select id, key from asset_types`.execute(db)).rows) {
+        await sql`update asset_types set ref_prefix = ${known[t.key] ?? defaultRefPrefix(t.key)} where id = ${t.id}`.execute(db);
+      }
+      await sql`alter table asset_types alter column ref_prefix set not null`.execute(db);
+      await sql`alter table assets add column ref_no integer`.execute(db);
+      await sql`update assets a set ref_no = n.rn from (select id, row_number() over (partition by asset_type_id order by created_at, id) as rn from assets) n where n.id = a.id`.execute(db);
+      await sql`update asset_types t set ref_seq = coalesce((select max(ref_no) from assets a where a.asset_type_id = t.id), 0)`.execute(db);
+      await sql`alter table assets alter column ref_no set not null`.execute(db);
+      await sql`create unique index assets_reference on assets (asset_type_id, ref_no)`.execute(db);
+
+      // Team variants: a unit's extension of a template.
+      await db.schema
+        .createTable('type_variants')
+        .addColumn('id', 'uuid', (c) => c.primaryKey().defaultTo(sql`gen_random_uuid()`))
+        .addColumn('asset_type_id', 'uuid', (c) => c.notNull().references('asset_types.id'))
+        .addColumn('unit_id', 'uuid', (c) => c.notNull())
+        .addColumn('name', 'text', (c) => c.notNull())
+        .addColumn('description', 'text')
+        .addColumn('sections', 'jsonb', (c) => c.notNull())
+        .addColumn('fields', 'jsonb', (c) => c.notNull())
+        .addColumn('version', 'integer', (c) => c.notNull().defaultTo(1))
+        .addColumn('archived', 'boolean', (c) => c.notNull().defaultTo(false))
+        .addColumn('created_by_name', 'text', (c) => c.notNull())
+        .addColumn('created_at', 'timestamptz', (c) => c.notNull().defaultTo(sql`now()`))
+        .addColumn('updated_at', 'timestamptz', (c) => c.notNull().defaultTo(sql`now()`))
+        .execute();
+      await sql`create unique index type_variants_name on type_variants (asset_type_id, unit_id, lower(name))`.execute(db);
+      await sql`alter table assets add column variant_id uuid references type_variants(id)`.execute(db);
+      await db.schema.createIndex('assets_variant').on('assets').column('variant_id').execute();
+      // Search text now includes the item ID: rebuild it in the background.
+      await sql`update assets set search_text = ''`.execute(db);
     },
   },
 };

@@ -10,6 +10,7 @@ import {
   type AssetType,
   type Attributes,
   type DateKind,
+  type TypeVariant,
   type Duration,
 } from '@am/core';
 
@@ -25,6 +26,10 @@ export interface AssetState {
   /** The unit's ancestor chain (root first, ending with the unit); drives inherited access. */
   unitPath: string[];
   catalogId: string | null;
+  /** The team variant this item follows (its extra fields), if any. */
+  variantId: string | null;
+  /** Number within its type; shown with the type's prefix ("LIC-42"). */
+  refNo: number;
   values: Attributes;
   reminderOverrides: Record<string, Duration[]>;
   version: number;
@@ -32,7 +37,7 @@ export interface AssetState {
   updatedAt: Date;
 }
 
-export type AssetDraft = Omit<AssetState, 'id' | 'version' | 'createdAt' | 'updatedAt' | 'unitPath'>;
+export type AssetDraft = Omit<AssetState, 'id' | 'version' | 'createdAt' | 'updatedAt' | 'unitPath' | 'refNo'>;
 
 export const scopeOf = (a: Pick<AssetState, 'unitPath' | 'assetTypeId'>, shared?: readonly Permission[]): AccessScope => ({ unitPath: a.unitPath, assetTypeId: a.assetTypeId, ...(shared?.length && { shared }) });
 
@@ -75,7 +80,7 @@ const MASK = '••••••';
 export function diff(type: Pick<AssetType, 'fields'>, before: Partial<AssetDraft> | null, after: AssetDraft): Record<string, { from: unknown; to: unknown }> {
   const changes: Record<string, { from: unknown; to: unknown }> = {};
   const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
-  for (const key of ['name', 'status', 'ownerId', 'unitId', 'catalogId'] as const) {
+  for (const key of ['name', 'status', 'ownerId', 'unitId', 'catalogId', 'variantId'] as const) {
     if (!same(before?.[key], after[key])) changes[key] = { from: before?.[key] ?? null, to: after[key] };
   }
   for (const f of type.fields) {
@@ -110,4 +115,10 @@ export function assetChangedEvent(
     ...(advanced && { advanced }),
     version: asset.version,
   };
+}
+
+/** A variant is used by its unit and the units beneath it. */
+export function assertFitsVariant(variant: Pick<TypeVariant, 'unitId' | 'name' | 'archived' | 'assetTypeId'>, assetTypeId: string, unitPath: readonly string[]): void {
+  if (variant.assetTypeId !== assetTypeId) throw AppError.validation(`“${variant.name}” belongs to another template`);
+  if (!unitPath.includes(variant.unitId)) throw AppError.validation(`“${variant.name}” is only available to its own unit and the teams beneath it`);
 }

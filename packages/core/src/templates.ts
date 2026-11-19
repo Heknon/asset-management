@@ -27,6 +27,7 @@ const sel = (...values: string[]) => ({ options: values.map((v) => ({ value: v.t
 export const starterTemplates: AssetTemplate[] = [
   {
     key: 'software_license',
+    refPrefix: 'LIC',
     name: 'Software license',
     description: 'Subscriptions and perpetual licenses with seats, terms and renewals.',
     icon: 'key-round',
@@ -39,6 +40,9 @@ export const starterTemplates: AssetTemplate[] = [
     sections: ['Commercial', 'Term', 'Access'],
     fields: [
       f('vendor', 'Vendor', 'text', { required: true, showInTable: true, section: 'Commercial' }),
+      f('license_id', 'License / contract ID', 'text', { section: 'Commercial' }),
+      f('purchase_order', 'Purchase order', 'text', { section: 'Commercial' }),
+      f('purchase_date', 'Purchase date', 'date', { section: 'Commercial', tracking: { dateKind: 'start' } }),
       f('seats', 'Seats', 'number', { config: { integer: true, min: 0 }, showInTable: true, section: 'Commercial' }),
       f('cost_per_term', 'Cost per term', 'currency', { config: { currency: 'USD', countsTowardSpend: true }, showInTable: true, section: 'Commercial' }),
       f('term_months', 'Term (months)', 'number', { config: { integer: true, min: 1, unit: 'mo' }, section: 'Term' }),
@@ -62,6 +66,7 @@ export const starterTemplates: AssetTemplate[] = [
   },
   {
     key: 'sim_line',
+    refPrefix: 'SIM',
     name: 'SIM / mobile line',
     description: 'SIM cards and mobile plans with contract end dates.',
     icon: 'smartphone',
@@ -89,6 +94,7 @@ export const starterTemplates: AssetTemplate[] = [
   },
   {
     key: 'hardware',
+    refPrefix: 'HW',
     name: 'Hardware',
     description: 'Laptops, servers and devices with warranty tracking.',
     icon: 'laptop',
@@ -105,6 +111,7 @@ export const starterTemplates: AssetTemplate[] = [
   },
   {
     key: 'domain_certificate',
+    refPrefix: 'DOM',
     name: 'Domain / certificate',
     description: 'Domains and TLS certificates that must never lapse.',
     icon: 'globe',

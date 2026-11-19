@@ -67,7 +67,7 @@ const base = {
   label: z.string().min(1).max(80),
   description: z.string().max(400).optional(),
   required: z.boolean().default(false),
-  /** Restricted fields are only visible to and editable by users with `manage` access. */
+  /** Restricted fields are only visible to and editable by people with the "See secrets" permission. */
   restricted: z.boolean().default(false),
   section: z.string().max(60).optional(),
   /** Shown as a column in the asset table by default. */
@@ -97,7 +97,29 @@ export const fieldDefinitionSchema = z.discriminatedUnion('kind', [
   z.object({ ...base, kind: z.literal('url'), config: z.object({}).default({}) }),
   z.object({ ...base, kind: z.literal('email'), config: z.object({}).default({}) }),
   z.object({ ...base, kind: z.literal('secret'), config: z.object({}).default({}) }),
-  z.object({ ...base, kind: z.literal('assetRef'), config: z.object({ assetTypeId: z.string().uuid().optional() }).default({}) }),
+  z.object({
+    ...base,
+    kind: z.literal('assetRef'),
+    config: z
+      .object({
+        assetTypeId: z.string().uuid().optional(),
+        /** Several linked items (e.g. the machines that use a license). */
+        multiple: z.boolean().default(false),
+      })
+      .default({}),
+  }),
+  z.object({
+    ...base,
+    kind: z.literal('list'),
+    config: z
+      .object({
+        /** Every entry must match, e.g. a MAC address. */
+        pattern: z.string().max(400).optional(),
+        placeholder: z.string().max(80).optional(),
+        maxItems: z.number().int().positive().max(1000).default(200),
+      })
+      .default({}),
+  }),
 ]);
 export type FieldDefinition = z.infer<typeof fieldDefinitionSchema>;
 export type FieldKind = FieldDefinition['kind'];
@@ -119,7 +141,8 @@ export const fieldKindMeta: Record<FieldKind, { label: string; description: stri
   url: { label: 'URL', description: 'Web link' },
   email: { label: 'Email', description: 'Email address' },
   secret: { label: 'Secret', description: 'License keys, PINs — always restricted' },
-  assetRef: { label: 'Linked asset', description: 'Reference another asset' },
+  assetRef: { label: 'Linked asset', description: 'Reference another asset, or several' },
+  list: { label: 'List', description: 'Several short values: MAC addresses, hostnames, serials' },
 };
 
 /** Secrets are always restricted, regardless of the flag. */

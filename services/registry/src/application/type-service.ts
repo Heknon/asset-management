@@ -14,6 +14,7 @@ import {
 } from '@am/core';
 import { assetChangedEvent } from '../domain/asset.js';
 import type { RegistryStore } from './ports.js';
+import { itemSchema } from './schema.js';
 
 export interface TemplateSummary {
   key: string;
@@ -54,7 +55,7 @@ export class TypeService {
     return this.store.transaction(async (tx) => {
       const kind = await tx.updateDateKind(id, input);
       const types = (await tx.listTypes(true)).filter((t) => t.fields.some((f) => f.kind === 'date' && f.config.tracking?.dateKindId === id));
-      await republishAssets(tx, types.map((t) => t.id));
+      await republishAssets(tx, { typeIds: types.map((t) => t.id) });
       return kind;
     });
   }
@@ -80,9 +81,15 @@ export class TypeService {
    */
   async updateType(id: string, input: AssetTypeInput, expectedVersion: number): Promise<AssetType> {
     const parsed = await this.validated(input);
+    // A field added to the template must not clash with a team variant's own field.
+    const variants = await this.store.listVariants({ assetTypeId: id, includeArchived: true });
+    const issues = parsed.fields.flatMap((f, i) =>
+      variants.filter((v) => v.fields.some((x) => x.key === f.key)).map((v) => ({ path: `fields.${i}.key`, message: `The team variant “${v.name}” already has a field "${f.key}"` })),
+    );
+    if (issues.length) throw AppError.validation('The template has problems', { issues });
     return this.store.transaction(async (tx) => {
       const type = await tx.updateType(id, parsed, expectedVersion);
-      await republishAssets(tx, [id]);
+      await republishAssets(tx, { typeIds: [id] });
       return type;
     });
   }
@@ -124,18 +131,18 @@ export class TypeService {
   }
 }
 
-/** Re-emits `asset.changed` for every asset of the given types (after schema or kind changes). */
-export async function republishAssets(store: RegistryStore, typeIds: string[]): Promise<void> {
-  if (!typeIds.length) return;
+/** Re-emits `asset.changed` for every asset of the given types or variants (after schema or kind changes). */
+export async function republishAssets(store: RegistryStore, where: { typeIds?: string[]; variantIds?: string[] }): Promise<void> {
+  const ids = [...(where.typeIds?.length ? await store.assetIdsOfTypes(where.typeIds) : []), ...(await Promise.all((where.variantIds ?? []).map((v) => store.assetIdsOfVariant(v)))).flat()];
+  if (!ids.length) return;
   const kinds = new Map((await store.listDateKinds()).map((k) => [k.id, k]));
-  const types = new Map<string, AssetType>();
-  for (const id of typeIds) {
-    const t = await store.getType(id);
-    if (t) types.set(id, t);
-  }
-  for (const assetId of await store.assetIdsOfTypes(typeIds)) {
+  const schemas = new Map<string, Awaited<ReturnType<typeof itemSchema>>>();
+  for (const assetId of new Set(ids)) {
     const asset = await store.getAsset(assetId);
-    const type = asset && types.get(asset.assetTypeId);
-    if (asset && type) await store.publish('asset.changed', assetChangedEvent(asset, type, kinds));
+    if (!asset) continue;
+    const key = `${asset.assetTypeId}|${asset.variantId ?? ''}`;
+    if (!schemas.has(key)) schemas.set(key, await itemSchema(store, asset.assetTypeId, asset.variantId));
+    const sch = schemas.get(key);
+    if (sch) await store.publish('asset.changed', assetChangedEvent(asset, sch.schema, kinds));
   }
 }

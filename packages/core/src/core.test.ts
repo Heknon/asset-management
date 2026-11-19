@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  defaultRefPrefix,
+  formatReference,
+  validateVariantStructure,
+  withVariant,
   addDuration,
   advanceRecurringDate,
   assetTypeInputSchema,
@@ -252,5 +256,34 @@ describe('csv', () => {
     expect(csvCell('-cmd')).toBe("'-cmd");
     expect(csvCell('line\nbreak')).toBe('"line\nbreak"');
     expect(csvFilename('Licenses: R&D / Labs', '2026-11-19')).toBe('Licenses R&D Labs 2026-11-19.csv');
+  });
+});
+
+describe('team variants and new field kinds', () => {
+  const kinds = new Map(defaultDateKinds.map((k, i) => [`k${i}`, { ...k, id: `00000000-0000-4000-8000-00000000000${i}` }]));
+  const kindIds = new Set([...kinds.values()].map((k) => k.id));
+  const base = instantiateTemplate(starterTemplates[0]!, new Map([...kinds.values()].map((k) => [k.key, k.id])));
+  const mac = { id: '00000000-0000-4000-8000-0000000000f1', key: 'macs', label: 'MAC addresses', kind: 'list' as const, required: false, restricted: false, showInTable: true, config: { pattern: '^([0-9A-F]{2}:){5}[0-9A-F]{2}$', maxItems: 10 } };
+  const variant = { unitId: '00000000-0000-4000-8000-0000000000aa', name: 'Design license', description: null, sections: ['Workstation'], fields: [{ ...mac, section: 'Workstation' }] };
+
+  it('extends a template without redefining its fields', () => {
+    expect(validateVariantStructure({ ...base, statuses: base.statuses }, variant, kindIds)).toEqual([]);
+    const clash = { ...variant, fields: [{ ...mac, key: 'vendor' }] };
+    expect(validateVariantStructure({ ...base, statuses: base.statuses }, clash, kindIds)[0]!.message).toMatch(/already has a field "vendor"/);
+    const merged = withVariant(base, variant);
+    expect(merged.fields.at(-1)!.key).toBe('macs');
+    expect(merged.sections).toContain('Workstation');
+  });
+
+  it('validates list entries one by one', () => {
+    const schema = { fields: [mac] };
+    expect(validateAttributes(schema, { macs: ['AA:BB:CC:DD:EE:FF', ' AA:BB:CC:DD:EE:FF '] }).values.macs).toEqual(['AA:BB:CC:DD:EE:FF']);
+    expect(validateAttributes(schema, { macs: ['not-a-mac'] }).issues[0]!.message).toMatch(/required format: not-a-mac/);
+  });
+
+  it('derives readable reference prefixes', () => {
+    expect(defaultRefPrefix('software_license')).toBe('SL');
+    expect(defaultRefPrefix('hardware')).toBe('HAR');
+    expect(formatReference('LIC', 42)).toBe('LIC-42');
   });
 });

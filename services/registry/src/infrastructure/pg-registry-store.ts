@@ -1,5 +1,6 @@
 import {
   AppError,
+  defaultRefPrefix,
   normalizePermissions,
   parseSubjectKey,
   foldText,
@@ -8,6 +9,8 @@ import {
   type CatalogInput,
   type Permission,
   type Subject,
+  type TypeVariant,
+  type TypeVariantInput,
   type Visibility,
   type AssetQuery,
   type AssetType,
@@ -60,6 +63,22 @@ const toType = (r: Selectable<RegistryDB['asset_types']>): AssetType => ({
   fields: r.fields,
   version: r.version,
   archived: r.archived,
+  refPrefix: r.ref_prefix,
+  createdAt: r.created_at.toISOString(),
+  updatedAt: r.updated_at.toISOString(),
+});
+
+const toVariant = (r: Selectable<RegistryDB['type_variants']>): TypeVariant => ({
+  id: r.id,
+  assetTypeId: r.asset_type_id,
+  unitId: r.unit_id,
+  name: r.name,
+  description: r.description,
+  sections: r.sections,
+  fields: r.fields,
+  version: r.version,
+  archived: r.archived,
+  createdByName: r.created_by_name,
   createdAt: r.created_at.toISOString(),
   updatedAt: r.updated_at.toISOString(),
 });
@@ -76,6 +95,8 @@ const toAsset = (r: AssetRow): AssetState & { snippet?: string } => ({
   unitId: r.unit_id,
   unitPath: r.unit_path ?? [r.unit_id],
   catalogId: r.catalog_id,
+  variantId: r.variant_id,
+  refNo: r.ref_no,
   values: { ...r.attributes, ...r.restricted_attributes },
   reminderOverrides: r.reminder_overrides,
   version: r.version,
@@ -219,6 +240,7 @@ export class PgRegistryStore implements RegistryStore {
   private typeValues(input: AssetTypeInput) {
     return {
       key: input.key,
+      ref_prefix: input.refPrefix ?? defaultRefPrefix(input.key),
       name: input.name,
       description: input.description ?? null,
       icon: input.icon,
@@ -262,6 +284,55 @@ export class PgRegistryStore implements RegistryStore {
     return toType(r);
   }
 
+  async listVariants(where: { assetTypeId?: string; unitIds?: string[]; includeArchived?: boolean }) {
+    let q = this.db.selectFrom('type_variants').selectAll().orderBy(sql`lower(name)`);
+    if (where.assetTypeId) q = q.where('asset_type_id', '=', where.assetTypeId);
+    if (where.unitIds) q = where.unitIds.length ? q.where('unit_id', 'in', where.unitIds) : q.where(sql<SqlBool>`false`);
+    if (!where.includeArchived) q = q.where('archived', '=', false);
+    return (await q.execute()).map(toVariant);
+  }
+
+  async getVariant(id: string) {
+    const r = await this.db.selectFrom('type_variants').selectAll().where('id', '=', id).executeTakeFirst();
+    return r ? toVariant(r) : null;
+  }
+
+  async insertVariant(assetTypeId: string, input: TypeVariantInput, byName: string) {
+    try {
+      const r = await this.db
+        .insertInto('type_variants')
+        .values({ asset_type_id: assetTypeId, unit_id: input.unitId, name: input.name, description: input.description, sections: json(input.sections), fields: json(input.fields), created_by_name: byName })
+        .returningAll()
+        .executeTakeFirstOrThrow();
+      return toVariant(r);
+    } catch (e) {
+      if (isUniqueViolation(e)) throw AppError.conflict(`This unit already has a variant called "${input.name}"`);
+      throw e;
+    }
+  }
+
+  async updateVariant(id: string, input: Omit<TypeVariantInput, 'unitId'>, expectedVersion: number) {
+    const r = await this.db
+      .updateTable('type_variants')
+      .set({ name: input.name, description: input.description, sections: json(input.sections), fields: json(input.fields), version: sql`version + 1`, updated_at: sql`now()` })
+      .where('id', '=', id)
+      .where('version', '=', expectedVersion)
+      .returningAll()
+      .executeTakeFirst();
+    if (!r) throw (await this.getVariant(id)) ? AppError.conflict('The variant was changed by someone else. Reload and try again.') : AppError.notFound('Variant');
+    return toVariant(r);
+  }
+
+  async setVariantArchived(id: string, archived: boolean) {
+    const r = await this.db.updateTable('type_variants').set({ archived, updated_at: sql`now()` }).where('id', '=', id).returningAll().executeTakeFirst();
+    if (!r) throw AppError.notFound('Variant');
+    return toVariant(r);
+  }
+
+  async assetIdsOfVariant(id: string) {
+    return (await this.db.selectFrom('assets').select('id').where('variant_id', '=', id).execute()).map((r) => r.id);
+  }
+
   async countAssetsOfType(id: string) {
     const r = await this.db.selectFrom('assets').select((eb) => eb.fn.countAll<number>().as('n')).where('asset_type_id', '=', id).executeTakeFirstOrThrow();
     return Number(r.n);
@@ -286,18 +357,30 @@ export class PgRegistryStore implements RegistryStore {
     if (query.assetTypeId) q = q.where('assets.asset_type_id', '=', query.assetTypeId);
     if (query.unitId) q = q.where(query.includeSubunits ? inSubtree(query.unitId, 'units_ref.path') : sql<SqlBool>`assets.unit_id = ${query.unitId}`);
     if (query.catalogId) q = q.where('assets.catalog_id', '=', query.catalogId);
+    if (query.variantId) q = q.where('assets.variant_id', '=', query.variantId);
     if (query.status) q = q.where('assets.status', '=', query.status);
     if (query.ownerId) q = q.where('assets.owner_id', '=', query.ownerId);
     // Only non-restricted values are indexed, so search cannot reveal secrets.
-    if (query.q) q = q.where(search ? search.where : sql<SqlBool>`false`);
+    // "LIC-42" is an item ID: match it exactly (and rank it first), as well as by text.
+    const ref = query.q ? /^\s*([A-Za-z][A-Za-z0-9]{0,5})-(\d{1,9})\s*$/.exec(query.q) : null;
+    const exact = ref
+      ? sql<SqlBool>`(assets.ref_no = ${Number(ref[2])} and assets.asset_type_id in (select t.id from asset_types t where t.ref_prefix = ${ref[1]!.toUpperCase()}))`
+      : null;
+    if (query.q) q = q.where(exact ? sql<SqlBool>`(${exact} or ${search ? search.where : sql<SqlBool>`false`})` : search ? search.where : sql<SqlBool>`false`);
     for (const f of query.filters) q = q.where(filterExpression(f, type));
-    return { q, search };
+    return { q, search, exact };
   }
 
   async assetTypeIdsIn(query: AssetQuery, visibility: Visibility) {
     const type = query.assetTypeId ? await this.getType(query.assetTypeId) : null;
     const { q } = this.assetQuery(query, visibility, type);
     return (await q.select('assets.asset_type_id').distinct().execute()).map((r) => r.asset_type_id);
+  }
+
+  async variantIdsIn(query: AssetQuery, visibility: Visibility) {
+    const type = query.assetTypeId ? await this.getType(query.assetTypeId) : null;
+    const { q } = this.assetQuery(query, visibility, type);
+    return (await q.select('assets.variant_id').distinct().where('assets.variant_id', 'is not', null).execute()).map((r) => r.variant_id!);
   }
 
   catalogSharePermissions(catalogId: string | null, shareKeys: readonly string[]): Promise<Permission[]> {
@@ -346,11 +429,12 @@ export class PgRegistryStore implements RegistryStore {
   }
 
   async queryAssets(query: AssetQuery, visibility: Visibility, type: AssetType | null) {
-    const { q, search } = this.assetQuery(query, visibility, type);
+    const { q, search, exact } = this.assetQuery(query, visibility, type);
     const total = Number((await q.select((eb) => eb.fn.countAll<number>().as('n')).executeTakeFirstOrThrow()).n);
     let page = q.selectAll('assets').select(sql<string[] | null>`units_ref.path`.as('unit_path'));
     if (search) page = page.select(search.snippet.as('snippet'));
     if (query.sort === 'relevance' && search) {
+      if (exact) page = page.orderBy(sql`${exact}`, 'desc');
       page = page.orderBy(search.rank, 'desc').orderBy('assets.updated_at', 'desc');
     } else if (query.sort.startsWith('attributes.')) {
       const key = query.sort.slice('attributes.'.length);
@@ -385,6 +469,7 @@ export class PgRegistryStore implements RegistryStore {
       owner_id: draft.ownerId,
       unit_id: draft.unitId,
       catalog_id: draft.catalogId,
+      variant_id: draft.variantId,
       attributes: json(open),
       restricted_attributes: json(restricted),
       reminder_overrides: json(draft.reminderOverrides),
@@ -394,9 +479,16 @@ export class PgRegistryStore implements RegistryStore {
   }
 
   async insertAsset(draft: AssetDraft, actorId: string, searchText: string) {
+    // The next number of its type; the row lock on the type serialises concurrent creates.
+    const { ref_seq } = await this.db
+      .updateTable('asset_types')
+      .set({ ref_seq: sql`ref_seq + 1` })
+      .where('id', '=', draft.assetTypeId)
+      .returning('ref_seq')
+      .executeTakeFirstOrThrow();
     const r = await this.db
       .insertInto('assets')
-      .values({ ...(await this.assetValues(draft, searchText)), version: 1, created_by: actorId, updated_by: actorId })
+      .values({ ...(await this.assetValues(draft, searchText)), ref_no: ref_seq, version: 1, created_by: actorId, updated_by: actorId })
       .returning('id')
       .executeTakeFirstOrThrow();
     return (await this.getAsset(r.id))!;

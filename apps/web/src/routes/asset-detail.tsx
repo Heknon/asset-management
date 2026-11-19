@@ -31,6 +31,8 @@ export function AssetDetailPage() {
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const type = asset.data ? lookups.typeById.get(asset.data.assetTypeId) : undefined;
+  // The template plus the team variant's fields, named after the variant.
+  const schema = asset.data ? lookups.schemaOf(asset.data.assetTypeId, asset.data.variantId) : undefined;
 
   const remove = useMutation({
     mutationFn: () => api.delete(`/api/registry/assets/${assetId}`),
@@ -49,7 +51,7 @@ export function AssetDetailPage() {
       </div>
     );
   }
-  if (!asset.data || !type) return <EmptyState title="Asset not found" description="It may have been deleted, or you may not have access." action={<Link to="/assets" className="text-accent-fg">Back to assets</Link>} />;
+  if (!asset.data || !type || !schema) return <EmptyState title="Asset not found" description="It may have been deleted, or you may not have access." action={<Link to="/assets" className="text-accent-fg">Back to assets</Link>} />;
 
   const a = asset.data;
   const can = (perm: Permission) => a.permissions.includes(perm);
@@ -62,9 +64,12 @@ export function AssetDetailPage() {
         title={a.name}
         description={
           <span className="flex flex-wrap items-center gap-2">
+            <span className="font-mono text-xs text-subtle" title="Item ID">
+              {a.reference}
+            </span>
             <Link to="/assets" search={{ type: type.id }} className="inline-flex items-center gap-1 hover:text-fg">
               <ArrowLeft className="size-3" />
-              {type.name}
+              {schema.name !== type.name ? `${schema.name} · ${type.name}` : type.name}
             </Link>
             <StatusBadge type={type} status={a.status} />
             <Link to="/units/$unitId" params={{ unitId: a.unitId }} className="hover:text-fg">
@@ -93,14 +98,14 @@ export function AssetDetailPage() {
       />
       <div className="mx-auto grid w-full max-w-6xl gap-6 px-6 py-6 lg:grid-cols-[minmax(0,1fr)_380px]">
         <div className="space-y-6">
-          <Details type={type} attributes={a.attributes} ownerId={a.ownerId} canSeeRestricted={can('restricted')} />
+          <Details type={schema} attributes={a.attributes} ownerId={a.ownerId} canSeeRestricted={can('restricted')} />
           <Documents assetId={a.id} canEdit={can('attach')} canManage={can('delete')} currentUserId={me.userId} />
           <Conversation assetId={a.id} permissions={a.permissions} />
         </div>
         <div className="space-y-6">
           <OriginRequest assetId={a.id} />
           <KeyDates assetId={a.id} canEdit={can('renew')} />
-          <Activity assetId={a.id} type={type} />
+          <Activity assetId={a.id} type={schema} />
         </div>
       </div>
       <AssetFormSheet open={editing} onOpenChange={setEditing} type={type} asset={a} />
@@ -242,7 +247,7 @@ function Activity({ assetId, type }: { assetId: string; type: AssetType }) {
   const activity = useActivity(assetId);
   const label = (key: string) => {
     if (key.startsWith('attributes.')) return type.fields.find((f) => f.key === key.slice(11))?.label ?? key.slice(11);
-    return { name: 'Name', status: 'Status', ownerId: 'Owner', unitId: 'Team', catalogId: 'Catalog', reminderOverrides: 'Reminders', request: 'Request' }[key] ?? key;
+    return { name: 'Name', status: 'Status', ownerId: 'Owner', unitId: 'Team', catalogId: 'Catalog', variantId: 'Kind', reminderOverrides: 'Reminders', request: 'Request' }[key] ?? key;
   };
   return (
     <Card>

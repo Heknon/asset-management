@@ -1,5 +1,6 @@
 import { addDuration, type Catalog, type OrgUnit, type UnitPerson, type UnitRollup, type UnitRole } from '@am/core';
 import { GrantsEditor } from '@/components/access-grants';
+import { TypeIcon } from '@/components/type-icon';
 import { CatalogCard, CatalogFormDialog } from '@/components/catalogs';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
@@ -89,6 +90,7 @@ export function UnitPage() {
             { value: 'assets', label: 'Assets', count: assets.data?.total },
             { value: 'requests', label: 'Requests', count: openRequests.data?.total },
             { value: 'catalogs', label: 'Catalogs', count: catalogs.data?.length },
+            { value: 'templates', label: 'Templates' },
             { value: 'access', label: 'Access' },
             { value: 'people', label: 'People', count: people.data ? new Set(people.data.map((p) => p.id)).size : undefined },
           ]}
@@ -114,6 +116,7 @@ export function UnitPage() {
           <RequestList items={openRequests.data?.items ?? []} title="Open requests" empty="No open requests for this team." />
         </div>
       )}
+      {tab === 'templates' && <TemplatesTab unitId={unit.id} />}
       {tab === 'access' && (
         <div className="mx-auto w-full max-w-3xl space-y-3 px-6 py-6">
           <p className="text-[13px] text-muted">Who can see and work with {unit.name}’s items — and everything in the units beneath it. Give access to people, other units or directory groups.</p>
@@ -123,6 +126,66 @@ export function UnitPage() {
       {tab === 'catalogs' && <CatalogsTab unitId={unit.id} catalogs={catalogs.data ?? []} />}
       {tab === 'people' && <PeopleTab unitId={unit.id} people={people.data ?? []} editable={canManagePeople} />}
     </>
+  );
+}
+
+/**
+ * The organization's templates as this unit uses them: the variants it (or a
+ * unit above it) defined, and "Extend for <unit>" to add its own fields.
+ */
+function TemplatesTab({ unitId }: { unitId: string }) {
+  const { types, variantsFor, unitById } = useLookups();
+  const { unitPermissionsOn, canManageOrganization } = useMyOrg();
+  const canExtend = canManageOrganization || unitPermissionsOn(unitId).has('manage');
+  const unit = unitById.get(unitId);
+  return (
+    <div className="mx-auto w-full max-w-4xl space-y-3 px-6 py-6">
+      <p className="text-[13px] text-muted">
+        Templates are shared by the whole organization. A unit can extend one with the fields it needs — a Lab’s “Design license” adds the workstation and MAC addresses — and everyone in {unit?.name} and beneath it can use it.
+      </p>
+      <Card padded={false} className="divide-y divide-border">
+        {types
+          .filter((t) => !t.archived)
+          .map((t) => {
+            const vs = variantsFor(t.id, unitId);
+            return (
+              <div key={t.id} className="px-4 py-3">
+                <div className="flex items-center gap-3">
+                  <TypeIcon icon={t.icon} color={t.color} size={28} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[13px] font-medium">{t.name}</span>
+                    <span className="block text-xs text-muted">
+                      {t.fields.length} fields{vs.length ? ` · ${vs.length} ${vs.length === 1 ? 'variant' : 'variants'} here` : ''}
+                    </span>
+                  </span>
+                  {canExtend && (
+                    <Link to="/templates/$typeId/variants/$variantId" params={{ typeId: t.id, variantId: 'new' }} search={{ unit: unitId }}>
+                      <Button size="sm" icon={<Plus className="size-3.5" />}>
+                        Extend for {unit?.name}
+                      </Button>
+                    </Link>
+                  )}
+                </div>
+                {vs.length > 0 && (
+                  <ul className="mt-2 ml-10 space-y-1">
+                    {vs.map((v) => (
+                      <li key={v.id}>
+                        <Link to="/templates/$typeId/variants/$variantId" params={{ typeId: t.id, variantId: v.id }} search={{ unit: undefined }} className="flex items-center gap-2 text-[13px] hover:underline">
+                          <span className="font-medium">{v.name}</span>
+                          <span className="text-xs text-muted">
+                            +{v.fields.length} {v.fields.length === 1 ? 'field' : 'fields'}
+                            {v.unitId !== unitId && <> · from {unitById.get(v.unitId)?.name}</>}
+                          </span>
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            );
+          })}
+      </Card>
+    </div>
   );
 }
 

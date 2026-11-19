@@ -125,6 +125,16 @@ export function TagInput({ value, onChange, placeholder, validate, id }: { value
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={add}
+        onPaste={(e) => {
+          // A pasted column (one per line) or list ("a, b; c") becomes several entries.
+          const parts = e.clipboardData.getData('text').split(/[\n\r,;\t]+/).map((x) => x.trim()).filter(Boolean);
+          if (parts.length < 2) return;
+          e.preventDefault();
+          const fresh = parts.filter((p) => (!validate || validate(p)) && !value.some((x) => x.toLowerCase() === p.toLowerCase()));
+          onChange([...value, ...new Set(fresh)]);
+          const rejected = parts.filter((p) => validate && !validate(p));
+          setDraft(rejected.join(', '));
+        }}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ',') {
             e.preventDefault();

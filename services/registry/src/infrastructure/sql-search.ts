@@ -66,9 +66,11 @@ function kindOfField(f: FieldDefinition | undefined, value: unknown): ValueKind 
       return 'boolean';
     case 'select':
     case 'user':
-    case 'assetRef':
       return 'id';
+    case 'assetRef':
+      return f.config.multiple ? 'list' : 'id';
     case 'multiSelect':
+    case 'list':
       return 'list';
     default:
       return 'text';

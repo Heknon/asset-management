@@ -6,6 +6,7 @@ import { CatalogService } from './application/catalog-service.js';
 import { CommentService } from './application/comment-service.js';
 import { ExportService } from './application/export-service.js';
 import { TypeService } from './application/type-service.js';
+import { VariantService } from './application/variant-service.js';
 import { RequestService } from './application/request-service.js';
 import { SearchService } from './application/search-service.js';
 import { PgRegistryStore } from './infrastructure/pg-registry-store.js';
@@ -35,6 +36,7 @@ main(() =>
         app,
         {
           types: new TypeService(store),
+          variants: new VariantService(store),
           assets,
           catalogs: new CatalogService(store, access),
           comments,

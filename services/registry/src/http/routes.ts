@@ -3,6 +3,7 @@ import {
   assetExportSchema,
   assetQuerySchema,
   catalogInputSchema,
+  typeVariantInputSchema,
   catalogQuerySchema,
   catalogShareInputSchema,
   commentInputSchema,
@@ -28,6 +29,7 @@ import type { CatalogService } from '../application/catalog-service.js';
 import type { CommentService } from '../application/comment-service.js';
 import type { ExportService } from '../application/export-service.js';
 import type { TypeService } from '../application/type-service.js';
+import type { VariantService } from '../application/variant-service.js';
 import type { RequestService } from '../application/request-service.js';
 import type { SearchService } from '../application/search-service.js';
 
@@ -38,6 +40,7 @@ const exportedRows = metrics.counter({ name: 'am_exported_rows_total', help: 'Ro
 
 export interface Services {
   types: TypeService;
+  variants: VariantService;
   assets: AssetService;
   catalogs: CatalogService;
   comments: CommentService;
@@ -51,7 +54,7 @@ export interface Features {
   csvExport: boolean;
 }
 
-export function registerRoutes(app: FastifyInstance, { types, assets, catalogs, comments, exports, requests, search }: Services, features: Features): void {
+export function registerRoutes(app: FastifyInstance, { types, variants, assets, catalogs, comments, exports, requests, search }: Services, features: Features): void {
   app.get(`${PREFIX}/features`, async (req) => {
     requirePrincipal(req);
     return features;
@@ -96,6 +99,28 @@ export function registerRoutes(app: FastifyInstance, { types, assets, catalogs, 
     await types.assertCanManage(requirePrincipal(req));
     const { archived } = parse(z.object({ archived: z.boolean() }), req.body);
     return types.setArchived(parse(idParam, req.params).id, archived);
+  });
+
+  // ─── Team variants (a unit's extension of a template) ────────────────────
+  app.get(`${PREFIX}/variants`, async (req) => {
+    requirePrincipal(req);
+    const q = parse(z.object({ assetTypeId: z.string().uuid().optional(), unitId: z.string().uuid().optional(), archived: z.enum(['true', 'false']).default('false') }), req.query);
+    return variants.list({ assetTypeId: q.assetTypeId, unitId: q.unitId, includeArchived: q.archived === 'true' });
+  });
+  app.get(`${PREFIX}/variants/:id`, async (req) => {
+    requirePrincipal(req);
+    return variants.get(parse(idParam, req.params).id);
+  });
+  app.post(`${PREFIX}/asset-types/:id/variants`, async (req, reply) =>
+    reply.status(201).send(await variants.create(requirePrincipal(req), parse(idParam, req.params).id, parse(typeVariantInputSchema, req.body))),
+  );
+  app.put(`${PREFIX}/variants/:id`, async (req) => {
+    const { version, ...input } = parse(typeVariantInputSchema.omit({ unitId: true }).extend({ version: z.number().int().positive() }), req.body);
+    return variants.update(requirePrincipal(req), parse(idParam, req.params).id, input, version);
+  });
+  app.post(`${PREFIX}/variants/:id/archive`, async (req) => {
+    const { archived } = parse(z.object({ archived: z.boolean() }), req.body);
+    return variants.setArchived(requirePrincipal(req), parse(idParam, req.params).id, archived);
   });
 
   app.get(`${PREFIX}/templates`, async (req) => {

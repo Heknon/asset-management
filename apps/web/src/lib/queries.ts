@@ -22,11 +22,13 @@ import type {
   RequestQuery,
   SavedView,
   SearchHit,
+  TypeVariant,
   UnitPerson,
   UnitRollup,
   User,
   UserSummary,
 } from '@am/core';
+import { withVariant } from '@am/core';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { api } from './api';
@@ -64,6 +66,7 @@ export const keys = {
   groupMembers: (id: string) => ['groups', id, 'members'] as const,
   calendarFeed: ['calendar-feed'] as const,
   features: ['features'] as const,
+  variants: ['variants'] as const,
   catalogs: ['catalogs'] as const,
   catalogList: (q: Partial<CatalogQuery>) => ['catalogs', 'list', q] as const,
   catalog: (id: string) => ['catalogs', id] as const,
@@ -74,6 +77,9 @@ export interface Features {
   csvExport: boolean;
 }
 export const useFeatures = () => useQuery({ queryKey: keys.features, queryFn: () => api.get<Features>('/api/registry/features'), staleTime: 300_000 });
+
+/** Every team variant (few; used to render any item with its extra fields). */
+export const useVariants = () => useQuery({ queryKey: keys.variants, queryFn: () => api.get<TypeVariant[]>('/api/registry/variants', { archived: true }), staleTime: 30_000 });
 
 export const useCatalogs = (q: Partial<CatalogQuery> = {}) => useQuery({ queryKey: keys.catalogList(q), queryFn: () => api.get<Catalog[]>('/api/registry/catalogs', q), staleTime: 30_000 });
 export const useCatalog = (id: string | null | undefined) =>
@@ -135,12 +141,28 @@ export function useLookups() {
   const types = useAssetTypes();
   const kinds = useDateKinds();
   const units = useUnits();
+  const variants = useVariants();
   return useMemo(() => {
     const unitById = new Map((units.data ?? []).map((u) => [u.id, u]));
+    const typeById = new Map((types.data ?? []).map((t) => [t.id, t]));
+    const variantById = new Map((variants.data ?? []).map((v) => [v.id, v]));
     return {
-      ready: !!types.data && !!kinds.data && !!units.data,
+      ready: !!types.data && !!kinds.data && !!units.data && !!variants.data,
       types: types.data ?? [],
-      typeById: new Map((types.data ?? []).map((t) => [t.id, t])),
+      typeById,
+      variants: variants.data ?? [],
+      variantById,
+      /** Variants usable for items of a unit (the unit's own and its ancestors'). */
+      variantsFor: (typeId: string, unitId: string | null | undefined) => {
+        const path = unitId ? (unitById.get(unitId)?.path ?? []) : [];
+        return (variants.data ?? []).filter((v) => v.assetTypeId === typeId && !v.archived && path.includes(v.unitId));
+      },
+      /** What an item follows: its template plus its variant's fields (named after the variant). */
+      schemaOf: (typeId: string, variantId: string | null | undefined) => {
+        const t = typeById.get(typeId);
+        const v = variantId ? variantById.get(variantId) : undefined;
+        return t && v ? { ...withVariant(t, v), name: v.name } : t;
+      },
       kinds: kinds.data ?? [],
       kindById: new Map((kinds.data ?? []).map((k) => [k.id, k])),
       units: units.data ?? [],
@@ -149,7 +171,7 @@ export function useLookups() {
       unitPathNames: (id: string | null | undefined) => (id ? (unitById.get(id)?.path ?? []).map((p) => unitById.get(p)?.name ?? '…') : []),
       childrenOf: (id: string | null) => (units.data ?? []).filter((u) => u.parentId === id),
     };
-  }, [types.data, kinds.data, units.data]);
+  }, [types.data, kinds.data, units.data, variants.data]);
 }
 
 export const useUsers = (q: string) => useQuery({ queryKey: keys.users(q), queryFn: () => api.get<Page<User>>('/api/identity/users', { q, limit: 200 }), placeholderData: keepPreviousData });

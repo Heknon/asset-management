@@ -214,7 +214,11 @@ export const subjectSearchSchema = z.object({ q: z.string().trim().min(1).max(10
 
 export interface Asset {
   id: string;
+  /** Human ID, e.g. "LIC-42". */
+  reference: string;
   assetTypeId: string;
+  /** The team variant of the template this item follows (its extra fields), if any. */
+  variantId: string | null;
   typeVersion: number;
   name: string;
   status: string;
@@ -241,6 +245,7 @@ export const assetCreateSchema = z.object({
   status: fieldKeySchema.optional(),
   ownerId: uuid.nullable().default(null),
   unitId: uuid,
+  variantId: uuid.nullable().default(null),
   catalogId: uuid.nullable().default(null),
   /** The request this asset fulfils, if any. */
   requestId: uuid.optional(),
@@ -255,6 +260,7 @@ export const assetUpdateSchema = z
     status: fieldKeySchema,
     ownerId: uuid.nullable(),
     unitId: uuid,
+    variantId: uuid.nullable(),
     catalogId: uuid.nullable(),
     attributes: attributesInput,
     reminderOverrides: reminderOverridesSchema,
@@ -298,6 +304,7 @@ export const assetQuerySchema = pageQuerySchema.extend({
   status: z.string().optional(),
   ownerId: uuid.optional(),
   catalogId: uuid.optional(),
+  variantId: uuid.optional(),
   q: z.string().max(200).optional(),
   filters: jsonParam(z.array(assetFilterSchema).max(20)).default([]),
   sort: z.string().max(60).default('updatedAt'),
@@ -675,6 +682,7 @@ export const searchQuerySchema = z.object({
 
 export const savedQuerySchema = z.object({
   assetTypeId: uuid.optional(),
+  variantId: uuid.optional(),
   unitId: uuid.optional(),
   includeSubunits: z.boolean().optional(),
   status: z.string().optional(),

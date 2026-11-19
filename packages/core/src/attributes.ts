@@ -66,8 +66,25 @@ function checkValue(field: FieldDefinition, raw: unknown): { ok: true; value: At
       return bad.length ? fail(`Unknown options: ${bad.join(', ')}`) : { ok: true, value: [...new Set(raw as string[])] };
     }
     case 'user':
-    case 'assetRef':
       return typeof raw === 'string' && UUID.test(raw) ? { ok: true, value: raw } : fail('Must be a valid reference');
+    case 'assetRef': {
+      if (!field.config.multiple) return typeof raw === 'string' && UUID.test(raw) ? { ok: true, value: raw } : fail('Must be a valid reference');
+      const list = typeof raw === 'string' ? [raw] : raw;
+      if (!Array.isArray(list) || list.some((v) => typeof v !== 'string' || !UUID.test(v))) return fail('Must be a list of linked items');
+      return { ok: true, value: [...new Set(list as string[])] };
+    }
+    case 'list': {
+      const list = typeof raw === 'string' ? [raw] : raw;
+      if (!Array.isArray(list) || list.some((v) => typeof v !== 'string')) return fail('Must be a list of values');
+      const items = [...new Set((list as string[]).map((v) => v.trim()).filter(Boolean))];
+      if (items.length > field.config.maxItems) return fail(`At most ${field.config.maxItems} entries`);
+      if (field.config.pattern) {
+        const re = new RegExp(field.config.pattern);
+        const bad = items.filter((v) => !re.test(v));
+        if (bad.length) return fail(`Not in the required format: ${bad.slice(0, 3).join(', ')}${bad.length > 3 ? '…' : ''}`);
+      }
+      return { ok: true, value: items };
+    }
   }
 }
 

@@ -36,6 +36,10 @@ export interface SearchLookups {
   unitName: string;
   personName: (id: string) => string | undefined;
   assetName?: (id: string) => string | undefined;
+  /** "LIC-42" */
+  reference?: string;
+  /** Team variant name ("Design license"). */
+  variantName?: string;
 }
 
 /** A value as people read it (option labels, names, "1200 USD"); shared by search text and CSV export. */
@@ -49,7 +53,9 @@ export function attributeText(field: FieldDefinition, value: unknown, l: Pick<Se
     case 'user':
       return l.personName(value as string) ?? null;
     case 'assetRef':
-      return l.assetName?.(value as string) ?? null;
+      return (Array.isArray(value) ? value : [value as string]).map((id) => l.assetName?.(id)).filter(Boolean).join(', ') || null;
+    case 'list':
+      return (value as string[]).join(', ');
     case 'boolean':
       return value ? 'yes' : 'no';
     case 'currency':
@@ -64,7 +70,8 @@ export function attributeText(field: FieldDefinition, value: unknown, l: Pick<Se
  * shown in context ("Vendor: Figma · Seats: 40"). Never contains restricted values.
  */
 export function buildSearchText(type: Pick<AssetType, 'fields'>, name: string, values: Attributes, ownerName: string | undefined, l: SearchLookups): string {
-  const parts = [name, `Type: ${l.typeName}`, `Status: ${l.statusLabel}`, `Team: ${l.unitName}`];
+  const parts = [name, ...(l.reference ? [`ID: ${l.reference}`] : []), `Type: ${l.typeName}`, `Status: ${l.statusLabel}`, `Team: ${l.unitName}`];
+  if (l.variantName) parts.push(`Kind: ${l.variantName}`);
   if (ownerName) parts.push(`Owner: ${ownerName}`);
   for (const f of type.fields) {
     if (isRestricted(f)) continue;

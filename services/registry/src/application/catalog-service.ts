@@ -14,6 +14,7 @@ import { assetChangedEvent } from '../domain/asset.js';
 import { catalogChangedEvent, type CatalogState } from '../domain/catalog.js';
 import type { AccessResolver } from './access.js';
 import type { RegistryStore } from './ports.js';
+import { itemSchema } from './schema.js';
 
 /**
  * Catalogs: named collections of a unit's assets that the unit can share with
@@ -71,9 +72,9 @@ export class CatalogService {
       const catalog = await this.managed(tx, p, id);
       const kinds = new Map((await tx.listDateKinds()).map((k) => [k.id, k]));
       for (const asset of await tx.unfileAssets(id, p.userId)) {
-        const type = (await tx.getType(asset.assetTypeId))!;
+        const sch = (await itemSchema(tx, asset.assetTypeId, asset.variantId))!;
         await tx.addActivity({ assetId: asset.id, actorId: p.userId, actorName: p.displayName, action: 'updated', changes: { catalogId: { from: id, to: null } } });
-        await tx.publish('asset.changed', assetChangedEvent(asset, type, kinds));
+        await tx.publish('asset.changed', assetChangedEvent(asset, sch.schema, kinds));
       }
       await tx.deleteCatalog(id);
       await tx.publish('catalog.changed', catalogChangedEvent({ ...catalog, version: catalog.version + 1 }, true));

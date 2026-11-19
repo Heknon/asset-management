@@ -246,4 +246,32 @@ if (!existingCatalogs.length) {
   }
   console.log('catalogs: 2 created and shared; 1 renewal check waiting for tom.levi');
 }
+// ─── A team variant: R&D extends the license template ────────────────────────
+const variants = await admin('GET', `/api/registry/variants?assetTypeId=${types.software_license.id}`);
+if (!variants.length) {
+  const asRachel = await login('rachel.amar');
+  const rnd = byName('R&D');
+  const field = (key, label, kind, config, extra = {}) => ({ id: crypto.randomUUID(), key, label, kind, required: false, restricted: false, showInTable: true, section: 'Workstations', config, ...extra });
+  const lab = await asRachel('POST', `/api/registry/asset-types/${types.software_license.id}/variants`, {
+    unitId: rnd.id,
+    name: 'Lab license',
+    description: 'Node-locked engineering licenses: which machines use them.',
+    sections: ['Workstations'],
+    fields: [
+      field('workstations', 'Workstations', 'assetRef', { assetTypeId: types.hardware.id, multiple: true }),
+      field('mac_addresses', 'MAC addresses', 'list', { pattern: '^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$', placeholder: 'AA:BB:CC:DD:EE:FF', maxItems: 50 }),
+      field('license_server', 'License server', 'text', {}, { showInTable: false }),
+    ],
+  });
+  const machines = (await admin('GET', `/api/registry/assets?unitId=${rnd.id}&assetTypeId=${types.hardware.id}&limit=6`)).items;
+  const licenses = (await admin('GET', `/api/registry/assets?unitId=${rnd.id}&assetTypeId=${types.software_license.id}&limit=3&sort=name&order=desc`)).items;
+  const mac = (n) => Array.from({ length: 6 }, (_, i) => ((n * 37 + i * 53) % 256).toString(16).padStart(2, '0').toUpperCase()).join(':');
+  for (const [i, l] of licenses.entries()) {
+    await asRachel('PATCH', `/api/registry/assets/${l.id}`, {
+      variantId: lab.id,
+      attributes: { workstations: machines.slice(i * 2, i * 2 + 2).map((m) => m.id), mac_addresses: [mac(i * 2 + 1), mac(i * 2 + 2)], license_server: `lic-${i + 1}.lab.example.local:27000` },
+    });
+  }
+  console.log(`variants: "Lab license" for R&D, ${licenses.length} licenses use it`);
+}
 console.log('\nDemo accounts (password "password-1234"): dana.cohen (Procurement), tom.levi (Platform team), rachel.amar (R&D head), noa.mizrahi (Finance)');

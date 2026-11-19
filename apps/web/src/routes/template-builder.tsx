@@ -1,4 +1,5 @@
 import {
+  defaultRefPrefix,
   defaultStatuses,
   durationUnits,
   fieldKindMeta,
@@ -12,12 +13,14 @@ import {
   type FieldDefinition,
   type FieldKind,
   type SelectOption,
+  type TypeVariant,
+  type TypeVariantInput,
 } from '@am/core';
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useNavigate, useParams } from '@tanstack/react-router';
+import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import {
   Archive,
   AtSign,
@@ -36,6 +39,7 @@ import {
   MoreHorizontal,
   Plus,
   Sparkles,
+  Tags,
   Text,
   TextQuote,
   Trash2,
@@ -47,14 +51,15 @@ import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { AttributeInput } from '@/components/attribute';
 import { DurationInput, DurationListEditor } from '@/components/duration-editor';
-import { ColorPicker, IconPicker, AssetTypeSelect } from '@/components/pickers';
+import { ColorPicker, IconPicker, AssetTypeSelect, UnitPath, UnitPicker } from '@/components/pickers';
 import { TypeIcon } from '@/components/type-icon';
 import { Button } from '@/components/ui/button';
 import { Badge, Card, EmptyState, PageHeader, Spinner } from '@/components/ui/display';
 import { Checkbox, Field, Input, Segmented, Select, Switch, TagInput } from '@/components/ui/form';
 import { Menu, MenuItem, Popover, Sheet } from '@/components/ui/overlay';
 import { api, ApiError } from '@/lib/api';
-import { keys, useAssetType, useDateKinds } from '@/lib/queries';
+import { keys, useAssetType, useDateKinds, useLookups, useVariants } from '@/lib/queries';
+import { useMyOrg } from '@/lib/org';
 import { cn, formatDurations, slugKey } from '@/lib/utils';
 
 export const kindIcons: Record<FieldKind, LucideIcon> = {
@@ -71,6 +76,7 @@ export const kindIcons: Record<FieldKind, LucideIcon> = {
   email: AtSign,
   secret: Key,
   assetRef: Boxes,
+  list: Tags,
 };
 
 const blankType = (): AssetTypeInput & { version?: number } => ({
@@ -96,7 +102,11 @@ function newField(kind: FieldKind, existingKeys: Set<string>): FieldDefinition {
         ? { currency: 'USD', countsTowardSpend: false }
         : kind === 'number'
           ? { integer: false }
-          : {};
+          : kind === 'list'
+            ? { maxItems: 200 }
+            : kind === 'assetRef'
+              ? { multiple: false }
+              : {};
   return { ...base, kind, config } as FieldDefinition;
 }
 
@@ -128,8 +138,6 @@ export function TemplateBuilderPage() {
     setDraft((d) => ({ ...d, ...patch }));
     setDirty(true);
   };
-  const updateField = (id: string, next: FieldDefinition) => update({ fields: draft.fields.map((f) => (f.id === id ? next : f)) });
-  const field = draft.fields.find((f) => f.id === selected) ?? null;
 
   const save = useMutation({
     mutationFn: () => {
@@ -160,14 +168,6 @@ export function TemplateBuilderPage() {
       toast.success(t.archived ? 'Template archived' : 'Template restored');
     },
   });
-
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
-  const onDragEnd = ({ active, over }: DragEndEvent) => {
-    if (!over || active.id === over.id) return;
-    const from = draft.fields.findIndex((f) => f.id === active.id);
-    const to = draft.fields.findIndex((f) => f.id === over.id);
-    update({ fields: arrayMove(draft.fields, from, to) });
-  };
 
   if (!isNew && existing.isLoading) {
     return (
@@ -211,8 +211,16 @@ export function TemplateBuilderPage() {
           </ul>
         </div>
       )}
-      <div className="grid min-h-0 flex-1 gap-6 px-6 py-6 xl:grid-cols-[minmax(0,1fr)_420px]">
-        <div className="space-y-6">
+      <SchemaWorkbench
+        fields={draft.fields}
+        sections={draft.sections}
+        issues={issues}
+        savedKeys={savedKeys}
+        kinds={kinds.data ?? []}
+        selected={selected}
+        onSelect={setSelected}
+        onChange={(patch) => update(patch)}
+        info={
           <Card className="grid gap-4 sm:grid-cols-2">
             <Field label="Name" required>
               {(id) => <Input id={id} value={draft.name} placeholder="e.g. Software license" onChange={(e) => update({ name: e.target.value, ...(isNew && { key: slugKey(e.target.value) }) })} />}
@@ -223,65 +231,311 @@ export function TemplateBuilderPage() {
             <Field label="Description" className="sm:col-span-2">
               {(id) => <Input id={id} value={draft.description ?? ''} onChange={(e) => update({ description: e.target.value })} />}
             </Field>
+            <Field label="Item ID prefix" hint={`Items are numbered ${(draft.refPrefix || defaultRefPrefix(draft.key || 'item'))}-1, -2, … Changing it renames every ID.`}>
+              {(id) => <Input id={id} className="w-28 font-mono uppercase" maxLength={6} value={draft.refPrefix ?? ''} placeholder={defaultRefPrefix(draft.key || 'item')} onChange={(e) => update({ refPrefix: e.target.value.toUpperCase() || undefined })} />}
+            </Field>
             <Field label="Color">{() => <ColorPicker value={draft.color} onChange={(color) => update({ color })} />}</Field>
-            <Field label="Icon">{() => <IconPicker value={draft.icon} color={draft.color} onChange={(icon) => update({ icon })} />}</Field>
+            <Field label="Icon" className="sm:col-span-2">{() => <IconPicker value={draft.icon} color={draft.color} onChange={(icon) => update({ icon })} />}</Field>
           </Card>
+        }
+        extra={<StatusesEditor value={draft.statuses} onChange={(statuses) => update({ statuses })} />}
+        below={!isNew && <TeamVariants typeId={typeId} />}
+      />
+      <FormPreview open={previewOpen} onOpenChange={setPreviewOpen} draft={draft} kinds={kinds.data ?? []} />
+    </>
+  );
+}
 
-          <Card padded={false}>
-            <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
-              <h2 className="text-[13px] font-semibold">Fields</h2>
-              <AddFieldMenu
-                onAdd={(kind) => {
-                  const f = newField(kind, new Set(draft.fields.map((x) => x.key)));
-                  update({ fields: [...draft.fields, f] });
-                  setSelected(f.id);
-                }}
-              />
-            </div>
-            {draft.fields.length === 0 ? (
-              <EmptyState icon={<Plus />} title="No fields yet" description="Add the attributes every asset of this type should have — dates you mark as tracked drive reminders." />
-            ) : (
-              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-                <SortableContext items={draft.fields.map((f) => f.id)} strategy={verticalListSortingStrategy}>
-                  <ul className="divide-y divide-border">
-                    {draft.fields.map((f) => (
-                      <FieldRow key={f.id} field={f} kinds={kinds.data ?? []} active={f.id === selected} onSelect={() => setSelected(f.id)} hasIssue={issues.some((i) => i.path.startsWith(`fields.${draft.fields.indexOf(f)}.`))} />
-                    ))}
-                  </ul>
-                </SortableContext>
-              </DndContext>
-            )}
-          </Card>
-
-          <div className="grid gap-6 lg:grid-cols-2">
-            <StatusesEditor value={draft.statuses} onChange={(statuses) => update({ statuses })} />
-            <SectionsEditor value={draft.sections} fields={draft.fields} onChange={(sections, fields) => update({ sections, fields })} />
-          </div>
-        </div>
-
-        <div className="xl:sticky xl:top-6 xl:self-start">
-          {field ? (
-            <FieldInspector
-              key={field.id}
-              field={field}
-              fields={draft.fields}
-              sections={draft.sections}
-              kinds={kinds.data ?? []}
-              keyLocked={savedKeys.has(field.key)}
-              onChange={(next) => updateField(field.id, next)}
-              onRemove={() => {
-                update({ fields: draft.fields.filter((f) => f.id !== field.id) });
-                setSelected(null);
+/**
+ * The field list, its inspector and sections: one editor for organization
+ * templates and team variants. `locked` fields (a variant's template) are
+ * shown for context and cannot be changed here.
+ */
+function SchemaWorkbench({
+  fields,
+  sections,
+  issues,
+  savedKeys,
+  kinds,
+  selected,
+  onSelect,
+  onChange,
+  info,
+  extra,
+  below,
+  locked,
+}: {
+  fields: FieldDefinition[];
+  sections: string[];
+  issues: Array<{ path: string; message: string }>;
+  savedKeys: Set<string>;
+  kinds: DateKind[];
+  selected: string | null;
+  onSelect: (id: string | null) => void;
+  onChange: (patch: { fields?: FieldDefinition[]; sections?: string[] }) => void;
+  info: React.ReactNode;
+  extra?: React.ReactNode;
+  below?: React.ReactNode;
+  locked?: { fields: FieldDefinition[]; sections: string[]; from: string };
+}) {
+  const field = fields.find((f) => f.id === selected) ?? null;
+  const allKeys = new Set([...(locked?.fields ?? []), ...fields].map((x) => x.key));
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
+  const onDragEnd = ({ active, over }: DragEndEvent) => {
+    if (!over || active.id === over.id) return;
+    onChange({ fields: arrayMove(fields, fields.findIndex((f) => f.id === active.id), fields.findIndex((f) => f.id === over.id)) });
+  };
+  const allSections = [...(locked?.sections ?? []), ...sections.filter((x) => !locked?.sections.includes(x))];
+  return (
+    <div className="grid min-h-0 flex-1 gap-6 px-6 py-6 xl:grid-cols-[minmax(0,1fr)_420px]">
+      <div className="space-y-6">
+        {info}
+        <Card padded={false}>
+          <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
+            <h2 className="text-[13px] font-semibold">{locked ? 'Fields' : 'Fields'}</h2>
+            <AddFieldMenu
+              onAdd={(kind) => {
+                const f = newField(kind, allKeys);
+                onChange({ fields: [...fields, f] });
+                onSelect(f.id);
               }}
             />
-          ) : (
-            <Card>
-              <EmptyState title="Select a field" description="Pick a field on the left to configure it." />
-            </Card>
+          </div>
+          {locked && locked.fields.length > 0 && (
+            <ul className="divide-y divide-border border-b border-border">
+              {locked.fields.map((f) => (
+                <LockedFieldRow key={f.id} field={f} from={locked.from} />
+              ))}
+            </ul>
           )}
+          {fields.length === 0 ? (
+            <EmptyState
+              icon={<Plus />}
+              title={locked ? 'Add what this team tracks on top' : 'No fields yet'}
+              description={locked ? 'e.g. the workstation, MAC addresses or the lab that uses it. Template fields above stay as they are.' : 'Add the attributes every asset of this type should have — dates you mark as tracked drive reminders.'}
+            />
+          ) : (
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+              <SortableContext items={fields.map((f) => f.id)} strategy={verticalListSortingStrategy}>
+                <ul className="divide-y divide-border">
+                  {fields.map((f, i) => (
+                    <FieldRow key={f.id} field={f} kinds={kinds} active={f.id === selected} onSelect={() => onSelect(f.id)} hasIssue={issues.some((x) => x.path.startsWith(`fields.${i}.`))} />
+                  ))}
+                </ul>
+              </SortableContext>
+            </DndContext>
+          )}
+        </Card>
+        <div className="grid gap-6 lg:grid-cols-2">
+          {extra}
+          <SectionsEditor
+            value={sections}
+            fields={fields}
+            onChange={(next, nextFields) => onChange({ sections: next, fields: nextFields })}
+          />
         </div>
+        {below}
       </div>
-      <FormPreview open={previewOpen} onOpenChange={setPreviewOpen} draft={draft} kinds={kinds.data ?? []} />
+      <div className="xl:sticky xl:top-6 xl:self-start">
+        {field ? (
+          <FieldInspector
+            key={field.id}
+            field={field}
+            fields={[...(locked?.fields ?? []), ...fields]}
+            sections={allSections}
+            kinds={kinds}
+            keyLocked={savedKeys.has(field.key)}
+            onChange={(next) => onChange({ fields: fields.map((f) => (f.id === field.id ? next : f)) })}
+            onRemove={() => {
+              onChange({ fields: fields.filter((f) => f.id !== field.id) });
+              onSelect(null);
+            }}
+          />
+        ) : (
+          <Card>
+            <EmptyState title="Select a field" description="Pick a field on the left to configure it." />
+          </Card>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Team variants of a template, on the template page. */
+function TeamVariants({ typeId }: { typeId: string }) {
+  const variants = useVariants();
+  const list = (variants.data ?? []).filter((v) => v.assetTypeId === typeId);
+  return (
+    <Card padded={false}>
+      <div className="border-b border-border px-4 py-2.5">
+        <h2 className="text-[13px] font-semibold">Team variants</h2>
+        <p className="text-xs text-muted">Units extend this template with their own fields. Changes here flow into every variant.</p>
+      </div>
+      {list.length ? (
+        <ul className="divide-y divide-border">
+          {list.map((v) => (
+            <li key={v.id}>
+              <Link to="/templates/$typeId/variants/$variantId" params={{ typeId, variantId: v.id }} className="flex items-center gap-3 px-4 py-2.5 text-[13px] hover:bg-surface-2/50">
+                <span className="min-w-0 flex-1">
+                  <span className="block font-medium">{v.name}</span>
+                  <span className="block truncate text-xs text-muted">
+                    <UnitPath id={v.unitId} /> · {v.fields.length} extra {v.fields.length === 1 ? 'field' : 'fields'}
+                  </span>
+                </span>
+                {v.archived && <Badge>Archived</Badge>}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="px-4 py-4 text-xs text-muted">None yet. A unit’s managers create them from the unit page (Templates tab).</p>
+      )}
+    </Card>
+  );
+}
+
+/** A unit's extension of an organization template: name, the unit, and extra fields. */
+export function VariantBuilderPage() {
+  const { typeId, variantId } = useParams({ strict: false }) as { typeId: string; variantId: string };
+  const { unit: unitParam } = useSearch({ strict: false }) as { unit?: string };
+  const isNew = variantId === 'new';
+  const type = useAssetType(typeId);
+  const kinds = useDateKinds();
+  const variants = useVariants();
+  const existing = (variants.data ?? []).find((v) => v.id === variantId);
+  const { unitPermissionsOn, canManageOrganization } = useMyOrg();
+  const { unitById } = useLookups();
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  const [draft, setDraft] = useState<TypeVariantInput & { version?: number; archived?: boolean }>({ unitId: unitParam ?? '', name: '', description: null, sections: [], fields: [] });
+  const [selected, setSelected] = useState<string | null>(null);
+  const [issues, setIssues] = useState<Array<{ path: string; message: string }>>([]);
+  const [dirty, setDirty] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const savedKeys = useMemo(() => new Set(existing?.fields.map((f) => f.key) ?? []), [existing]);
+
+  useEffect(() => {
+    if (existing) {
+      setDraft({ unitId: existing.unitId, name: existing.name, description: existing.description, sections: existing.sections, fields: existing.fields, version: existing.version, archived: existing.archived });
+      setDirty(false);
+    }
+  }, [existing]);
+
+  const update = (patch: Partial<TypeVariantInput>) => {
+    setDraft((d) => ({ ...d, ...patch }));
+    setDirty(true);
+  };
+  const save = useMutation({
+    mutationFn: () => {
+      const body = { name: draft.name, description: draft.description, sections: draft.sections, fields: draft.fields };
+      return isNew ? api.post<TypeVariant>(`/api/registry/asset-types/${typeId}/variants`, { ...body, unitId: draft.unitId }) : api.put<TypeVariant>(`/api/registry/variants/${variantId}`, { ...body, version: draft.version });
+    },
+    onSuccess: (v) => {
+      setIssues([]);
+      setDirty(false);
+      void qc.invalidateQueries({ queryKey: keys.variants });
+      toast.success(isNew ? `“${v.name}” created` : 'Saved', { description: isNew ? `New ${type.data?.name.toLowerCase()} items in ${unitById.get(v.unitId)?.name} can now be a “${v.name}”.` : undefined });
+      if (isNew) void navigate({ to: '/templates/$typeId/variants/$variantId', params: { typeId, variantId: v.id } });
+    },
+    onError: (e) => {
+      if (e instanceof ApiError) {
+        const list = (e.details?.issues as Array<{ path: string; message: string }>) ?? [];
+        setIssues(list);
+        toast.error(e.message, { description: list[0] ? describeIssue(list[0], draft.fields) : undefined });
+      } else toast.error('Save failed');
+    },
+  });
+  const archive = useMutation({
+    mutationFn: (archived: boolean) => api.post<TypeVariant>(`/api/registry/variants/${variantId}/archive`, { archived }),
+    onSuccess: (v) => {
+      void qc.invalidateQueries({ queryKey: keys.variants });
+      toast.success(v.archived ? 'Variant archived' : 'Variant restored', { description: v.archived ? 'Existing items keep their fields; new items cannot use it.' : undefined });
+    },
+  });
+
+  if (!type.data || (!isNew && !variants.data)) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <Spinner />
+      </div>
+    );
+  }
+  const t = type.data;
+  const canManage = canManageOrganization || (!!draft.unitId && unitPermissionsOn(draft.unitId).has('manage'));
+
+  return (
+    <>
+      <PageHeader
+        icon={<TypeIcon icon={t.icon} color={t.color} size={36} />}
+        title={draft.name || `New ${t.name.toLowerCase()} variant`}
+        description={
+          <span>
+            A {t.name} variant{draft.unitId ? <> for <UnitPath id={draft.unitId} /></> : ''}
+            {existing ? ` · version ${existing.version}${existing.archived ? ' · archived' : ''}` : ''}
+            {dirty ? ' · unsaved changes' : ''}
+          </span>
+        }
+        actions={
+          <>
+            <Button icon={<Eye className="size-3.5" />} onClick={() => setPreviewOpen(true)}>
+              Preview form
+            </Button>
+            {!isNew && canManage && (
+              <Menu trigger={<Button size="icon" aria-label="More" icon={<MoreHorizontal className="size-4" />} />}>
+                <MenuItem icon={<Archive />} onSelect={() => archive.mutate(!draft.archived)}>
+                  {draft.archived ? 'Restore variant' : 'Archive variant'}
+                </MenuItem>
+              </Menu>
+            )}
+            <Button variant="primary" loading={save.isPending} disabled={!canManage || !draft.name || !draft.unitId || (!dirty && !isNew)} onClick={() => save.mutate()}>
+              {isNew ? 'Create variant' : 'Save'}
+            </Button>
+          </>
+        }
+      />
+      {issues.length > 0 && (
+        <div className="mx-6 mt-4 rounded-lg border border-danger/30 bg-danger-soft px-4 py-3 text-[13px] text-danger">
+          <p className="font-medium">Fix these before saving:</p>
+          <ul className="mt-1 list-disc pl-5">
+            {issues.map((i, n) => (
+              <li key={n}>{describeIssue(i, draft.fields)}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <SchemaWorkbench
+        fields={draft.fields}
+        sections={draft.sections}
+        issues={issues}
+        savedKeys={savedKeys}
+        kinds={kinds.data ?? []}
+        selected={selected}
+        onSelect={setSelected}
+        onChange={(patch) => update(patch)}
+        locked={{ fields: t.fields, sections: t.sections, from: t.name }}
+        info={
+          <Card className="grid gap-4 sm:grid-cols-2">
+            <Field label="Name" required hint="What this unit calls these items">
+              {(id) => <Input id={id} value={draft.name} placeholder={`e.g. Design ${t.name.toLowerCase()}`} onChange={(e) => update({ name: e.target.value })} />}
+            </Field>
+            <Field label="For" required hint={isNew ? 'The unit and every team beneath it can use it' : 'Cannot be changed'}>
+              {(id) =>
+                isNew ? (
+                  <UnitPicker id={id} value={draft.unitId || null} onChange={(v) => update({ unitId: v ?? '' })} filter={(u) => canManageOrganization || unitPermissionsOn(u.id).has('manage')} />
+                ) : (
+                  <p className="pt-2 text-[13px]">
+                    <UnitPath id={draft.unitId} />
+                  </p>
+                )
+              }
+            </Field>
+            <Field label="Description" className="sm:col-span-2">
+              {(id) => <Input id={id} value={draft.description ?? ''} placeholder="When to use it" onChange={(e) => update({ description: e.target.value || null })} />}
+            </Field>
+          </Card>
+        }
+      />
+      <FormPreview open={previewOpen} onOpenChange={setPreviewOpen} draft={{ ...t, fields: [...t.fields, ...draft.fields], sections: [...t.sections, ...draft.sections] }} kinds={kinds.data ?? []} />
     </>
   );
 }
@@ -368,6 +622,23 @@ function FieldRow({ field, kinds, active, onSelect, hasIssue }: { field: FieldDe
   );
 }
 
+/** A template field shown in a team variant: visible for context, changed only on the template. */
+function LockedFieldRow({ field, from }: { field: FieldDefinition; from: string }) {
+  const Icon = kindIcons[field.kind];
+  return (
+    <li className="flex items-center gap-3 bg-surface-2/40 px-2 py-2 pl-9 text-muted">
+      <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-surface-2">
+        <Icon className="size-4" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[13px]">{field.label}</span>
+        <span className="block truncate text-[11px] text-subtle">from {from}</span>
+      </span>
+      <Lock className="size-3.5 shrink-0 text-subtle" aria-label="Defined by the template" />
+    </li>
+  );
+}
+
 function FieldInspector({
   field,
   fields,
@@ -442,7 +713,7 @@ function FieldInspector({
             disabled={field.kind === 'secret'}
             onChange={(restricted) => set({ restricted })}
             label="Restricted"
-            description="Only managers of the purchase class can see or edit it"
+            description="Only people with the “See secrets” permission can see or change it; never searchable"
           />
           <Switch checked={field.showInTable} onChange={(showInTable) => set({ showInTable })} label="Show as table column" />
         </div>
@@ -452,6 +723,14 @@ function FieldInspector({
     </Card>
   );
 }
+
+const listPresets = [
+  { key: 'any', label: 'Any text', pattern: undefined, placeholder: undefined },
+  { key: 'mac', label: 'MAC address (AA:BB:CC:DD:EE:FF)', pattern: '^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$', placeholder: 'AA:BB:CC:DD:EE:FF' },
+  { key: 'ipv4', label: 'IPv4 address', pattern: '^((25[0-5]|2[0-4]\\d|1?\\d?\\d)\\.){3}(25[0-5]|2[0-4]\\d|1?\\d?\\d)$', placeholder: '10.0.0.12' },
+  { key: 'host', label: 'Hostname', pattern: '^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$', placeholder: 'lab-ws-07.corp.example.com' },
+  { key: 'email', label: 'Email address', pattern: '^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$', placeholder: 'name@example.com' },
+];
 
 function KindConfig({ field, fields, kinds, setConfig }: { field: FieldDefinition; fields: FieldDefinition[]; kinds: DateKind[]; setConfig: (p: Record<string, unknown>) => void }) {
   switch (field.kind) {
@@ -487,7 +766,38 @@ function KindConfig({ field, fields, kinds, setConfig }: { field: FieldDefinitio
     case 'multiSelect':
       return <OptionsEditor value={field.config.options} onChange={(options) => setConfig({ options })} />;
     case 'assetRef':
-      return <Field label="Linked asset type">{(id) => <AssetTypeSelect id={id} includeAll allLabel="Any type" value={field.config.assetTypeId ?? null} onChange={(v) => setConfig({ assetTypeId: v ?? undefined })} />}</Field>;
+      return (
+        <div className="space-y-3">
+          <Field label="Linked asset type">{(id) => <AssetTypeSelect id={id} includeAll allLabel="Any type" value={field.config.assetTypeId ?? null} onChange={(v) => setConfig({ assetTypeId: v ?? undefined })} />}</Field>
+          <Checkbox checked={field.config.multiple} onChange={(multiple) => setConfig({ multiple })} label="Several items (e.g. the machines that use this license)" />
+        </div>
+      );
+    case 'list': {
+      const preset = listPresets.find((x) => x.pattern === field.config.pattern)?.key ?? (field.config.pattern ? 'custom' : 'any');
+      return (
+        <div className="space-y-3">
+          <Field label="Each entry is" hint="Checked on every entry, also on import">
+            {(id) => (
+              <Select id={id} value={preset} onChange={(e) => {
+                const x = listPresets.find((p) => p.key === e.target.value);
+                setConfig({ pattern: e.target.value === 'custom' ? (field.config.pattern ?? '') : x?.pattern, placeholder: x?.placeholder });
+              }}>
+                {listPresets.map((x) => (
+                  <option key={x.key} value={x.key}>
+                    {x.label}
+                  </option>
+                ))}
+                <option value="custom">Custom format (regex)…</option>
+              </Select>
+            )}
+          </Field>
+          {preset === 'custom' && (
+            <Field label="Pattern (regex)">{(id) => <Input id={id} className="font-mono text-xs" value={field.config.pattern ?? ''} onChange={(e) => setConfig({ pattern: e.target.value || undefined })} />}</Field>
+          )}
+          <Field label="At most">{(id) => <Input id={id} type="number" min={1} max={1000} className="w-28" value={field.config.maxItems} onChange={(e) => setConfig({ maxItems: Math.max(1, Number(e.target.value) || 1) })} />}</Field>
+        </div>
+      );
+    }
     case 'date':
       return <DateMeaning field={field} fields={fields} kinds={kinds} onChange={(tracking) => setConfig({ tracking })} />;
     default:

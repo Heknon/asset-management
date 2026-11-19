@@ -25,10 +25,27 @@ export const assetTypeInputSchema = z.object({
   statuses: z.array(statusSchema).min(1).default(defaultStatuses),
   sections: z.array(z.string().min(1).max(60)).default([]),
   fields: z.array(fieldDefinitionSchema).max(200),
+  /** Item IDs are PREFIX-number ("LIC-42"); defaults from the key. */
+  refPrefix: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .regex(/^[A-Z][A-Z0-9]{0,5}$/, 'Letters and digits, starting with a letter, up to 6')
+    .optional(),
 });
 export type AssetTypeInput = z.infer<typeof assetTypeInputSchema>;
 
+/** "software_license" → "SL", "hardware" → "HAR"; used when a template has no prefix. */
+export function defaultRefPrefix(key: string): string {
+  const words = key.split(/[_\W]+/).filter(Boolean);
+  const p = words.length > 1 ? words.map((w) => w[0]).join('') : (words[0] ?? 'ITEM').slice(0, 3);
+  return (p.replace(/[^a-z0-9]/gi, '').toUpperCase() || 'ITEM').replace(/^[0-9]/, 'X').slice(0, 6);
+}
+
+export const formatReference = (prefix: string, n: number) => `${prefix}-${n}`;
+
 export const assetTypeSchema = assetTypeInputSchema.extend({
+  refPrefix: z.string(),
   id: z.string().uuid(),
   version: z.number().int().positive(),
   archived: z.boolean(),
@@ -129,4 +146,57 @@ function findDerivationCycle(fields: readonly FieldDefinition[]): string[] | nul
     }
   }
   return null;
+}
+
+// ─── Team variants ─────────────────────────────────────────────────────────
+
+/**
+ * A unit's extension of an organization template: same template, plus the
+ * fields that unit needs ("Design license" = Software license + Workstation,
+ * MAC addresses). Available to the unit and everything beneath it; changes to
+ * the template flow into every variant.
+ */
+export const typeVariantInputSchema = z.object({
+  unitId: z.string().uuid(),
+  name: z.string().trim().min(1).max(80),
+  description: z.string().max(400).nullable().default(null),
+  sections: z.array(z.string().min(1).max(60)).max(20).default([]),
+  fields: z.array(fieldDefinitionSchema).max(100),
+});
+export type TypeVariantInput = z.infer<typeof typeVariantInputSchema>;
+
+export interface TypeVariant extends TypeVariantInput {
+  id: string;
+  assetTypeId: string;
+  version: number;
+  archived: boolean;
+  createdByName: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** The schema an item of a variant follows: the template's fields, then the variant's. */
+export function withVariant<T extends Pick<AssetType, 'fields' | 'sections'>>(type: T, variant: Pick<TypeVariant, 'fields' | 'sections'> | null | undefined): T {
+  if (!variant) return type;
+  return { ...type, fields: [...type.fields, ...variant.fields], sections: [...type.sections, ...variant.sections.filter((x) => !type.sections.includes(x))] };
+}
+
+/** A variant must not redefine template fields; the combined schema must be valid. */
+export function validateVariantStructure(type: Pick<AssetType, 'fields' | 'sections' | 'statuses' | 'key' | 'name'>, input: TypeVariantInput, knownDateKindIds: ReadonlySet<string>): SchemaIssue[] {
+  const baseKeys = new Set(type.fields.map((f) => f.key));
+  const issues: SchemaIssue[] = [];
+  input.fields.forEach((f, i) => {
+    if (baseKeys.has(f.key)) issues.push({ path: `fields.${i}.key`, message: `“${type.name}” already has a field "${f.key}"` });
+  });
+  const merged = validateTypeStructure(
+    { key: type.key, name: type.name, icon: 'box', color: '#000000', statuses: type.statuses, sections: [...type.sections, ...input.sections], fields: [...type.fields, ...input.fields] },
+    knownDateKindIds,
+  );
+  const offset = type.fields.length;
+  for (const m of merged) {
+    const match = /^fields\.(\d+)(.*)$/.exec(m.path);
+    if (match && Number(match[1]) >= offset) issues.push({ path: `fields.${Number(match[1]) - offset}${match[2]}`, message: m.message });
+    else if (!match && !issues.some((x) => x.message === m.message)) issues.push(m);
+  }
+  return issues;
 }

@@ -6,9 +6,11 @@ import {
   EXPORT_ROW_LIMIT,
   isRestricted,
   scopesFor,
+  withVariant,
   type Asset,
   type AssetExportQuery,
   type AssetType,
+  type TypeVariant,
   type FieldDefinition,
   type Principal,
 } from '@am/core';
@@ -55,7 +57,8 @@ export class ExportService {
     const visibility = await this.access.visibility(p, 'export');
     const typeIds = await this.store.assetTypeIdsIn({ ...query, limit: 1, offset: 0 }, visibility);
     const types = (await Promise.all(typeIds.map((id) => this.store.getType(id)))).filter((t): t is AssetType => !!t).sort((a, b) => a.name.localeCompare(b.name));
-    const columns = this.columns(types, scopesFor(p, 'restricted').length > 0);
+    const variants = (await Promise.all((await this.store.variantIdsIn({ ...query, limit: 1, offset: 0 }, visibility)).map((id) => this.store.getVariant(id)))).filter((v): v is TypeVariant => !!v);
+    const columns = this.columns(types, variants, scopesFor(p, 'restricted').length > 0);
     yield CSV_BOM + csvLine(columns.map((c) => c.header));
 
     let rows = 0;
@@ -64,7 +67,7 @@ export class ExportService {
     for (let offset = 0; offset < EXPORT_ROW_LIMIT; offset += PAGE) {
       const page = await this.assets.list(p, { ...query, limit: Math.min(PAGE, EXPORT_ROW_LIMIT - offset), offset }, 'export');
       if (!page.items.length) break;
-      const names = await this.names(page.items, types, units, catalogs);
+      const names = await this.names(page.items, [...types, ...variants.map((v) => ({ id: v.assetTypeId, fields: v.fields }))], units, catalogs);
       let chunk = '';
       for (const a of page.items) chunk += csvLine(columns.map((c) => c.value(a, names)));
       rows += page.items.length;
@@ -74,14 +77,18 @@ export class ExportService {
     onDone(rows);
   }
 
-  private columns(types: AssetType[], canSeeRestricted: boolean): Column[] {
+  private columns(types: AssetType[], variants: TypeVariant[], canSeeRestricted: boolean): Column[] {
     const typeById = new Map(types.map((t) => [t.id, t]));
-    // One column per field key across the exported types ("Vendor" once, even if several templates have it).
+    const variantById = new Map(variants.map((v) => [v.id, v]));
+    const fieldsOf = (a: Asset) => withVariant(typeById.get(a.assetTypeId) ?? { fields: [], sections: [] }, a.variantId ? variantById.get(a.variantId) : null).fields;
+    // One column per field key across the exported types and variants ("Vendor" once, even if several templates have it).
     const fields = new Map<string, FieldDefinition>();
-    for (const t of types) for (const f of t.fields) if (!fields.has(f.key) && (canSeeRestricted || !isRestricted(f))) fields.set(f.key, f);
+    for (const f of [...types.flatMap((t) => t.fields), ...variants.flatMap((v) => v.fields)]) if (!fields.has(f.key) && (canSeeRestricted || !isRestricted(f))) fields.set(f.key, f);
     return [
+      { header: 'ID', value: (a) => a.reference },
       { header: 'Name', value: (a) => a.name },
       { header: 'Type', value: (a) => typeById.get(a.assetTypeId)?.name },
+      ...(variants.length ? [{ header: 'Kind', value: (a: Asset) => (a.variantId ? variantById.get(a.variantId)?.name : '') }] : []),
       { header: 'Status', value: (a) => typeById.get(a.assetTypeId)?.statuses.find((s) => s.value === a.status)?.label ?? a.status },
       { header: 'Team', value: (a, n) => n.unitPath(a.unitId) },
       { header: 'Catalog', value: (a, n) => (a.catalogId ? n.catalog(a.catalogId) : '') },
@@ -91,32 +98,36 @@ export class ExportService {
           header: f.kind === 'currency' ? `${f.label} (${f.config.currency})` : f.label,
           value: (a, n) => {
             // The field of this asset's own type (same key may differ in kind across types).
-            const own = typeById.get(a.assetTypeId)?.fields.find((x) => x.key === f.key);
+            const own = fieldsOf(a).find((x) => x.key === f.key);
             const v = a.attributes[f.key];
             if (!own || v === undefined || v === null) return '';
             // Numbers stay numbers so spreadsheets can sum and sort them.
             if (own.kind === 'currency' || own.kind === 'number') return v;
+            if (Array.isArray(v) && own.kind !== 'multiSelect' && own.kind !== 'assetRef') return v.join('; ');
             return attributeText(own, v, { personName: n.person, assetName: n.asset }) ?? '';
           },
         }),
       ),
       { header: 'Created', value: (a) => a.createdAt },
       { header: 'Updated', value: (a) => a.updatedAt },
-      { header: 'ID', value: (a) => a.id },
+      { header: 'Internal ID', value: (a) => a.id },
     ];
   }
 
-  private async names(items: Asset[], types: AssetType[], unitCache: Map<string, string>, catalogCache: Map<string, string | undefined>): Promise<Names> {
-    const typeById = new Map(types.map((t) => [t.id, t]));
+  private async names(items: Asset[], types: Array<Pick<AssetType, 'id' | 'fields'>>, unitCache: Map<string, string>, catalogCache: Map<string, string | undefined>): Promise<Names> {
+    // Template and variant fields together (a variant is listed under its template's id).
+    const typeById = new Map<string, { fields: FieldDefinition[] }>();
+    for (const t of types) typeById.set(t.id, { fields: [...(typeById.get(t.id)?.fields ?? []), ...t.fields] });
     const people = new Set<string>();
     const refs = new Set<string>();
     for (const a of items) {
       if (a.ownerId) people.add(a.ownerId);
       for (const f of typeById.get(a.assetTypeId)?.fields ?? []) {
-        const v = a.attributes[f.key];
-        if (typeof v !== 'string') continue;
-        if (f.kind === 'user') people.add(v);
-        if (f.kind === 'assetRef') refs.add(v);
+        for (const v of [a.attributes[f.key]].flat()) {
+          if (typeof v !== 'string') continue;
+          if (f.kind === 'user') people.add(v);
+          if (f.kind === 'assetRef') refs.add(v);
+        }
       }
     }
     const missingUnits = [...new Set(items.map((a) => a.unitId))].filter((id) => !unitCache.has(id));
