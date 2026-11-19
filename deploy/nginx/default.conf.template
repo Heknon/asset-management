@@ -1,0 +1,50 @@
+# Serves the SPA and reverse-proxies each API prefix to its service, so the
+# browser talks to a single origin (cookies, CSRF and CSP stay simple).
+# ${...} placeholders are filled from the environment at container start.
+
+server {
+    listen 8080;
+    server_name _;
+    root /usr/share/nginx/html;
+    server_tokens off;
+    client_max_body_size 4m;
+
+    # Presigned S3 URLs are fetched by the browser: allow that origin only for
+    # uploads (connect), previews (img/media/frame) and nothing else.
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob: ${S3_ORIGIN}; media-src 'self' ${S3_ORIGIN}; frame-src ${S3_ORIGIN}; connect-src 'self' ${S3_ORIGIN}; form-action 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $http_x_forwarded_proto;
+    proxy_set_header X-Request-Id $request_id;
+    proxy_read_timeout 60s;
+
+    location /api/identity/  { proxy_pass http://${IDENTITY_UPSTREAM}; }
+    location /api/registry/  { proxy_pass http://${REGISTRY_UPSTREAM}; }
+    location /api/files/     { proxy_pass http://${FILES_UPSTREAM}; }
+    location /api/scheduler/ { proxy_pass http://${SCHEDULER_UPSTREAM}; }
+    location /api/           { return 404; }
+
+    # No add_header inside locations: it would drop the security headers above.
+    location = /healthz {
+        access_log off;
+        default_type text/plain;
+        return 200 "ok";
+    }
+
+    # Hashed build assets never change.
+    location /assets/ {
+        expires max;
+        try_files $uri =404;
+    }
+
+    location / {
+        expires -1;
+        try_files $uri /index.html;
+    }
+}

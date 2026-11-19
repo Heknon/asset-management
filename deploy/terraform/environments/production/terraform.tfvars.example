@@ -1,0 +1,29 @@
+# Copy to terraform.tfvars (git-ignored values belong in your secret store or TF_VAR_* env vars).
+kubeconfig_context = "asset-management/api-ocp-example-com:6443/admin"
+public_url         = "https://assets.apps.ocp.example.com"
+image_tag          = "0.1.0"
+bucket_name        = "example-asset-management-documents"
+reminder_timezone  = "Europe/London"
+mail_from          = "Asset Management <assets@example.com>"
+
+# Prefer TF_VAR_database_url / TF_VAR_smtp_url over writing these here.
+database_url = "postgres://assets:CHANGE_ME@postgres.example.com:5432/assets?sslmode=require"
+smtp_url     = "smtp://relay.corp.example.com:25"
+
+ldap = {
+  enabled       = true
+  url           = "ldaps://ad.corp.example.com:636"
+  bind_dn       = "CN=svc-assets,OU=Service Accounts,DC=corp,DC=example,DC=com"
+  bind_password = "CHANGE_ME"
+  user_base_dn  = "OU=Users,DC=corp,DC=example,DC=com"
+  admin_groups  = ["CN=Asset Admins,OU=Groups,DC=corp,DC=example,DC=com"]
+}
+
+oidc = {
+  enabled       = true
+  issuer        = "https://adfs.corp.example.com/adfs"
+  client_id     = "asset-management"
+  client_secret = "CHANGE_ME"
+  groups_claim  = "group"
+  admin_groups  = ["Asset Admins"]
+}

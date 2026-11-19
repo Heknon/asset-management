@@ -1,0 +1,137 @@
+# ─── Images ──────────────────────────────────────────────────────────────────
+image:
+  # Images are named <registry>/<prefix><component>:<tag>, e.g. .../asset-management-registry:0.1.0
+  registry: image-registry.openshift-image-registry.svc:5000/asset-management
+  prefix: asset-management-
+  tag: ""                     # defaults to the chart appVersion
+  pullPolicy: IfNotPresent
+  pullSecrets: []
+
+# Externally visible URL of the app (used for links in emails, OIDC redirects, calendar feeds).
+publicUrl: https://assets.apps.example.com
+
+# ─── Exposure ────────────────────────────────────────────────────────────────
+route:
+  enabled: true               # OpenShift Route to the web component
+  host: ""                    # empty = cluster-generated host
+  annotations: {}
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+
+ingress:
+  enabled: false              # for non-OpenShift clusters
+  className: ""
+  host: assets.example.com
+  annotations: {}
+  tlsSecretName: ""
+
+# ─── Configuration ───────────────────────────────────────────────────────────
+# Non-secret settings shared by every backend service.
+config:
+  LOG_LEVEL: info
+  DATABASE_SSL: "true"
+  DATABASE_POOL_MAX: "10"
+
+# Secrets are read from an existing Secret (created by Terraform, Vault, ExternalSecrets, ...).
+# Each service only receives the keys it lists under `secretKeys`.
+secrets:
+  existingSecret: asset-management
+  # For throwaway environments only: let the chart create the Secret from `values`.
+  create: false
+  values: {}
+
+# ─── Components ──────────────────────────────────────────────────────────────
+# Every backend service shares one template; only these values differ.
+services:
+  identity:
+    replicas: 2
+    env:
+      SESSION_TTL_HOURS: "12"
+      ACCESS_TOKEN_TTL_SECONDS: "900"
+      LOCAL_AUTH_ENABLED: "true"
+      LOCAL_ADMIN_USERNAME: admin
+      LDAP_ENABLED: "false"
+      LDAP_LABEL: Corporate directory
+      LDAP_URL: ldaps://ad.example.com:636
+      LDAP_BIND_DN: CN=svc-assets,OU=Service Accounts,DC=corp,DC=example,DC=com
+      LDAP_USER_BASE_DN: OU=Users,DC=corp,DC=example,DC=com
+      LDAP_ADMIN_GROUPS: CN=Asset Admins,OU=Groups,DC=corp,DC=example,DC=com
+      OIDC_ENABLED: "false"
+      OIDC_LABEL: Sign in with ADFS
+      OIDC_ISSUER: https://adfs.example.com/adfs
+      OIDC_CLIENT_ID: asset-management
+      OIDC_ADMIN_GROUPS: Asset Admins
+    secretKeys: [DATABASE_URL, AUTH_SIGNING_KEY, COOKIE_SECRET, LOCAL_ADMIN_PASSWORD, LDAP_BIND_PASSWORD, LDAP_CA_CERT, OIDC_CLIENT_SECRET]
+    resources:
+      requests: { cpu: 50m, memory: 128Mi }
+      limits: { memory: 384Mi }
+  registry:
+    replicas: 2
+    env: {}
+    secretKeys: [DATABASE_URL]
+    resources:
+      requests: { cpu: 100m, memory: 160Mi }
+      limits: { memory: 512Mi }
+  files:
+    replicas: 2
+    env:
+      S3_BUCKET: asset-management-documents
+      S3_REGION: us-east-1
+      S3_ENDPOINT: ""          # set for S3-compatible storage (ODF/NooBaa, Ceph, MinIO)
+      S3_PUBLIC_ENDPOINT: ""   # set when browsers reach storage under a different URL
+      S3_FORCE_PATH_STYLE: "false"
+      S3_SSE: AES256
+      MAX_UPLOAD_BYTES: "52428800"
+      URL_TTL_SECONDS: "300"
+    secretKeys: [DATABASE_URL, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY, S3_KMS_KEY_ID]
+    resources:
+      requests: { cpu: 50m, memory: 128Mi }
+      limits: { memory: 384Mi }
+  scheduler:
+    replicas: 2                # cron runs once per tick across replicas
+    env:
+      MAIL_FROM: Asset Management <assets@example.com>
+      REMINDER_TIMEZONE: UTC
+      DISPATCH_CRON: "*/15 * * * *"
+    secretKeys: [DATABASE_URL, SMTP_URL]
+    resources:
+      requests: { cpu: 50m, memory: 128Mi }
+      limits: { memory: 384Mi }
+
+web:
+  replicas: 2
+  # Origin browsers use for presigned S3 URLs (allowed by the Content-Security-Policy).
+  s3Origin: https://asset-management-documents.s3.us-east-1.amazonaws.com
+  resources:
+    requests: { cpu: 20m, memory: 32Mi }
+    limits: { memory: 128Mi }
+
+# ─── Platform ────────────────────────────────────────────────────────────────
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 75
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+networkPolicy:
+  enabled: true
+  # Namespaces allowed to reach the web pods (the OpenShift router by default).
+  ingressNamespaceSelector:
+    matchLabels:
+      network.openshift.io/policy-group: ingress
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpread: true
