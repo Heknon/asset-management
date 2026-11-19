@@ -1,0 +1,22 @@
+{
+  "name": "@am/files",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --env-file-if-exists=../../.env src/main.ts",
+    "migrate": "tsx --env-file-if-exists=../../.env src/main.ts migrate",
+    "build": "node ../../scripts/build-service.mjs"
+  },
+  "dependencies": {
+    "@am/core": "workspace:*",
+    "@am/platform": "workspace:*",
+    "@aws-sdk/client-s3": "3.948.0",
+    "@aws-sdk/s3-presigned-post": "3.948.0",
+    "@aws-sdk/s3-request-presigner": "3.948.0",
+    "fastify": "~5.6.2",
+    "kysely": "0.28.20",
+    "pino": "^9.14.0",
+    "zod": "3.25.76"
+  }
+}

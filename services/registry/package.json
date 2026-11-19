@@ -1,0 +1,19 @@
+{
+  "name": "@am/registry",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --env-file-if-exists=../../.env src/main.ts",
+    "migrate": "tsx --env-file-if-exists=../../.env src/main.ts migrate",
+    "build": "node ../../scripts/build-service.mjs"
+  },
+  "dependencies": {
+    "@am/core": "workspace:*",
+    "@am/platform": "workspace:*",
+    "fastify": "~5.6.2",
+    "kysely": "0.28.20",
+    "pino": "^9.14.0",
+    "zod": "3.25.76"
+  }
+}
