@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { toast } from 'sonner';
 import { api, ApiError } from '@/lib/api';
 import { useInvalidateAssets, useLookups, useMe } from '@/lib/queries';
-import { formatDate, formatDurations } from '@/lib/utils';
+import { formatDate, formatDurations, inSentence } from '@/lib/utils';
 import { AttributeInput } from './attribute';
 import { DurationListEditor } from './duration-editor';
 import { CatalogSelect } from './catalogs';
@@ -128,7 +128,7 @@ export function AssetFormSheet({
     <Sheet
       open={open}
       onOpenChange={onOpenChange}
-      title={asset ? `Edit ${asset.name}` : request ? `Fulfil ${request.number}` : `New ${type.name.toLowerCase()}`}
+      title={asset ? `Edit ${asset.name}` : request ? `Fulfil ${request.number}` : `New ${inSentence(type.name)}`}
       description={request ? `Creates the ${type.name.toLowerCase()} and closes “${request.title}”.` : type.description}
       footer={
         <>

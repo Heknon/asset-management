@@ -65,3 +65,11 @@ export function slugKey(label: string): string {
     .slice(0, 48);
   return /^[a-z]/.test(k) ? k : `f_${k}`.slice(0, 48);
 }
+
+/** A name inside a sentence: "Hardware" → "hardware", but "SIM / mobile line" and "VPN" keep their capitals. */
+export function inSentence(name: string): string {
+  return name
+    .split(' ')
+    .map((w) => (/^[A-Z][a-z]/.test(w) ? w[0]!.toLowerCase() + w.slice(1) : w))
+    .join(' ');
+}

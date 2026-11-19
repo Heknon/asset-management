@@ -51,3 +51,10 @@ export function useMyOrg() {
     };
   }, [me, unitById, units]);
 }
+
+/** The types this person can add items of (the palette's "New laptop", …). */
+export function useCreatableTypes() {
+  const { me, can } = useMyOrg();
+  const { units, types } = useLookups();
+  return types.filter((t) => !t.archived && (!!me?.isAdmin || units.some((u) => can(u.id, 'create', t.id))));
+}

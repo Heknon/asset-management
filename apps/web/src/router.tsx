@@ -108,7 +108,7 @@ const routeTree = root.addChildren([
       getParentRoute: () => app,
       path: '/assets',
       component: AssetsPage,
-      validateSearch: (s: Record<string, unknown>) => ({ type: optionalString(s.type), q: optionalString(s.q), import: optionalString(s.import) }),
+      validateSearch: (s: Record<string, unknown>) => ({ type: optionalString(s.type), q: optionalString(s.q), import: optionalString(s.import), new: optionalString(s.new) }),
     }),
     createRoute({
       getParentRoute: () => app,
@@ -126,8 +126,8 @@ const routeTree = root.addChildren([
     createRoute({ getParentRoute: () => app, path: '/catalogs/$catalogId', component: CatalogPage }),
     createRoute({ getParentRoute: () => app, path: '/profile', component: ProfilePage }),
     ...(inBrowser ? [createRoute({ getParentRoute: () => app, path: '/mailbox', component: MailboxPage })] : []),
-    createRoute({ getParentRoute: () => app, path: '/templates', component: orgManagers(TemplatesPage) }),
-    createRoute({ getParentRoute: () => app, path: '/templates/$typeId', component: orgManagers(TemplateBuilderPage) }),
+    createRoute({ getParentRoute: () => app, path: '/templates', component: orgManagers(TemplatesPage), validateSearch: (s: Record<string, unknown>) => ({ new: optionalString(s.new) }) }),
+    createRoute({ getParentRoute: () => app, path: '/templates/$typeId', component: orgManagers(TemplateBuilderPage), validateSearch: (s: Record<string, unknown>) => ({ name: optionalString(s.name) }) }),
     // Team variants are managed by the unit's managers (checked by the server), not only template managers.
     createRoute({ getParentRoute: () => app, path: '/templates/$typeId/variants/$variantId', component: VariantBuilderPage, validateSearch: (s: Record<string, unknown>) => ({ unit: optionalString(s.unit) }) }),
     createRoute({ getParentRoute: () => app, path: '/settings/date-kinds', component: orgManagers(DateKindsPage) }),

@@ -9,7 +9,9 @@ import {
   CalendarDays,
   Check,
   ChevronDown,
+  Clock,
   FileUp,
+  Keyboard,
   FolderOpen,
   Inbox,
   KeyRound,
@@ -33,17 +35,19 @@ import {
 } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { api } from '@/lib/api';
-import { useMyOrg } from '@/lib/org';
+import { useCreatableTypes, useMyOrg } from '@/lib/org';
 import { useAssetTypes, useRequestCounts, useSummary, useViews } from '@/lib/queries';
 import { useUniversalSearch } from '@/lib/search';
-import { cn } from '@/lib/utils';
+import { cn, inSentence } from '@/lib/utils';
 import { useDebounced } from '@/lib/hooks';
+import { useRecent, type RecentItem } from '@/lib/recent';
+import { goTo, shortcutHelp, useGlobalShortcuts } from '@/lib/shortcuts';
 import { Highlight } from './highlight';
 import { HitIcon, hitLink } from './search-hit';
 import { NewRequestProvider, useNewRequest } from './request-form';
 import { TypeIcon } from './type-icon';
 import { Avatar, Kbd } from './ui/display';
-import { ConfirmDialog, Menu, MenuItem, MenuSeparator } from './ui/overlay';
+import { ConfirmDialog, Dialog, Menu, MenuItem, MenuSeparator } from './ui/overlay';
 import { inBrowser, localServer } from '@/lib/run-mode';
 
 export type ThemePref = 'light' | 'dark' | 'system';
@@ -253,6 +257,11 @@ function Sidebar({ me, onSearch, onNavigate }: { me: Me; onSearch: () => void; o
           <MenuItem icon={<User />} onSelect={() => (onNavigate?.(), void navigate({ to: '/profile' }))}>
             Profile & notifications
           </MenuItem>
+          {!matchMedia('(pointer: coarse)').matches && (
+            <MenuItem icon={<Keyboard />} onSelect={() => window.dispatchEvent(new Event('shortcuts:help'))}>
+              Keyboard shortcuts
+            </MenuItem>
+          )}
           <MenuSeparator />
           {(
             [
@@ -297,6 +306,12 @@ function Sidebar({ me, onSearch, onNavigate }: { me: Me; onSearch: () => void; o
 export function AppShell({ me }: { me: Me }) {
   const { canManageOrganization } = useMyOrg();
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+  useEffect(() => {
+    const show = () => setHelpOpen(true);
+    window.addEventListener('shortcuts:help', show);
+    return () => window.removeEventListener('shortcuts:help', show);
+  }, []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const typing = e.target instanceof HTMLElement && (e.target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName));
@@ -320,7 +335,9 @@ export function AppShell({ me }: { me: Me }) {
         <main className="flex min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto pb-[env(safe-area-inset-bottom)]">
           <Outlet />
         </main>
-        <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} isAdmin={me.isAdmin || canManageOrganization} />
+        <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} isAdmin={me.isAdmin || canManageOrganization} onHelp={() => setHelpOpen(true)} />
+        <GlobalShortcuts isAdmin={me.isAdmin || canManageOrganization} onHelp={() => setHelpOpen(true)} />
+        <ShortcutsHelp open={helpOpen} onOpenChange={setHelpOpen} isAdmin={me.isAdmin || canManageOrganization} />
       </div>
     </NewRequestProvider>
   );
@@ -368,8 +385,10 @@ function TopBar({ me, onSearch }: { me: Me; onSearch: () => void }) {
 }
 
 /** ⌘K / "/": find anything, or jump anywhere. Enter on the query opens full results. */
-function CommandPalette({ open, onOpenChange, isAdmin }: { open: boolean; onOpenChange: (o: boolean) => void; isAdmin: boolean }) {
+function CommandPalette({ open, onOpenChange, isAdmin, onHelp }: { open: boolean; onOpenChange: (o: boolean) => void; isAdmin: boolean; onHelp: () => void }) {
   const [q, setQ] = useState('');
+  const recent = useRecent();
+  const creatable = useCreatableTypes();
   const debounced = useDebounced(q, 150);
   const navigate = useNavigate();
   const newRequest = useNewRequest();
@@ -388,14 +407,23 @@ function CommandPalette({ open, onOpenChange, isAdmin }: { open: boolean; onOpen
     { title: 'People', hits: r.people },
     { title: 'Asset types', hits: r.types },
   ];
+  const needle = q.trim().toLowerCase();
+  const matches = (label: string) => !needle || label.toLowerCase().includes(needle);
+  const keyOf = (to: string) => goTo.find((g) => g.to === to)?.key;
+  const creates = [
+    { label: 'Request something', icon: <Plus />, keys: ['R'], run: () => newRequest() },
+    ...creatable.map((t) => ({ label: `New ${inSentence(t.name)}`, icon: <TypeIcon icon={t.icon} color={t.color} size={20} />, keys: [] as string[], run: () => void navigate({ to: '/assets', search: { type: t.id, new: '1' } }) })),
+    ...(isAdmin ? [{ label: 'New template', icon: <LayoutTemplate />, keys: [] as string[], run: () => void navigate({ to: '/templates', search: { new: '1' } }) }] : []),
+    { label: 'Import a spreadsheet', icon: <FileUp />, keys: ['G', 'I'], run: () => void navigate({ to: '/import' }) },
+    { label: 'Keyboard shortcuts', icon: <Keyboard />, keys: ['?'], run: onHelp },
+  ].filter((x) => matches(x.label));
+  const recents = needle ? recent.filter((x) => x.title.toLowerCase().includes(needle)).slice(0, 4) : recent.slice(0, 5);
   const jumps = [
-    { label: 'Request something', icon: <Plus />, run: () => newRequest() },
     { label: 'Upcoming', icon: <Inbox />, run: () => void navigate({ to: '/' }) },
     { label: 'Requests', icon: <ShoppingCart />, run: () => void navigate({ to: '/requests' }) },
     { label: 'All assets', icon: <Shapes />, run: () => void navigate({ to: '/assets' }) },
     { label: 'Calendar', icon: <CalendarDays />, run: () => void navigate({ to: '/calendar' }) },
     { label: 'Catalogs', icon: <FolderOpen />, run: () => void navigate({ to: '/catalogs' }) },
-    { label: 'Import a spreadsheet', icon: <FileUp />, run: () => void navigate({ to: '/import' }) },
     { label: 'Profile & notifications', icon: <User />, run: () => void navigate({ to: '/profile' }) },
     ...(isAdmin
       ? [
@@ -404,7 +432,9 @@ function CommandPalette({ open, onOpenChange, isAdmin }: { open: boolean; onOpen
           { label: 'Access', icon: <KeyRound />, run: () => void navigate({ to: '/settings/access' }) },
         ]
       : []),
-  ].filter((x) => !q || x.label.toLowerCase().includes(q.toLowerCase()));
+  ]
+    .filter((x) => matches(x.label))
+    .map((x) => ({ ...x, keys: ((k) => (k ? ['G', k.toUpperCase()] : []))(keyOf(jumpPath[x.label] ?? '')) }));
 
   return (
     <RDialog.Root open={open} onOpenChange={onOpenChange}>
@@ -456,12 +486,37 @@ function CommandPalette({ open, onOpenChange, isAdmin }: { open: boolean; onOpen
                   </Command.Item>
                 </Command.Group>
               )}
+              {recents.length > 0 && (
+                <Command.Group heading="Recent" className={group}>
+                  {recents.map((x) => (
+                    <Command.Item key={`${x.kind}-${x.id}`} value={`recent-${x.kind}-${x.id}`} className={item} onSelect={() => go(() => void navigate(recentLink(x) as never))}>
+                      {x.icon ? <TypeIcon icon={x.icon} color={x.color ?? '#64748b'} size={24} /> : <Clock />}
+                      <span className="flex min-w-0 flex-1 items-baseline gap-2">
+                        <span className="truncate font-medium">{x.title}</span>
+                        {x.subtitle && <span className="truncate text-xs text-subtle">{x.subtitle}</span>}
+                      </span>
+                    </Command.Item>
+                  ))}
+                </Command.Group>
+              )}
+              {creates.length > 0 && (
+                <Command.Group heading="Create" className={group}>
+                  {creates.map((x) => (
+                    <Command.Item key={x.label} value={`create-${x.label}`} className={item} onSelect={() => go(x.run)}>
+                      {x.icon}
+                      <span className="flex-1">{x.label}</span>
+                      <Keys keys={x.keys} />
+                    </Command.Item>
+                  ))}
+                </Command.Group>
+              )}
               {jumps.length > 0 && (
                 <Command.Group heading="Go to" className={group}>
                   {jumps.map((x) => (
                     <Command.Item key={x.label} value={`jump-${x.label}`} className={item} onSelect={() => go(x.run)}>
                       {x.icon}
-                      {x.label}
+                      <span className="flex-1">{x.label}</span>
+                      <Keys keys={x.keys} />
                     </Command.Item>
                   ))}
                 </Command.Group>
@@ -471,5 +526,80 @@ function CommandPalette({ open, onOpenChange, isAdmin }: { open: boolean; onOpen
         </RDialog.Content>
       </RDialog.Portal>
     </RDialog.Root>
+  );
+}
+
+const jumpPath: Record<string, string> = {
+  Upcoming: '/',
+  Requests: '/requests',
+  'All assets': '/assets',
+  Calendar: '/calendar',
+  Catalogs: '/catalogs',
+  'Profile & notifications': '/profile',
+  Organization: '/settings/organization',
+  Templates: '/templates',
+};
+
+function recentLink(x: RecentItem) {
+  switch (x.kind) {
+    case 'asset':
+      return { to: '/assets/$assetId', params: { assetId: x.id } };
+    case 'request':
+      return { to: '/requests/$requestId', params: { requestId: x.id } };
+    case 'template':
+      return { to: '/templates/$typeId', params: { typeId: x.id } };
+    case 'unit':
+      return { to: '/units/$unitId', params: { unitId: x.id } };
+    case 'catalog':
+      return { to: '/catalogs/$catalogId', params: { catalogId: x.id } };
+  }
+}
+
+/** Key hints, hidden on touch screens where they mean nothing. */
+function Keys({ keys }: { keys: string[] }) {
+  if (!keys.length) return null;
+  return (
+    <span className="ml-auto flex items-center gap-1 touch:hidden">
+      {keys.map((k, i) => (
+        <Kbd key={i}>{k}</Kbd>
+      ))}
+    </span>
+  );
+}
+
+function GlobalShortcuts({ isAdmin, onHelp }: { isAdmin: boolean; onHelp: () => void }) {
+  const navigate = useNavigate();
+  const newRequest = useNewRequest();
+  useGlobalShortcuts({ navigate: (to) => void navigate({ to }), isAdmin, onHelp, onRequest: newRequest });
+  return null;
+}
+
+function ShortcutsHelp({ open, onOpenChange, isAdmin }: { open: boolean; onOpenChange: (o: boolean) => void; isAdmin: boolean }) {
+  const hidden = new Set(goTo.filter((g) => g.admin && !isAdmin).map((g) => g.label));
+  const list = shortcutHelp.filter((x) => !hidden.has(x.label));
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange} title="Keyboard shortcuts" description="Work without the mouse. Shortcuts pause while you type in a field.">
+      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+        {(['Actions', 'Lists', 'Go to'] as const).map((g) => (
+          <section key={g} className={g === 'Go to' ? 'sm:row-span-2 sm:col-start-2 sm:row-start-1' : undefined}>
+            <h3 className="mb-2 text-[11px] font-semibold tracking-wide text-subtle uppercase">{g}</h3>
+            <ul className="space-y-1.5">
+              {list
+                .filter((x) => x.group === g)
+                .map((x) => (
+                  <li key={x.label} className="flex items-center justify-between gap-3 text-[13px]">
+                    <span>{x.label}</span>
+                    <span className="flex shrink-0 items-center gap-1">
+                      {x.keys.map((k, i) => (
+                        <Kbd key={i}>{k}</Kbd>
+                      ))}
+                    </span>
+                  </li>
+                ))}
+            </ul>
+          </section>
+        ))}
+      </div>
+    </Dialog>
   );
 }

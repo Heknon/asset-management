@@ -16,12 +16,15 @@ import { Badge, Card, EmptyState, PageHeader, Skeleton, Spinner } from '@/compon
 import { ConfirmDialog, Menu, MenuItem } from '@/components/ui/overlay';
 import { api, ApiError } from '@/lib/api';
 import { keys, useCatalog, useCatalogs, useLookups } from '@/lib/queries';
+import { useShortcut } from '@/lib/shortcuts';
+import { useRemember } from '@/lib/recent';
 
 export function CatalogsPage() {
   const catalogs = useCatalogs();
   const manageable = useManageableUnits();
   const navigate = useNavigate();
   const [creating, setCreating] = useState(false);
+  useShortcut('n', manageable.length > 0 ? () => setCreating(true) : null);
   const shared = (catalogs.data ?? []).filter((c) => c.sharedWithMe);
   const own = (catalogs.data ?? []).filter((c) => !c.sharedWithMe);
 
@@ -91,6 +94,7 @@ export function CatalogPage() {
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [adding, setAdding] = useState<AssetType | null>(null);
+  useRemember(catalog.data ? { kind: 'catalog', id: catalog.data.id, title: catalog.data.name, subtitle: 'Catalog' } : null);
 
   const remove = useMutation({
     mutationFn: () => api.delete(`/api/registry/catalogs/${catalogId}`),

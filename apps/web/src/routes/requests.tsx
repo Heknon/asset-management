@@ -18,6 +18,7 @@ import { Dialog } from '@/components/ui/overlay';
 import { api, ApiError } from '@/lib/api';
 import { keys, useLookups, useMe, usePeople, useRequest, useRequestCounts, useRequestEvents, useRequests } from '@/lib/queries';
 import { cn, formatDate, formatDateTime, formatMoney, relativeDays } from '@/lib/utils';
+import { useRemember } from '@/lib/recent';
 
 // ─── List ────────────────────────────────────────────────────────────────────
 
@@ -217,6 +218,7 @@ export function RequestDetailPage() {
   const me = useMe().data!;
   const { typeById } = useLookups();
   const act = useAct(requestId);
+  useRemember(request.data ? { kind: 'request', id: request.data.id, title: request.data.title, subtitle: 'Request' } : null);
   const [comment, setComment] = useState('');
   const [closing, setClosing] = useState<RequestStatusInfo | null>(null);
   const [reason, setReason] = useState('');

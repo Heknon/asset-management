@@ -1,6 +1,6 @@
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight, Download } from 'lucide-react';
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { downloadCsv } from '@/lib/download';
 import { useFeatures } from '@/lib/queries';
 import { cn } from '@/lib/utils';
@@ -8,6 +8,7 @@ import { Button } from './button';
 import { Skeleton } from './display';
 import { Select } from './form';
 import { useMediaQuery } from '@/lib/hooks';
+import { useShortcut } from '@/lib/shortcuts';
 import type { Table } from '@tanstack/react-table';
 
 export interface SortState {
@@ -92,6 +93,20 @@ export function DataTable<T>({
 
   const table = useReactTable({ data: rows, columns, getCoreRowModel: getCoreRowModel(), manualSorting: true, getRowId: rowKey });
   const phone = useMediaQuery('(max-width: 639px)');
+  // J / K move a row cursor, Enter opens it: whole lists without the mouse.
+  const [cursor, setCursor] = useState<number | null>(null);
+  const bodyRef = useRef<HTMLTableSectionElement>(null);
+  const keyboard = !!onRowClick && !phone;
+  const moveCursor = (d: 1 | -1) =>
+    setCursor((c) => {
+      const n = Math.max(0, Math.min(rows.length - 1, c === null ? (d === 1 ? 0 : rows.length - 1) : c + d));
+      bodyRef.current?.children[n]?.scrollIntoView({ block: 'nearest' });
+      return n;
+    });
+  useShortcut('j', keyboard && rows.length ? () => moveCursor(1) : null);
+  useShortcut('k', keyboard && rows.length ? () => moveCursor(-1) : null);
+  useShortcut('enter', keyboard && cursor !== null ? () => rows[cursor] && onRowClick(rows[cursor]) : null);
+  useEffect(() => setCursor(null), [data]);
 
   return (
     <div className="flex min-h-0 flex-col">
@@ -133,7 +148,7 @@ export function DataTable<T>({
               </tr>
             ))}
           </thead>
-          <tbody>
+          <tbody ref={bodyRef}>
             {loading && !rows.length
               ? Array.from({ length: 6 }, (_, i) => (
                   <tr key={i}>
@@ -144,12 +159,12 @@ export function DataTable<T>({
                     ))}
                   </tr>
                 ))
-              : table.getRowModel().rows.map((row) => (
-                  <tr key={row.id} onClick={onRowClick ? () => onRowClick(row.original) : undefined} className={cn('group', onRowClick && 'cursor-pointer')}>
+              : table.getRowModel().rows.map((row, i) => (
+                  <tr key={row.id} onClick={onRowClick ? () => onRowClick(row.original) : undefined} data-cursor={cursor === i || undefined} className={cn('group', onRowClick && 'cursor-pointer')}>
                     {row.getVisibleCells().map((cell) => {
                       const meta = (cell.column.columnDef as DataColumn<T>).meta;
                       return (
-                        <td key={cell.id} className={cn('h-11 border-b border-border px-3 whitespace-nowrap transition-colors max-lg:first:sticky max-lg:first:left-0 max-lg:first:z-[1] max-lg:first:max-w-[62vw] max-lg:first:overflow-hidden max-lg:first:bg-bg max-lg:first:shadow-[1px_0_0_var(--border)] first:pl-4 last:pr-4 sm:first:pl-6 sm:last:pr-6 group-hover:bg-surface-2/60', meta?.align === 'right' && 'text-right tabular-nums')}>
+                        <td key={cell.id} className={cn('h-11 border-b border-border px-3 whitespace-nowrap transition-colors max-lg:first:sticky max-lg:first:left-0 max-lg:first:z-[1] max-lg:first:max-w-[62vw] max-lg:first:overflow-hidden max-lg:first:bg-bg max-lg:first:shadow-[1px_0_0_var(--border)] first:pl-4 last:pr-4 sm:first:pl-6 sm:last:pr-6 group-hover:bg-surface-2/60 group-data-[cursor]:bg-accent-soft/50 group-data-[cursor]:first:shadow-[inset_2px_0_0_var(--accent)]', meta?.align === 'right' && 'text-right tabular-nums')}>
                           {flexRender(cell.column.columnDef.cell, cell.getContext())}
                         </td>
                       );

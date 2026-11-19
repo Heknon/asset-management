@@ -20,6 +20,7 @@ import { api, ApiError } from '@/lib/api';
 import { useMyOrg } from '@/lib/org';
 import { keys, useAssets, useCatalogs, useLookups, useObligations, useRequests, useRollup, useSummary, useUnitPeople } from '@/lib/queries';
 import { formatMoney, relativeDays, todayIso } from '@/lib/utils';
+import { useRemember } from '@/lib/recent';
 
 const money = (list: Array<{ currency: string; amount: number }> | undefined) => (list?.length ? list.map((s) => formatMoney(s.amount, s.currency, true)).join(' + ') : '—');
 
@@ -28,6 +29,7 @@ export function UnitPage() {
   const { unitById, childrenOf, ready } = useLookups();
   const { me, can, mine } = useMyOrg();
   const unit = unitById.get(unitId);
+  useRemember(unit ? { kind: 'unit', id: unit.id, title: unit.name, subtitle: unit.kind } : null);
   const [tab, setTab] = useState('overview');
   const summary = useSummary({ unitId });
   const assets = useAssets({ unitId, limit: 1 });

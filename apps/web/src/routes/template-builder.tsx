@@ -48,8 +48,9 @@ import {
   UserRound,
   Boxes,
   type LucideIcon,
+  Check,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { AttributeInput } from '@/components/attribute';
 import { DurationInput, DurationListEditor } from '@/components/duration-editor';
@@ -60,11 +61,13 @@ import { Badge, Card, EmptyState, PageHeader, SectionTitle, Spinner } from '@/co
 import { WorkflowEditor } from '@/components/workflow-editor';
 import { Checkbox, Field, Input, Segmented, Select, Switch, TagInput } from '@/components/ui/form';
 import { Drawer, Menu, MenuItem, Popover, Sheet } from '@/components/ui/overlay';
+import { fieldPresets, makeField, type FieldPreset } from '@/lib/field-presets';
 import { useMediaQuery, WIDE } from '@/lib/hooks';
 import { api, ApiError } from '@/lib/api';
 import { keys, useAssetType, useDateKinds, useOrgWorkflow, useLookups, useVariants } from '@/lib/queries';
 import { useMyOrg } from '@/lib/org';
-import { cn, formatDurations, slugKey } from '@/lib/utils';
+import { useRemember } from '@/lib/recent';
+import { cn, formatDurations, slugKey, inSentence } from '@/lib/utils';
 
 export const kindIcons: Record<FieldKind, LucideIcon> = {
   text: Text,
@@ -94,26 +97,6 @@ const blankType = (): AssetTypeInput & { version?: number } => ({
   fields: [],
 });
 
-function newField(kind: FieldKind, existingKeys: Set<string>): FieldDefinition {
-  const label = fieldKindMeta[kind].label;
-  let key = slugKey(label);
-  for (let i = 2; existingKeys.has(key); i++) key = `${slugKey(label)}_${i}`;
-  const base = { id: crypto.randomUUID(), key, label, required: false, restricted: false, showInTable: false };
-  const config =
-    kind === 'select' || kind === 'multiSelect'
-      ? { options: [{ value: 'option_1', label: 'Option 1' }, { value: 'option_2', label: 'Option 2' }] }
-      : kind === 'currency'
-        ? { currency: 'USD', countsTowardSpend: false }
-        : kind === 'number'
-          ? { integer: false }
-          : kind === 'list'
-            ? { maxItems: 200 }
-            : kind === 'assetRef'
-              ? { multiple: false }
-              : {};
-  return { ...base, kind, config } as FieldDefinition;
-}
-
 export function TemplateBuilderPage() {
   const { typeId } = useParams({ strict: false }) as { typeId: string };
   const isNew = typeId === 'new';
@@ -121,7 +104,8 @@ export function TemplateBuilderPage() {
   const kinds = useDateKinds();
   const qc = useQueryClient();
   const navigate = useNavigate();
-  const [draft, setDraft] = useState<AssetTypeInput & { version?: number; archived?: boolean }>(blankType);
+  const { name: startName } = useSearch({ strict: false }) as { name?: string };
+  const [draft, setDraft] = useState<AssetTypeInput & { version?: number; archived?: boolean }>(() => ({ ...blankType(), ...(isNew && startName && { name: startName, key: slugKey(startName) }) }));
   const [savedKeys, setSavedKeys] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<string | null>(null);
   const [issues, setIssues] = useState<Array<{ path: string; message: string }>>([]);
@@ -165,6 +149,23 @@ export function TemplateBuilderPage() {
       } else toast.error('Save failed');
     },
   });
+
+  useRemember(!isNew && existing.data ? { kind: 'template', id: existing.data.id, title: existing.data.name, subtitle: 'Template', icon: existing.data.icon, color: existing.data.color } : null);
+  // ⌘S / Ctrl+S saves, as in any editor.
+  const saveRef = useRef<() => void>(() => undefined);
+  saveRef.current = () => {
+    if (draft.name && (dirty || isNew) && !save.isPending) save.mutate();
+  };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        saveRef.current();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   const archive = useMutation({
     mutationFn: (archived: boolean) => api.post<AssetType>(`/api/registry/asset-types/${typeId}/archive`, { archived }),
@@ -225,7 +226,7 @@ export function TemplateBuilderPage() {
         selected={selected}
         onSelect={setSelected}
         onChange={(patch) => update(patch)}
-        infoSummary={isNew ? undefined : `${draft.name} · IDs like ${draft.refPrefix || defaultRefPrefix(draft.key || 'item')}-1`}
+        infoSummary={isNew && !startName ? undefined : `${draft.name} · IDs like ${draft.refPrefix || defaultRefPrefix(draft.key || 'item')}-1`}
         info={
           <Card className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Name" required>
@@ -305,6 +306,12 @@ function SchemaWorkbench({
   };
   const allSections = [...(locked?.sections ?? []), ...sections.filter((x) => !locked?.sections.includes(x))];
   const wide = useMediaQuery(WIDE);
+  // Kinds open the inspector to set them up; common fields are ready, so on smaller screens they just join the list.
+  const add = (from: FieldKind | FieldPreset, label?: string) => {
+    const f = makeField(from, allKeys, kinds, label);
+    onChange({ fields: [...fields, f] });
+    if (typeof from === 'string' || wide) onSelect(f.id);
+  };
   const inspector = (plain: boolean) =>
     field && (
       <FieldInspector
@@ -329,13 +336,7 @@ function SchemaWorkbench({
         <Card padded={false}>
           <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
             <h2 className="text-[13px] font-semibold">{locked ? 'Fields' : 'Fields'}</h2>
-            <AddFieldMenu
-              onAdd={(kind) => {
-                const f = newField(kind, allKeys);
-                onChange({ fields: [...fields, f] });
-                onSelect(f.id);
-              }}
-            />
+            <AddFieldMenu taken={allKeys} onAdd={add} />
           </div>
           {locked && locked.fields.length > 0 && (
             <ul className="divide-y divide-border border-b border-border">
@@ -348,7 +349,7 @@ function SchemaWorkbench({
             <EmptyState
               icon={<Plus />}
               title={locked ? 'Add what this team tracks on top' : 'No fields yet'}
-              description={locked ? 'e.g. the workstation, MAC addresses or the lab that uses it. Template fields above stay as they are.' : 'Add the attributes every asset of this type should have — dates you mark as tracked drive reminders.'}
+              description={locked ? 'e.g. the workstation, MAC addresses or the lab that uses it. Template fields above stay as they are.' : 'Add the attributes every item of this type has. Tracked dates drive reminders and renewals.'}
             />
           ) : (
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
@@ -361,6 +362,7 @@ function SchemaWorkbench({
               </SortableContext>
             </DndContext>
           )}
+          {!locked && <SuggestedFields taken={allKeys} onAdd={add} />}
         </Card>
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           {extra}
@@ -477,7 +479,7 @@ export function VariantBuilderPage() {
       setIssues([]);
       setDirty(false);
       void qc.invalidateQueries({ queryKey: keys.variants });
-      toast.success(isNew ? `“${v.name}” created` : 'Saved', { description: isNew ? `New ${type.data?.name.toLowerCase()} items in ${unitById.get(v.unitId)?.name} can now be a “${v.name}”.` : undefined });
+      toast.success(isNew ? `“${v.name}” created` : 'Saved', { description: isNew ? `New ${inSentence(type.data?.name ?? '')} items in ${unitById.get(v.unitId)?.name} can now be a “${v.name}”.` : undefined });
       if (isNew) void navigate({ to: '/templates/$typeId/variants/$variantId', params: { typeId, variantId: v.id } });
     },
     onError: (e) => {
@@ -510,7 +512,7 @@ export function VariantBuilderPage() {
     <>
       <PageHeader
         icon={<TypeIcon icon={t.icon} color={t.color} size={36} />}
-        title={draft.name || `New ${t.name.toLowerCase()} variant`}
+        title={draft.name || `New ${inSentence(t.name)} variant`}
         description={
           <span>
             A {t.name} variant{draft.unitId ? <> for <UnitPath id={draft.unitId} /></> : ''}
@@ -559,7 +561,7 @@ export function VariantBuilderPage() {
         info={
           <Card className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Name" required hint="What this unit calls these items">
-              {(id) => <Input id={id} value={draft.name} placeholder={`e.g. Design ${t.name.toLowerCase()}`} onChange={(e) => update({ name: e.target.value })} />}
+              {(id) => <Input id={id} value={draft.name} placeholder={`e.g. Design ${inSentence(t.name)}`} onChange={(e) => update({ name: e.target.value })} />}
             </Field>
             <Field label="For" required hint={isNew ? 'The unit and every team beneath it can use it' : 'Cannot be changed'}>
               {(id) =>
@@ -589,36 +591,175 @@ function describeIssue(issue: { path: string; message: string }, fields: FieldDe
   return f ? `${f.label}: ${issue.message}` : issue.message;
 }
 
-function AddFieldMenu({ onAdd }: { onAdd: (k: FieldKind) => void }) {
+/**
+ * Adding a field: common fields come ready to use (several can be added in a row),
+ * any kind can be added blank, and typing a name adds it straight away.
+ */
+function AddFieldMenu({ onAdd, taken }: { onAdd: (from: FieldKind | FieldPreset, label?: string) => void; taken: ReadonlySet<string> }) {
   const [open, setOpen] = useState(false);
-  return (
-    <Popover open={open} onOpenChange={setOpen} align="end" className="w-[420px] p-2" trigger={<Button size="sm" variant="primary" icon={<Plus className="size-3.5" />}>Add field</Button>}>
-      <div className="grid grid-cols-2 gap-1">
-        {fieldKinds.map((k) => {
-          const Icon = kindIcons[k];
-          return (
-            <button
-              key={k}
-              type="button"
-              onClick={() => {
-                onAdd(k);
-                setOpen(false);
-              }}
-              className="flex items-start gap-2.5 rounded-lg p-2 text-left transition-colors hover:bg-surface-2"
-            >
-              <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-surface-2 text-muted">
-                <Icon className="size-4" />
-              </span>
-              <span>
-                <span className="block text-[13px] font-medium">{fieldKindMeta[k].label}</span>
-                <span className="block text-xs text-muted">{fieldKindMeta[k].description}</span>
-              </span>
-            </button>
-          );
-        })}
-      </div>
+  const [q, setQ] = useState('');
+  const phone = useMediaQuery('(max-width: 639px)');
+  const trigger = (
+    <Button size="sm" variant="primary" icon={<Plus className="size-3.5" />} onClick={phone ? () => setOpen(true) : undefined}>
+      Add field
+    </Button>
+  );
+  const close = () => {
+    setOpen(false);
+    setQ('');
+  };
+  const body = <AddFieldChooser q={q} onQ={setQ} taken={taken} onAdd={onAdd} onDone={close} />;
+  return phone ? (
+    <>
+      {trigger}
+      <Drawer open={open} onOpenChange={(o) => (o ? setOpen(true) : close())} title="Add a field" description="Pick common fields, or a kind of field to set up.">
+        {body}
+      </Drawer>
+    </>
+  ) : (
+    <Popover open={open} onOpenChange={(o) => (o ? setOpen(true) : close())} align="end" className="max-h-[var(--radix-popover-content-available-height)] w-[min(460px,calc(100vw-2rem))] overflow-y-auto p-0" trigger={trigger}>
+      {body}
     </Popover>
   );
+}
+
+function AddFieldChooser({ q, onQ, taken, onAdd, onDone }: { q: string; onQ: (q: string) => void; taken: ReadonlySet<string>; onAdd: (from: FieldKind | FieldPreset, label?: string) => void; onDone: () => void }) {
+  const needle = q.trim().toLowerCase();
+  const presets = fieldPresets.filter((p) => !needle || p.label.toLowerCase().includes(needle) || p.hint.toLowerCase().includes(needle));
+  const exact = presets.find((p) => p.label.toLowerCase() === needle);
+  const quick = q.trim() && !exact ? q.trim() : null;
+  const matching = fieldKinds.filter((k) => !needle || fieldKindMeta[k].label.toLowerCase().includes(needle) || fieldKindMeta[k].description.toLowerCase().includes(needle));
+  // A new name can be any kind: offer them all.
+  const kinds = quick && !matching.length ? [...fieldKinds] : matching;
+  const first = () => {
+    if (exact && !taken.has(slugKey(exact.label))) onAdd(exact);
+    else if (quick) {
+      onAdd(guessKind(quick), quick);
+      onDone();
+    } else if (presets[0]) onAdd(presets[0]);
+    onQ('');
+  };
+  return (
+    <div className="space-y-3 sm:p-2">
+      <Input
+        autoFocus={!matchMedia('(pointer: coarse)').matches}
+        value={q}
+        onChange={(e) => onQ(e.target.value)}
+        placeholder="Field name, e.g. Contract owner"
+        aria-label="Field name"
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && q.trim()) {
+            e.preventDefault();
+            first();
+          }
+        }}
+      />
+      {quick && (
+        <button type="button" onClick={() => (onAdd(guessKind(quick), quick), onDone())} className="flex w-full items-center gap-2.5 rounded-lg bg-accent-soft/60 p-2 text-left text-[13px] transition-colors hover:bg-accent-soft">
+          <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-accent text-white">
+            <Plus className="size-4" />
+          </span>
+          <span>
+            Add “<span className="font-medium">{quick}</span>”
+            <span className="block text-xs text-muted">as {fieldKindMeta[guessKind(quick)].label.toLowerCase()} · Enter</span>
+          </span>
+        </button>
+      )}
+      {presets.length > 0 && (
+        <div>
+          <p className="px-1 pb-1.5 text-[11px] font-semibold tracking-wide text-subtle uppercase">Common fields</p>
+          <div className="grid grid-cols-2 gap-1">
+            {presets.map((p) => {
+              const added = taken.has(slugKey(p.label));
+              const Icon = p.dateKind ? CalendarClock : kindIcons[p.kind];
+              return (
+                <button
+                  key={p.label}
+                  type="button"
+                  disabled={added}
+                  onClick={() => onAdd(p)}
+                  className="flex items-center gap-2.5 rounded-lg p-2 text-left transition-colors hover:bg-surface-2 disabled:cursor-default disabled:opacity-60 disabled:hover:bg-transparent"
+                >
+                  <span className={cn('flex size-7 shrink-0 items-center justify-center rounded-md', added ? 'bg-success-soft text-success' : 'bg-surface-2 text-muted')}>{added ? <Check className="size-4" /> : <Icon className="size-4" />}</span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-[13px] font-medium">{p.label}</span>
+                    <span className="block truncate text-xs text-muted">{added ? 'Added' : p.hint}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      {kinds.length > 0 && (
+        <div>
+          <p className="px-1 pb-1.5 text-[11px] font-semibold tracking-wide text-subtle uppercase">{quick ? `Add “${quick}” as…` : 'Any kind of field'}</p>
+          <div className="grid grid-cols-2 gap-1">
+            {kinds.map((k) => {
+              const Icon = kindIcons[k];
+              return (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => {
+                    onAdd(k, quick ?? undefined);
+                    onDone();
+                  }}
+                  className="flex items-start gap-2.5 rounded-lg p-2 text-left transition-colors hover:bg-surface-2"
+                >
+                  <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-surface-2 text-muted">
+                    <Icon className="size-4" />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-[13px] font-medium">{fieldKindMeta[k].label}</span>
+                    <span className="block text-xs text-muted">{fieldKindMeta[k].description}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      <div className="flex items-center justify-between gap-2 border-t border-border px-1 pt-2">
+        <span className="text-xs text-subtle">Common fields come set up; change anything later.</span>
+        <Button size="sm" onClick={onDone}>
+          Done
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** Common fields not added yet, one click each: building a template is mostly picking these. */
+function SuggestedFields({ taken, onAdd }: { taken: ReadonlySet<string>; onAdd: (p: FieldPreset) => void }) {
+  const left = fieldPresets.filter((p) => !taken.has(slugKey(p.label)));
+  if (taken.size >= 10 || !left.length) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 border-t border-border px-4 py-3">
+      <span className="mr-1 text-xs text-muted">Quick add</span>
+      {left.slice(0, 8).map((p) => (
+        <button key={p.label} type="button" onClick={() => onAdd(p)} className="inline-flex h-7 items-center gap-1 rounded-full border border-border px-2.5 text-xs font-medium transition-colors hover:border-border-strong hover:bg-surface-2 touch:h-8">
+          <Plus className="size-3 text-subtle" />
+          {p.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** A reasonable kind for a field from its name ("Renewal date" → date). */
+function guessKind(label: string): FieldKind {
+  const l = label.toLowerCase();
+  if (/\b(date|deadline|expir|renew|due|until|since|end|start)/.test(l)) return 'date';
+  if (/\b(cost|price|amount|fee|budget|spend)/.test(l)) return 'currency';
+  if (/\b(count|seats|qty|quantity|number of|months|days|years)\b/.test(l)) return 'number';
+  if (/\b(email|e-mail)\b/.test(l)) return 'email';
+  if (/\b(url|link|website|portal|site)\b/.test(l)) return 'url';
+  if (/\b(owner|contact|manager|assignee|approver|person|user)\b/.test(l)) return 'user';
+  if (/\b(key|password|pin|token|secret)\b/.test(l)) return 'secret';
+  if (/\b(notes|description|comments)\b/.test(l)) return 'longText';
+  if (/^(is|has|needs|auto)\b|\?$/.test(l)) return 'boolean';
+  return 'text';
 }
 
 function FieldRow({ field, kinds, active, onSelect, hasIssue }: { field: FieldDefinition; kinds: DateKind[]; active: boolean; onSelect: () => void; hasIssue: boolean }) {
@@ -1143,7 +1284,7 @@ function FormPreview({ open, onOpenChange, draft, kinds }: { open: boolean; onOp
     return [...out.entries()];
   }, [draft.fields]);
   return (
-    <Sheet open={open} onOpenChange={onOpenChange} title={`New ${draft.name.toLowerCase() || 'asset'}`} description="Preview — nothing is saved">
+    <Sheet open={open} onOpenChange={onOpenChange} title={`New ${inSentence(draft.name) || 'asset'}`} description="Preview — nothing is saved">
       <div className="space-y-6">
         {grouped.map(([section, fields]) => (
           <fieldset key={section || '_'}>

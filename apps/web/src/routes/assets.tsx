@@ -2,7 +2,7 @@ import type { SavedView } from '@am/core';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import { Bookmark, FileUp, MoreHorizontal, Pencil, Pin, PinOff, Plus, Shapes, Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { AssetExplorer } from '@/components/asset-explorer';
 import { AssetFormSheet } from '@/components/asset-form';
@@ -14,6 +14,7 @@ import { Dialog, Menu, MenuItem } from '@/components/ui/overlay';
 import { api } from '@/lib/api';
 import { useMyOrg } from '@/lib/org';
 import { keys, useLookups, useViews } from '@/lib/queries';
+import { useShortcut } from '@/lib/shortcuts';
 
 /** Create button for a type, shown only where the person can add assets. */
 export function useCanCreate(assetTypeId: string | undefined) {
@@ -24,11 +25,20 @@ export function useCanCreate(assetTypeId: string | undefined) {
 }
 
 export function AssetsPage() {
-  const { type: typeId, q, import: importId } = useSearch({ strict: false }) as { type?: string; q?: string; import?: string };
+  const { type: typeId, q, import: importId, new: startNew } = useSearch({ strict: false }) as { type?: string; q?: string; import?: string; new?: string };
   const lookups = useLookups();
   const type = typeId ? lookups.typeById.get(typeId) : undefined;
   const [creating, setCreating] = useState(false);
   const canCreate = useCanCreate(typeId);
+  const navigate = useNavigate();
+  useShortcut('n', canCreate ? () => setCreating(true) : null);
+  // "?new=1" (the palette's "New laptop", the N shortcut) opens the form once, then leaves the address clean.
+  useEffect(() => {
+    if (startNew && canCreate) {
+      setCreating(true);
+      void navigate({ to: '/assets', search: { type: typeId, q, import: importId }, replace: true });
+    }
+  }, [startNew, canCreate]);
 
   return (
     <>

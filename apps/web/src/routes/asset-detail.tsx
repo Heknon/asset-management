@@ -20,6 +20,7 @@ import { api, ApiError } from '@/lib/api';
 import { useActivity, useAsset, useAssetRequest, useCatalog, useInvalidateAssets, useLookups, useMe, useObligations } from '@/lib/queries';
 import { formatDateTime } from '@/lib/utils';
 import type { Obligation, Permission } from '@am/core';
+import { useRemember } from '@/lib/recent';
 
 export function AssetDetailPage() {
   const { assetId } = useParams({ strict: false }) as { assetId: string };
@@ -33,6 +34,7 @@ export function AssetDetailPage() {
   const type = asset.data ? lookups.typeById.get(asset.data.assetTypeId) : undefined;
   // The template plus the team variant's fields, named after the variant.
   const schema = asset.data ? lookups.schemaOf(asset.data.assetTypeId, asset.data.variantId) : undefined;
+  useRemember(asset.data && type ? { kind: 'asset', id: asset.data.id, title: asset.data.name, subtitle: asset.data.reference, icon: type.icon, color: type.color } : null);
 
   const remove = useMutation({
     mutationFn: () => api.delete(`/api/registry/assets/${assetId}`),
