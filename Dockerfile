@@ -24,7 +24,12 @@ COPY . .
 FROM build AS service-build
 ARG SERVICE
 RUN test -n "$SERVICE" || (echo "--build-arg SERVICE is required" && exit 1)
-RUN pnpm --filter "@am/${SERVICE}" build
+# dist/ holds our bundled code; a flat production node_modules holds third-party
+# packages, which OpenTelemetry instruments at runtime when tracing is enabled.
+RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store \
+    pnpm --filter "@am/${SERVICE}" build \
+ && pnpm --filter "@am/${SERVICE}" deploy --prod --legacy --config.node-linker=hoisted /out \
+ && rm -rf /out/src
 
 FROM build AS web-build
 RUN pnpm --filter web build
@@ -35,14 +40,17 @@ ARG SERVICE
 LABEL org.opencontainers.image.title="asset-management-${SERVICE}" \
       org.opencontainers.image.source="https://github.com/heknon/asset-management"
 WORKDIR /app
-COPY --from=service-build --chown=1001:0 /src/services/${SERVICE}/dist ./dist
+COPY --from=service-build --chown=1001:0 /out/node_modules ./node_modules
+COPY --from=service-build --chown=1001:0 /out/dist ./dist
+COPY --from=service-build --chown=1001:0 /out/package.json ./package.json
 ENV NODE_ENV=production \
     NODE_OPTIONS="--enable-source-maps" \
     PORT=8080
 USER 1001
 EXPOSE 8080
-# `node dist/main.mjs migrate` runs migrations and exits (used by the init container).
-ENTRYPOINT ["node", "dist/main.mjs"]
+# The telemetry preload is a no-op unless OTEL_ENABLED=true.
+# `... migrate` runs migrations and exits (used by the init container).
+ENTRYPOINT ["node", "--import", "./dist/telemetry.mjs", "dist/main.mjs"]
 
 # ─── Web (static SPA + API reverse proxy) ────────────────────────────────────
 FROM nginxinc/nginx-unprivileged:1.27-alpine AS web

@@ -14,7 +14,7 @@ Deployment, Service, PodDisruptionBudget and HorizontalPodAutoscaler.
 {{- $ctx := dict "root" $root "name" $c.name }}
 {{- $env := dict }}
 {{- if $c.backend }}
-{{- $env = mergeOverwrite (include "am.backendEnv" $root | fromYaml) ($c.spec.env | default dict) }}
+{{- $env = mergeOverwrite (include "am.backendEnv" $root | fromYaml) (include "am.otelEnv" $ctx | fromYaml | default dict) ($c.spec.env | default dict) }}
 {{- else }}
 {{- $env = dict "IDENTITY_UPSTREAM" (printf "%s-identity:8080" $fullname) "REGISTRY_UPSTREAM" (printf "%s-registry:8080" $fullname) "FILES_UPSTREAM" (printf "%s-files:8080" $fullname) "SCHEDULER_UPSTREAM" (printf "%s-scheduler:8080" $fullname) "S3_ORIGIN" $c.spec.s3Origin }}
 {{- end }}
@@ -98,7 +98,9 @@ spec:
             - configMapRef: { name: {{ include "am.component" $ctx }} }
           {{- if $c.backend }}
           env:
-            {{- range $key := $c.spec.secretKeys }}
+            {{- $keys := $c.spec.secretKeys }}
+            {{- if $root.Values.observability.tracing.enabled }}{{ $keys = append $keys "OTEL_EXPORTER_OTLP_HEADERS" }}{{ end }}
+            {{- range $key := $keys }}
             - name: {{ $key }}
               valueFrom:
                 secretKeyRef: { name: {{ $root.Values.secrets.existingSecret }}, key: {{ $key }}, optional: {{ ne $key "DATABASE_URL" }} }
@@ -159,6 +161,9 @@ metadata:
   labels:
     {{- include "am.labels" $root | nindent 4 }}
     app.kubernetes.io/component: {{ $c.name }}
+    {{- if $c.backend }}
+    asset-management.io/metrics: {{ $root.Values.observability.metrics.enabled | toString | quote }}
+    {{- end }}
 spec:
   selector:
     {{- include "am.selectorLabels" $ctx | nindent 4 }}

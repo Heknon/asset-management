@@ -125,6 +125,11 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/instance: {{ .Release.Name }}
+        {{- if .Values.observability.metrics.enabled }}
+        # Metrics scrapers (Prometheus / vmagent) in the monitoring namespaces.
+        - namespaceSelector:
+            {{- toYaml .Values.observability.metrics.scraperNamespaceSelector | nindent 12 }}
+        {{- end }}
       ports:
         - { port: 8080, protocol: TCP }
 {{- end }}

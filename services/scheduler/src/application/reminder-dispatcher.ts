@@ -3,6 +3,7 @@ import { invite } from '../domain/calendar.js';
 import { inviteMessage, reminderDigest, type DigestItem } from '../domain/messages.js';
 import { dueReminderSlot, type AssetRef, type ObligationRecord } from '../domain/obligation.js';
 import { calendarEntry } from './obligation-service.js';
+import { notificationsSent } from './metrics.js';
 import type { Clock, Mailer, SchedulerStore, UserRef } from './ports.js';
 
 interface Recipient {
@@ -103,8 +104,10 @@ export class ReminderDispatcher {
       try {
         await this.mailer.send({ to: recipient.email, ...message });
         for (const i of items) await this.store.recordDelivery(i.o.id, recipient.email, i.slot);
+        notificationsSent.inc({ channel: 'reminder_email', outcome: 'sent' });
         sent++;
       } catch (err) {
+        notificationsSent.inc({ channel: 'reminder_email', outcome: 'failed' });
         this.logger.error({ err, to: recipient.email }, 'reminder email failed; will retry next run');
       }
     }
@@ -127,8 +130,10 @@ export class ReminderDispatcher {
         try {
           await this.mailer.send({ to: email, ...inviteMessage(this.digestItem(o, a), cancelled), calendar: invite(e, this.organizer, email) });
           await this.store.recordInvite(o.id, email, o.sequence, cancelled);
+          notificationsSent.inc({ channel: 'calendar_invite', outcome: 'sent' });
           sent++;
         } catch (err) {
+          notificationsSent.inc({ channel: 'calendar_invite', outcome: 'failed' });
           ok = false;
           this.logger.error({ err, to: email }, 'calendar invite failed; will retry next run');
         }

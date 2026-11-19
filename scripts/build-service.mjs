@@ -1,34 +1,32 @@
 #!/usr/bin/env node
-// Bundles one service (run from its directory) into dist/main.mjs: a single
-// self-contained ESM file, so runtime images need no node_modules at all.
+// Builds one service (run from its directory):
+//   dist/main.mjs       the service — our workspace code (@am/*) bundled,
+//                       third-party packages left to node_modules so that
+//                       OpenTelemetry can instrument them at runtime
+//   dist/telemetry.mjs  the tracing bootstrap, preloaded with `node --import`
+// The image ships these next to a production node_modules made by
+// `pnpm deploy --prod --legacy --config.node-linker=hoisted`.
 import { build } from 'esbuild';
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
 
-await build({
-  entryPoints: ['src/main.ts'],
-  outfile: 'dist/main.mjs',
-  bundle: true,
-  platform: 'node',
-  target: 'node22',
-  format: 'esm',
-  sourcemap: 'linked',
-  minifySyntax: true,
-  legalComments: 'linked',
-  // Optional native/peer modules that libraries probe for at runtime.
-  external: ['pg-native', '@aws-sdk/signature-v4-crt', 'aws-crt', 'pino-pretty'],
-  banner: {
-    js: [
-      "import { createRequire as __createRequire } from 'node:module';",
-      "import { fileURLToPath as __fileURLToPath } from 'node:url';",
-      "import { dirname as __pathDirname } from 'node:path';",
-      'const require = __createRequire(import.meta.url);',
-      'const __filename = __fileURLToPath(import.meta.url);',
-      'const __dirname = __pathDirname(__filename);',
-    ].join('\n'),
+/** Bundle @am/* and relative imports; everything else resolves from node_modules. */
+const externalThirdParty = {
+  name: 'external-third-party',
+  setup(b) {
+    b.onResolve({ filter: /^[^./]/ }, (args) => (args.path.startsWith('@am/') ? undefined : { path: args.path, external: true }));
   },
-  logLevel: 'warning',
+};
+
+const common = { bundle: true, platform: 'node', target: 'node22', format: 'esm', sourcemap: 'linked', logLevel: 'warning', plugins: [externalThirdParty] };
+
+await build({ ...common, entryPoints: ['src/main.ts'], outfile: 'dist/main.mjs' });
+await build({
+  ...common,
+  entryPoints: [fileURLToPath(new URL('../packages/platform/src/telemetry/bootstrap.ts', import.meta.url))],
+  outfile: 'dist/telemetry.mjs',
 });
 
-console.log(`built ${pkg.name} → dist/main.mjs`);
+console.log(`built ${pkg.name} → dist/main.mjs, dist/telemetry.mjs`);

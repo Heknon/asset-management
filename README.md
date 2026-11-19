@@ -162,6 +162,45 @@ Groups from LDAP or ADFS appear under **People & groups**; grant them access und
 
 People can turn email reminders and Outlook invites on or off in their profile.
 
+## Observability (opt-in)
+
+Everything is off by default; each signal is switched on independently.
+
+| Signal | What you get | Switch |
+| --- | --- | --- |
+| **Metrics** | Prometheus format on each service's `GET /metrics`: HTTP latency by route, DB pool, outbox backlog, event handling, job runs, process metrics, plus business counters (`am_logins_total`, `am_request_events_total`, `am_notifications_sent_total`). | `METRICS_ENABLED=true` |
+| **Traces** | OpenTelemetry auto-instrumentation (HTTP, Fastify, pg, AWS SDK/S3, undici fetch). Spans are named by route, and context flows across the event bus (the trace carrier rides in the outbox payload), so *HTTP → outbox → consumer* is one trace. Exported over OTLP (`http/protobuf` or `grpc`). | `OTEL_ENABLED=true` + standard `OTEL_*` env vars |
+| **Logs** | pino JSON to stdout, or Elastic Common Schema (`LOG_FORMAT=ecs`). Every log line inside a request carries `trace_id`/`span_id` (`trace.id`/`span.id` in ECS), so you can jump from a log to its trace. | `LOG_FORMAT=json\|ecs` |
+
+**Helm** (`observability.*` in `values.yaml`):
+
+```yaml
+observability:
+  logs:    { format: ecs }
+  metrics:
+    enabled: true
+    serviceMonitor: { enabled: true }   # Prometheus Operator / OpenShift user-workload monitoring
+    vmServiceScrape: { enabled: false } # VictoriaMetrics Operator
+    prometheusRule: { enabled: true }   # 7 alerts: 5xx rate, p95 latency, failing events, outbox backlog, stalled reminders, DB pool, failing email
+    grafanaDashboard: { enabled: true } # ConfigMap labelled grafana_dashboard=1 (sidecar pick-up)
+  tracing:
+    enabled: true
+    backend: otlp                       # or "elastic"
+    endpoint: http://otel-collector.observability:4318
+    samplingRatio: 0.1                  # parentbased_traceidratio
+```
+
+**Elastic APM:** set `backend: elastic` and `elastic.serverUrl` to your APM Server (or Elastic Cloud APM endpoint), which accepts OTLP natively. Put the auth header into the app Secret as `OTEL_EXPORTER_OTLP_HEADERS` — `Authorization=Bearer <secret token>` or `Authorization=ApiKey <base64 key>`. Use `logs.format: ecs` so Filebeat/Elastic Agent links logs to APM traces. Any OTLP backend (Tempo, Jaeger, Honeycomb, Datadog Agent, an OTel Collector) works the same way with `backend: otlp`.
+
+**Locally:**
+
+```bash
+docker compose --profile observability up -d   # Collector, Jaeger :16686, VictoriaMetrics :8428, Grafana :3000
+METRICS_ENABLED=true OTEL_ENABLED=true pnpm dev
+```
+
+Grafana opens on the same dashboard the chart ships (`deploy/helm/asset-management/dashboards/asset-management.json`). The `pnpm dev` scripts preload `packages/platform/src/telemetry/bootstrap.ts`; production images run `node --import ./dist/telemetry.mjs`, so instrumentation is registered before any library loads. With `OTEL_ENABLED` unset, the preload does nothing and none of the OTel packages are loaded.
+
 ## Security notes
 
 - Access tokens: 15-minute ES256 JWTs in an `HttpOnly; Secure; SameSite=Lax` cookie. Refresh tokens rotate on every use, are stored hashed, and are scoped to `/api/identity/auth`.

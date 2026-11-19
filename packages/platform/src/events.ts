@@ -2,6 +2,8 @@ import type { EventMap, EventName } from '@am/core';
 import { sql, type Kysely, type Migration } from 'kysely';
 import type { Logger } from 'pino';
 import PgBoss from 'pg-boss';
+import { platformMetrics } from './telemetry/metrics.js';
+import { currentTraceCarrier, withSpan, type TraceCarrier } from './telemetry/tracing.js';
 
 /**
  * Transactional outbox: events are written in the same transaction as the
@@ -32,8 +34,18 @@ export const outboxMigration: Migration = {
   },
 };
 
+/** Trace context travels with the event, so a consumer's work joins the trace of the request that caused it. */
+const TRACE_KEY = '_trace';
+
 export async function enqueue<DB extends OutboxTable, E extends EventName>(db: Kysely<DB>, event: E, payload: EventMap[E]): Promise<void> {
-  await (db as unknown as Kysely<OutboxTable>).insertInto('outbox').values({ event, payload: JSON.stringify(payload), published_at: null }).execute();
+  const trace = currentTraceCarrier();
+  const data = trace ? { ...payload, [TRACE_KEY]: trace } : payload;
+  await (db as unknown as Kysely<OutboxTable>).insertInto('outbox').values({ event, payload: JSON.stringify(data), published_at: null }).execute();
+}
+
+export async function outboxBacklog(db: Kysely<OutboxTable>): Promise<number> {
+  const r = await db.selectFrom('outbox').select((eb) => eb.fn.countAll<number>().as('n')).where('published_at', 'is', null).executeTakeFirstOrThrow();
+  return Number(r.n);
 }
 
 export type EventHandler<E extends EventName> = (payload: EventMap[E]) => Promise<void>;
@@ -71,11 +83,19 @@ export class EventBus {
     await withDeadlockRetry(() => this.boss.subscribe(event, queue));
     await this.boss.work<EventMap[E]>(queue, { batchSize: 25, pollingIntervalSeconds: 1 }, async (jobs) => {
       for (const job of jobs) {
+        const { [TRACE_KEY]: parent, ...payload } = job.data as EventMap[E] & { [TRACE_KEY]?: TraceCarrier };
+        const stop = platformMetrics.eventDuration.startTimer({ consumer, event });
         try {
-          await handler(job.data);
+          await withSpan(`${event} process`, { kind: 'consumer', parent, attributes: { 'messaging.system': 'pg-boss', 'messaging.destination.name': queue, 'messaging.message.id': job.id } }, () =>
+            handler(payload as EventMap[E]),
+          );
+          platformMetrics.eventsHandled.inc({ consumer, event, outcome: 'success' });
         } catch (err) {
+          platformMetrics.eventsHandled.inc({ consumer, event, outcome: 'failure' });
           this.logger.error({ err, queue, jobId: job.id }, 'event handler failed');
           throw err;
+        } finally {
+          stop();
         }
       }
     });
@@ -85,7 +105,16 @@ export class EventBus {
   async schedule(queue: string, cron: string, handler: () => Promise<void>): Promise<void> {
     await withDeadlockRetry(() => this.boss.createQueue(queue, { name: queue, policy: 'singleton', retryLimit: 0 }));
     await withDeadlockRetry(() => this.boss.schedule(queue, cron, {}, { tz: 'UTC' }));
-    await this.boss.work(queue, async () => handler());
+    await this.boss.work(queue, async () => {
+      try {
+        await withSpan(`job ${queue}`, {}, handler);
+        platformMetrics.jobRuns.inc({ job: queue, outcome: 'success' });
+        platformMetrics.jobLastSuccess.set({ job: queue }, Date.now() / 1000);
+      } catch (err) {
+        platformMetrics.jobRuns.inc({ job: queue, outcome: 'failure' });
+        throw err;
+      }
+    });
   }
 }
 
@@ -99,7 +128,10 @@ export function startOutboxRelay(db: Kysely<OutboxTable>, bus: EventBus, logger:
     try {
       await db.transaction().execute(async (trx) => {
         const rows = await trx.selectFrom('outbox').selectAll().where('published_at', 'is', null).orderBy('id').limit(100).forUpdate().skipLocked().execute();
-        for (const row of rows) await bus.publish(row.event as EventName, row.payload as never);
+        for (const row of rows) {
+          await bus.publish(row.event as EventName, row.payload as never);
+          platformMetrics.eventsPublished.inc({ event: row.event });
+        }
         if (rows.length) {
           await trx.updateTable('outbox').set({ published_at: new Date() }).where('id', 'in', rows.map((r) => r.id)).execute();
         }

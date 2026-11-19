@@ -4,6 +4,8 @@ import Fastify, { type FastifyBaseLogger, type FastifyInstance, type FastifyRequ
 import type { Logger } from 'pino';
 import { ZodError, type ZodType, type ZodTypeDef } from 'zod';
 import { extractToken, type TokenVerifier } from './auth.js';
+import { trace } from '@opentelemetry/api';
+import { platformMetrics, registry } from './telemetry/metrics.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -17,6 +19,8 @@ export interface HttpOptions {
   readiness: () => Promise<void>;
   cookieSecret?: string;
   bodyLimit?: number;
+  /** Record request metrics and serve GET /metrics. */
+  metrics?: boolean;
 }
 
 export function createHttpServer(opts: HttpOptions): FastifyInstance {
@@ -46,6 +50,12 @@ export function createHttpServer(opts: HttpOptions): FastifyInstance {
   });
 
   app.addHook('onRequest', async (req) => {
+    // Name the server span after the route template ("GET /api/registry/assets/:id"); no-op without tracing.
+    const span = trace.getActiveSpan();
+    if (span && req.routeOptions.url) {
+      span.updateName(`${req.method} ${req.routeOptions.url}`);
+      span.setAttribute('http.route', req.routeOptions.url);
+    }
     // CSRF defence in depth (cookies are SameSite too): browsers cannot set custom
     // headers cross-origin without a preflight, which this API never approves.
     const unsafe = req.method !== 'GET' && req.method !== 'HEAD' && req.method !== 'OPTIONS';
@@ -78,6 +88,19 @@ export function createHttpServer(opts: HttpOptions): FastifyInstance {
   app.setNotFoundHandler((_req, reply) => {
     reply.status(404).send({ error: { code: 'not_found', message: 'Route not found' } } satisfies ErrorBody);
   });
+
+  if (opts.metrics) {
+    app.addHook('onResponse', async (req, reply) => {
+      // Route templates (/api/registry/assets/:id), never raw URLs, keep label cardinality bounded.
+      const route = req.routeOptions.url ?? 'unmatched';
+      if (route === '/metrics' || route === '/healthz' || route === '/readyz') return;
+      platformMetrics.http.observe({ method: req.method, route, status_code: String(reply.statusCode) }, reply.elapsedTime / 1000);
+    });
+    app.get('/metrics', { logLevel: 'silent' }, async (_req, reply) => {
+      reply.header('content-type', registry.contentType);
+      return registry.metrics();
+    });
+  }
 
   app.get('/healthz', { logLevel: 'silent' }, async () => ({ status: 'ok' }));
   app.get('/readyz', { logLevel: 'silent' }, async (_req, reply) => {

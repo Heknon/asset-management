@@ -1,0 +1,124 @@
+{{- /*
+Opt-in monitoring objects. Scraping targets every backend Service labelled
+asset-management.io/metrics=true (set when observability.metrics.enabled).
+*/ -}}
+{{- $fullname := include "am.fullname" . -}}
+{{- $m := .Values.observability.metrics -}}
+{{- if and $m.enabled $m.serviceMonitor.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ $fullname }}
+  labels:
+    {{- include "am.labels" . | nindent 4 }}
+    {{- with $m.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      asset-management.io/metrics: "true"
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: {{ $m.interval }}
+      honorLabels: true
+{{- end }}
+{{- if and $m.enabled $m.vmServiceScrape.enabled }}
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMServiceScrape
+metadata:
+  name: {{ $fullname }}
+  labels:
+    {{- include "am.labels" . | nindent 4 }}
+    {{- with $m.vmServiceScrape.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      asset-management.io/metrics: "true"
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: {{ $m.interval }}
+      honorLabels: true
+{{- end }}
+{{- if and $m.enabled $m.prometheusRule.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ $fullname }}
+  labels:
+    {{- include "am.labels" . | nindent 4 }}
+    {{- with $m.prometheusRule.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: asset-management
+      rules:
+        - alert: AssetManagementHighErrorRate
+          expr: |
+            sum by (service) (rate(http_server_request_duration_seconds_count{namespace="{{ .Release.Namespace }}", status_code=~"5.."}[5m]))
+              / sum by (service) (rate(http_server_request_duration_seconds_count{namespace="{{ .Release.Namespace }}"}[5m])) > 0.05
+          for: 10m
+          labels: { severity: warning }
+          annotations:
+            summary: "{{ "{{ $labels.service }}" }}: more than 5% of requests fail"
+        - alert: AssetManagementSlowRequests
+          expr: |
+            histogram_quantile(0.95, sum by (service, le) (rate(http_server_request_duration_seconds_bucket{namespace="{{ .Release.Namespace }}"}[10m]))) > 2
+          for: 15m
+          labels: { severity: warning }
+          annotations:
+            summary: "{{ "{{ $labels.service }}" }}: p95 latency above 2s"
+        - alert: AssetManagementEventsFailing
+          expr: sum by (service, consumer, event) (rate(am_events_handled_total{namespace="{{ .Release.Namespace }}", outcome="failure"}[10m])) > 0
+          for: 15m
+          labels: { severity: warning }
+          annotations:
+            summary: "{{ "{{ $labels.consumer }}" }} keeps failing on {{ "{{ $labels.event }}" }} (retries in progress; projections may be stale)"
+        - alert: AssetManagementOutboxBacklog
+          expr: max by (service) (am_outbox_pending{namespace="{{ .Release.Namespace }}"}) > 100
+          for: 10m
+          labels: { severity: warning }
+          annotations:
+            summary: "{{ "{{ $labels.service }}" }}: events are not being relayed"
+        - alert: AssetManagementRemindersStalled
+          expr: time() - max(am_scheduled_job_last_success_timestamp_seconds{namespace="{{ .Release.Namespace }}", job="scheduler.dispatch"}) > 3600
+          for: 5m
+          labels: { severity: critical }
+          annotations:
+            summary: "No successful reminder run for over an hour — renewals may be missed"
+        - alert: AssetManagementDatabasePoolExhausted
+          expr: max by (service) (am_db_pool_connections{namespace="{{ .Release.Namespace }}", state="waiting"}) > 0
+          for: 10m
+          labels: { severity: warning }
+          annotations:
+            summary: "{{ "{{ $labels.service }}" }}: requests are waiting for database connections"
+        - alert: AssetManagementNotificationsFailing
+          expr: sum by (channel) (rate(am_notifications_sent_total{namespace="{{ .Release.Namespace }}", outcome="failed"}[15m])) > 0
+          for: 15m
+          labels: { severity: warning }
+          annotations:
+            summary: "{{ "{{ $labels.channel }}" }} emails are failing (check the SMTP relay)"
+{{- end }}
+{{- if and $m.enabled $m.grafanaDashboard.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fullname }}-dashboard
+  labels:
+    {{- include "am.labels" . | nindent 4 }}
+    {{- toYaml $m.grafanaDashboard.labels | nindent 4 }}
+data:
+  asset-management.json: |-
+    {{- .Files.Get "dashboards/asset-management.json" | nindent 4 }}
+{{- end }}

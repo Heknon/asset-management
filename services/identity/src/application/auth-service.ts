@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
+import { metrics } from '@am/platform';
 import { AppError, type AuthProviderInfo, type Me, type PasswordLogin } from '@am/core';
 import { isAdministrator, type ExternalIdentity, type UserRecord } from '../domain/model.js';
 import type { IdentityStore, PasswordProvider, RedirectProvider, RedirectState, TokenIssuer } from './ports.js';
@@ -9,6 +10,8 @@ export interface IssuedSession {
   refreshExpiresAt: Date;
   user: UserRecord;
 }
+
+const logins = metrics.counter({ name: 'am_logins_total', help: 'Sign-in attempts by provider and outcome', labelNames: ['provider', 'outcome'] });
 
 const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
 
@@ -28,8 +31,15 @@ export class AuthService {
   async loginWithPassword(input: PasswordLogin, userAgent: string | null): Promise<IssuedSession> {
     const provider = this.passwordProviders.get(input.provider);
     if (!provider) throw AppError.validation(`Sign-in method "${input.provider}" is not enabled`);
-    const identity = await provider.authenticate(input.username, input.password);
-    if (!identity) throw AppError.unauthenticated('Invalid username or password');
+    const identity = await provider.authenticate(input.username, input.password).catch((err) => {
+      logins.inc({ provider: input.provider, outcome: 'error' });
+      throw err;
+    });
+    if (!identity) {
+      logins.inc({ provider: input.provider, outcome: 'rejected' });
+      throw AppError.unauthenticated('Invalid username or password');
+    }
+    logins.inc({ provider: input.provider, outcome: 'success' });
     return this.establish(identity, userAgent);
   }
 
@@ -40,7 +50,11 @@ export class AuthService {
 
   async completeRedirect(callbackUrl: URL, state: RedirectState, userAgent: string | null): Promise<IssuedSession> {
     if (!this.redirectProvider) throw AppError.validation('Single sign-on is not enabled');
-    const identity = await this.redirectProvider.complete(callbackUrl, state);
+    const identity = await this.redirectProvider.complete(callbackUrl, state).catch((err) => {
+      logins.inc({ provider: 'oidc', outcome: 'rejected' });
+      throw err;
+    });
+    logins.inc({ provider: 'oidc', outcome: 'success' });
     return this.establish(identity, userAgent);
   }
 

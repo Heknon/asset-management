@@ -9,6 +9,7 @@ pg.types.setTypeParser(20, (v) => Number(v));
 
 export interface Database<DB> {
   db: Kysely<DB>;
+  pool: pg.Pool;
   schema: string;
   ping(): Promise<void>;
   close(): Promise<void>;
@@ -30,6 +31,7 @@ export function createDatabase<DB>(config: Pick<BaseConfig, 'DATABASE_URL' | 'DA
   const db = new Kysely<DB>({ dialect: new PostgresDialect({ pool }) });
   return {
     db,
+    pool,
     schema,
     ping: async () => {
       await sql`select 1`.execute(db);

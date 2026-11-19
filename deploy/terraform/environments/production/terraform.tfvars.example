@@ -27,3 +27,14 @@ oidc = {
   groups_claim  = "group"
   admin_groups  = ["Asset Admins"]
 }
+
+# Optional: observability (passed straight to the Helm chart). Example for OpenShift
+# user-workload monitoring + Elastic APM; put "Authorization=Bearer <token>" in the
+# app Secret under OTEL_EXPORTER_OTLP_HEADERS.
+# extra_values = {
+#   observability = {
+#     logs    = { format = "ecs" }
+#     metrics = { enabled = true, serviceMonitor = { enabled = true }, prometheusRule = { enabled = true } }
+#     tracing = { enabled = true, backend = "elastic", elastic = { serverUrl = "https://apm.corp.example.com:8200" } }
+#   }
+# }

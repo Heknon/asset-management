@@ -18,6 +18,10 @@ export const baseConfigShape = {
   HOST: z.string().default('0.0.0.0'),
   PORT: z.coerce.number().int().positive().default(8080),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
+  /** `json` (default) or `ecs` (Elastic Common Schema, correlates with Elastic APM). */
+  LOG_FORMAT: z.enum(['json', 'ecs']).default('json'),
+  /** Serve Prometheus metrics on GET /metrics (not exposed through the web proxy). */
+  METRICS_ENABLED: envBool(false),
   DATABASE_URL: z.string().url(),
   DATABASE_SSL: envBool(false),
   DATABASE_POOL_MAX: z.coerce.number().int().positive().default(10),

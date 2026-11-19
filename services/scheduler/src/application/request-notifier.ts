@@ -1,6 +1,7 @@
 import type { RequestChanged } from '@am/core';
 import type { Logger } from 'pino';
 import { requestMessage } from '../domain/messages.js';
+import { notificationsSent } from './metrics.js';
 import type { Mailer, SchedulerStore } from './ports.js';
 
 /**
@@ -46,7 +47,9 @@ export class RequestNotifier {
     for (const r of unique) {
       try {
         await this.mailer.send({ to: r.email, ...requestMessage(notice, r.name) });
+        notificationsSent.inc({ channel: 'request_email', outcome: 'sent' });
       } catch (err) {
+        notificationsSent.inc({ channel: 'request_email', outcome: 'failed' });
         this.logger.error({ err, to: r.email }, 'request email failed');
         throw err; // retried by the event bus
       }

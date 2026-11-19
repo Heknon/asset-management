@@ -112,6 +112,45 @@ web:
     requests: { cpu: 20m, memory: 32Mi }
     limits: { memory: 128Mi }
 
+# ─── Observability (all opt-in) ──────────────────────────────────────────────
+observability:
+  environment: production          # deployment.environment.name on traces
+  logs:
+    format: json                   # json | ecs (Elastic Common Schema, links logs to Elastic APM traces)
+  metrics:
+    enabled: false                 # serve Prometheus metrics on :8080/metrics
+    interval: 30s
+    # Pick whichever your cluster runs (both can be on):
+    serviceMonitor:                # Prometheus Operator / OpenShift user-workload monitoring
+      enabled: false
+      labels: {}
+    vmServiceScrape:               # VictoriaMetrics operator
+      enabled: false
+      labels: {}
+    prometheusRule:                # alerts (VictoriaMetrics' operator converts PrometheusRule too)
+      enabled: false
+      labels: {}
+    grafanaDashboard:              # ConfigMap picked up by the Grafana sidecar / grafana-operator
+      enabled: false
+      labels:
+        grafana_dashboard: "1"
+    # Namespaces allowed to scrape (NetworkPolicy). OpenShift monitoring by default.
+    scraperNamespaceSelector:
+      matchLabels:
+        network.openshift.io/policy-group: monitoring
+  tracing:
+    enabled: false
+    # otlp: any OpenTelemetry collector (Jaeger, Tempo, Grafana Alloy, Datadog, …)
+    # elastic: Elastic APM Server / Elastic Agent APM integration (native OTLP intake)
+    backend: otlp
+    endpoint: http://otel-collector.observability.svc:4318
+    protocol: http/protobuf        # http/protobuf | grpc (grpc endpoint usually :4317)
+    samplingRatio: "0.1"           # parent-based: follows upstream decisions, samples 10% of new traces
+    elastic:
+      serverUrl: https://apm.example.com:8200
+    # Auth headers (e.g. "Authorization=Bearer <APM secret token>" or "Authorization=ApiKey <key>")
+    # are read from the secrets Secret, key OTEL_EXPORTER_OTLP_HEADERS.
+
 # ─── Platform ────────────────────────────────────────────────────────────────
 autoscaling:
   enabled: false

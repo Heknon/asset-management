@@ -71,4 +71,23 @@ MIGRATE_ON_START: "false"
 {{- range $k, $v := .Values.config }}
 {{ $k }}: {{ $v | quote }}
 {{- end }}
+{{- with .Values.observability }}
+LOG_FORMAT: {{ .logs.format | quote }}
+METRICS_ENABLED: {{ .metrics.enabled | toString | quote }}
+OTEL_ENABLED: {{ .tracing.enabled | toString | quote }}
+{{- if .tracing.enabled }}
+OTEL_EXPORTER_OTLP_ENDPOINT: {{ ternary .tracing.elastic.serverUrl .tracing.endpoint (eq .tracing.backend "elastic") | quote }}
+OTEL_EXPORTER_OTLP_PROTOCOL: {{ .tracing.protocol | quote }}
+OTEL_TRACES_SAMPLER: parentbased_traceidratio
+OTEL_TRACES_SAMPLER_ARG: {{ .tracing.samplingRatio | quote }}
+{{- end }}
+{{- end }}
+{{- end -}}
+
+{{/* Per-component OpenTelemetry resource identity. */}}
+{{- define "am.otelEnv" -}}
+{{- if .root.Values.observability.tracing.enabled }}
+OTEL_SERVICE_NAME: {{ printf "asset-management-%s" .name | quote }}
+OTEL_RESOURCE_ATTRIBUTES: {{ printf "service.namespace=asset-management,service.version=%s,deployment.environment.name=%s,k8s.namespace.name=%s" (default .root.Chart.AppVersion .root.Values.image.tag) .root.Values.observability.environment .root.Release.Namespace | quote }}
+{{- end }}
 {{- end -}}

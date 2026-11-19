@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "PORT=4002 tsx watch --env-file-if-exists=../../.env src/main.ts",
+    "dev": "PORT=4002 tsx watch --env-file-if-exists=../../.env --import ../../packages/platform/src/telemetry/bootstrap.ts src/main.ts",
     "migrate": "tsx --env-file-if-exists=../../.env src/main.ts migrate",
     "build": "node ../../scripts/build-service.mjs"
   },

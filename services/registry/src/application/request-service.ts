@@ -13,8 +13,11 @@ import {
   type RequestQuery,
   type RequestUpdate,
 } from '@am/core';
+import { metrics } from '@am/platform';
 import { accessOf, assertTransition, isOpen, requestNumber, requestSearchText, type RequestState } from '../domain/request.js';
 import type { RegistryStore } from './ports.js';
+
+const requestEvents = metrics.counter({ name: 'am_request_events_total', help: 'Request workflow events (created, status changes, comments, assignments)', labelNames: ['kind', 'status'] });
 
 /**
  * Intake: anyone asks for something on behalf of their team or any unit above
@@ -176,6 +179,7 @@ export class RequestService {
   }
 
   private publish(tx: RegistryStore, r: RequestState, p: Principal, kind: 'created' | 'status' | 'comment' | 'assigned', previousStatus: string | null, note: string | null) {
+    requestEvents.inc({ kind, status: r.status });
     return tx.publish('request.changed', {
       requestId: r.id,
       number: requestNumber(r.seq),

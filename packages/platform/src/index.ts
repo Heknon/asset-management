@@ -5,3 +5,4 @@ export * from './http.js';
 export * from './events.js';
 export * from './service.js';
 export * from './scopes.js';
+export * from './telemetry/index.js';
