@@ -51,9 +51,10 @@ main(() =>
         // Renamed or moved: the search text of everything beneath it mentions the old path.
         if (prev && (prev.name !== e.name || prev.path.join() !== e.path.join())) await assets.reindex({ unitIds: [e.unitId] });
       });
+      await bus.subscribe('registry', 'group.changed', (e) => store.upsertGroupRef({ id: e.groupId, name: e.name, source: e.source, memberCount: e.memberCount }));
       await bus.subscribe('registry', 'renewal.check', (e) => comments.onRenewalCheck(e));
       await bus.subscribe('registry', 'user.changed', async (e) => {
-        const { renamed } = await store.upsertUserRef({ id: e.userId, displayName: e.displayName, active: e.active });
+        const { renamed } = await store.upsertUserRef({ id: e.userId, displayName: e.displayName, active: e.active, groupIds: e.groupIds });
         if (renamed) await assets.reindex({ userIds: [e.userId] });
       });
 

@@ -5,8 +5,9 @@ A generic system for everything an organisation buys and has to keep track of �
 - **Templates, not hard-coded types.** An asset type is a template of fields (text, number, currency, date, select, person, secret, linked asset, …). "Software license" and "SIM line" are just starter templates.
 - **Dates have meaning.** Any date field can be tagged with a *date kind* — Renewal, Notice deadline, Expiry, Payment due, Warranty end, or one you define. The kind decides behaviour (one-off, recurring, informational), default reminders and the action verb ("Renew", "Pay"). Dates can be *derived* ("cancellation deadline = renewal date − notice period") and *recur* by a fixed interval or by another field ("term in months").
 - **Reminders that people act on.** One digest email per person, Outlook calendar invites that move or cancel when the date changes, and a personal calendar feed. "Renew" rolls the date forward and closes the occurrence, including derived dates.
-- **Built for a whole company.** An organization tree (company → divisions → departments → teams → squads) drives everything. Membership comes from LDAP/ADFS groups or attributes like `department`. Members see their team's assets, managers manage everything beneath their unit, and division heads get rolled-up spend and renewals per sub-unit. Restricted fields (license keys, PINs) are visible to managers only and never searchable.
-- **Catalogs you can share.** A unit groups its assets into catalogs ("R&D developer tooling", "Device lab") and shares them with other teams, divisions or people, at *view* or *edit*. Shares only add access; restricted fields, deletion and re-sharing stay with the owners.
+- **Built for a whole company.** An organization tree (company → divisions → departments → teams → squads) drives everything. Membership comes from LDAP/ADFS groups or attributes like `department`. Members get their unit's default role, managers are Admins of everything beneath their unit, and division heads get rolled-up spend and renewals per sub-unit. Restricted fields (license keys, PINs) need the *See secrets* permission and are never searchable.
+- **Roles, simple or precise.** Access is a role — Viewer, Commenter, Contributor, Editor, Admin — or a custom set of ten permissions, given to a person, an organization unit (everyone in it and beneath it) or an LDAP / ADFS group, on a unit, the whole organization or a catalog.
+- **Catalogs you can share.** A unit groups its assets into catalogs ("R&D developer tooling", "Device lab") and shares them with other teams, divisions, groups or people, with any role.
 - **Owners and buyers in one loop.** Before a renewal, the owner is asked "still needed?" automatically or with one click: renew as is, renew with changes, or don't renew. Every asset has a conversation with @mentions, and renewal decisions are recorded in it, next to its documents.
 - **Export any table to CSV**, with the same filters, search and sorting, and only the rows (and fields) you are allowed to see.
 - **Requests.** Anyone can ask for something for their team, or for any unit above it ("my department needs…", "the whole company needs…"). Procurement triages, approves, orders and fulfils; fulfilling creates the asset and links it back. Everyone involved is emailed at each step.
@@ -144,10 +145,35 @@ The chart works with OpenShift's `restricted-v2` SCC (no fixed UIDs, read-only r
 - **Reorganise freely.** Moving a unit moves its subtree: access, rollups, search and reminders follow immediately.
 - **Nobody falls through the cracks.** If an asset's owner leaves, its reminders go to the nearest unit managers up the tree. Per date, a template can send them *never*, *only as a fallback*, or *always*.
 
+## Roles and permissions
+
+Access is always *who* × *what they can do* × *where*:
+
+- **Who:** a person, an organization unit (everyone in it and in the units beneath it), or a directory group (LDAP / ADFS groups are synced at sign-in; local groups can be managed under People & groups).
+- **Where:** a unit and everything beneath it (optionally only one kind of item, e.g. only Software licenses), the whole organization, or a catalog.
+- **What:** a role, or *Custom* with exactly the permissions you tick:
+
+| Permission | Lets you | Viewer | Commenter | Contributor | Editor | Admin |
+|---|---|:-:|:-:|:-:|:-:|:-:|
+| See items | items, fields, dates, documents, conversation | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Comment | write in conversations |  | ✓ | ✓ | ✓ | ✓ |
+| Add documents | upload contracts, invoices, quotes |  |  | ✓ | ✓ | ✓ |
+| Add items | create new items |  |  | ✓ | ✓ | ✓ |
+| Edit items | change fields, status, owner, team, catalog |  |  |  | ✓ | ✓ |
+| Handle renewals | renew, snooze, dismiss, ask owners; handle requests |  |  |  | ✓ | ✓ |
+| Export | download tables as CSV |  |  |  | ✓ | ✓ |
+| See secrets | restricted fields (license keys, PINs) |  |  |  |  | ✓ |
+| Delete | items, and anyone's documents or messages |  |  |  |  | ✓ |
+| Manage access | share, give access, catalogs, team templates |  |  |  |  | ✓ |
+
+Access adds up: what someone can do with an item is the union of everything that reaches them — their unit's member role (Commenter by default for new units), Admin on units they manage, grants to them, their groups or their units, catalog shares, and *owner* rights (the owner of an item can always see it, comment and add documents). Templates, date kinds and organization-wide access are managed by administrators and by people who are Admins of the whole organization (e.g. Procurement).
+
+Where to change it: a unit's **Access** tab (its managers), **Share** on a catalog, and **Settings → Access** for the whole organization. Every screen shows inherited access read-only, so "why can she see this?" has an answer in one place. Changes reach people within 15 minutes (the access-token lifetime) or at their next sign-in. Enforcement is one rule in `@am/core` (`effectivePermissions`) and one SQL filter in `@am/platform` (`visibleFilter`), used by every service.
+
 ## Catalogs, conversations and renewal checks
 
-- **Catalogs.** Managers of a unit create catalogs on the unit page (Catalogs tab) or under Catalogs. A catalog holds assets of its unit and every team beneath it; an asset is in at most one catalog (chosen in the asset form). Moving items into or out of a catalog needs edit on the catalog, because it changes who can see them.
-- **Sharing.** *Share* gives a unit (with all its sub-units) or a person *Can view* or *Can edit* on everything in the catalog, including items added later. People with *Can edit* can update items, upload documents, act on dates and add new items to the catalog. Only the owning unit's managers can delete items, see restricted fields or change sharing. Deleting a catalog never deletes assets. Sharing works the same everywhere: listings, search, documents, reminders, calendar and exports (one rule in `@am/core` + `visibleFilter` in `@am/platform`).
+- **Catalogs.** Managers of a unit create catalogs on the unit page (Catalogs tab) or under Catalogs. A catalog holds assets of its unit and every team beneath it; an asset is in at most one catalog (chosen in the asset form). Moving items into or out of a catalog needs *Edit items* on the catalog, because it changes who can see them.
+- **Sharing.** *Share* gives a person, a unit (with all its sub-units) or a directory group a role on everything in the catalog, including items added later — e.g. Customer Care as Viewer of the Device lab, a security group as *Custom: See items + See secrets*. Only people with *Manage access* on the catalog change its sharing. Deleting a catalog never deletes assets. Sharing works the same everywhere: listings, search, documents, reminders, calendar and exports (one rule in `@am/core` + `visibleFilter` in `@am/platform`).
 - **Renewal checks.** Recurring dates can ask the owner automatically ("Ask the owner first: 60 days before" on the date field; the license and domain templates do this by default), and anyone handling a renewal can ask with one click (⋯ → Ask the owner). The owner gets an email and a "Waiting for your answer" card on Upcoming, and answers with one click: renew as is, renew with changes (with a note) or don't renew. The answer is emailed to whoever asked (or to `REQUEST_INBOX_EMAILS` when the owner speaks first), shown as a badge on the date, and filterable (Upcoming → Waiting for owner / Owner answered). Each occurrence is asked once; the next cycle starts fresh.
 - **Conversations.** Every asset has a conversation. Anyone who can see the asset can post; type `@` to mention someone (they are emailed), and the owner is emailed about new messages. Questions and answers from renewal checks appear in the thread, so the documents, the decisions and the discussion about a purchase live in one place.
 - **CSV export.** *Export CSV* on any asset table (all assets, a type, a team, a catalog, a saved view) downloads every matching row with the table's filters, search and sort. Columns follow the templates (currency and numbers stay numeric), teams are written as full paths, and restricted fields are included only for people who manage them. Smaller tables (sub-unit rollups) export in the browser. Exports are counted (`am_exports_total`, `am_exported_rows_total`) and logged with who exported what. Set `CSV_EXPORT_ENABLED=false` (Helm: `services.registry.env`, Terraform: `csv_export_enabled`) to turn exports off.
@@ -217,5 +243,5 @@ Grafana opens on the same dashboard the chart ships (`deploy/helm/asset-manageme
 - Access tokens: 15-minute ES256 JWTs in an `HttpOnly; Secure; SameSite=Lax` cookie. Refresh tokens rotate on every use, are stored hashed, and are scoped to `/api/identity/auth`.
 - CSRF: SameSite cookies, plus a required `X-Requested-With` header on unsafe methods. JSON-only bodies.
 - Presigned POST policies pin the object key, content type and maximum size. Uploads are confirmed with `HeadObject` before they become visible. Downloads use short-lived URLs with `Content-Disposition`. Active content types such as HTML and SVG are rejected.
-- Restricted values live in a separate column: they are excluded from search and redacted unless the caller has *manage*. The activity log records that they changed, never their values.
+- Restricted values live in a separate column: they are excluded from search and redacted unless the caller has *See secrets*. The activity log records that they changed, never their values.
 - LDAP filter input is escaped (RFC 4515), the OIDC flow uses PKCE + state + nonce, and login is rate-limited.

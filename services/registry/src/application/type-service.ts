@@ -1,5 +1,7 @@
 import {
   AppError,
+  canManageTemplates,
+  type Principal,
   assetTypeInputSchema,
   dateKindInputSchema,
   instantiateTemplate,
@@ -26,6 +28,18 @@ export interface TemplateSummary {
 /** Asset types (templates), date kinds and the starter template gallery. */
 export class TypeService {
   constructor(private readonly store: RegistryStore) {}
+
+  /**
+   * Templates are shared by the whole organization: administrators and people
+   * who manage it as a whole (e.g. Procurement as Admin of the company) change them.
+   */
+  async assertCanManage(p: Principal): Promise<void> {
+    if (!canManageTemplates(p, await this.store.rootUnitIds())) throw AppError.forbidden('Changing templates needs “Manage access” on the whole organization');
+  }
+
+  async canManage(p: Principal): Promise<boolean> {
+    return canManageTemplates(p, await this.store.rootUnitIds());
+  }
 
   listDateKinds() {
     return this.store.listDateKinds();

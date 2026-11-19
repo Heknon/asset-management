@@ -1,5 +1,5 @@
 import cookie from '@fastify/cookie';
-import { AppError, atLeast, effectiveLevel, type AccessLevel, type AccessScope, type ErrorBody, type Principal } from '@am/core';
+import { AppError, effectivePermissions, permissionMeta, type AccessScope, type ErrorBody, type Permission, type Principal } from '@am/core';
 import Fastify, { type FastifyBaseLogger, type FastifyInstance, type FastifyRequest } from 'fastify';
 import type { Logger } from 'pino';
 import { ZodError, type ZodType, type ZodTypeDef } from 'zod';
@@ -143,9 +143,13 @@ export function requireAdmin(req: FastifyRequest): Principal {
   return p;
 }
 
-/** Throws unless the principal has at least `required` on the scope; returns the effective level. */
-export function authorize(principal: Principal, required: AccessLevel, scope: AccessScope): AccessLevel {
-  const level = effectiveLevel(principal, scope);
-  if (!atLeast(level, required)) throw required === 'view' ? AppError.notFound('Resource') : AppError.forbidden();
-  return level;
+/**
+ * Throws unless the principal has `required` on the scope; returns everything
+ * they may do there. Without even "see", the resource does not exist for them.
+ */
+export function authorize(principal: Principal, required: Permission, scope: AccessScope): Set<Permission> {
+  const perms = effectivePermissions(principal, scope);
+  if (!perms.has('view')) throw AppError.notFound('Resource');
+  if (!perms.has(required)) throw AppError.forbidden(`This needs the “${permissionMeta[required].label}” permission`);
+  return perms;
 }

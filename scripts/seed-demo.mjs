@@ -111,13 +111,13 @@ for (const [unitId, m] of membership) await admin('PUT', `/api/identity/units/${
 console.log(`people: ${users.length} accounts, ${membership.size} units staffed`);
 
 // Company-wide roles beyond the org chart.
-const grants = await admin('GET', '/api/identity/grants');
-const grant = async (principalId, level) => {
-  if (!grants.some((g) => g.principalId === principalId && g.unitId === null && g.level === level))
-    await admin('POST', '/api/identity/grants', { principalType: 'user', principalId, unitId: null, assetTypeId: null, level });
+const orgAccess = await admin('GET', '/api/identity/access');
+const grant = async (subject, role) => {
+  if (!orgAccess.grants.some((g) => g.subject.kind === subject.kind && g.subject.id === subject.id))
+    await admin('POST', '/api/identity/grants', { subject, unitId: null, assetTypeId: null, access: { role } });
 };
-await grant(dana, 'manage');
-await grant(noa, 'view');
+await grant({ kind: 'user', id: dana }, 'admin'); // Procurement: manages templates, handles every request
+await grant({ kind: 'user', id: noa }, 'viewer');
 
 // ─── Templates ───────────────────────────────────────────────────────────────
 const types = {};
@@ -223,13 +223,19 @@ if (!existingCatalogs.length) {
   // R&D keeps its dev tooling in a catalog and shares it with Sales (view) and Finance (edit, for invoices).
   const tooling = await asRachel('POST', '/api/registry/catalogs', { unitId: rnd.id, name: 'R&D developer tooling', description: 'Licenses every engineer can use: IDEs, CI, monitoring.', icon: 'library', color: '#6366f1' });
   for (const a of await inUnit(rnd, 'software_license', 8)) await asRachel('PATCH', `/api/registry/assets/${a.id}`, { catalogId: tooling.id });
-  await asRachel('POST', `/api/registry/catalogs/${tooling.id}/shares`, { subjectKind: 'unit', subjectId: byName('Sales').id, level: 'view' });
-  await asRachel('POST', `/api/registry/catalogs/${tooling.id}/shares`, { subjectKind: 'user', subjectId: idOf('noa.mizrahi'), level: 'edit' });
+  await asRachel('POST', `/api/registry/catalogs/${tooling.id}/shares`, { subject: { kind: 'unit', id: byName('Sales').id }, access: { role: 'commenter' } });
+  await asRachel('POST', `/api/registry/catalogs/${tooling.id}/shares`, { subject: { kind: 'user', id: idOf('noa.mizrahi') }, access: { role: 'custom', permissions: ['view', 'attach', 'export'] } });
+
+  // A directory-style group (in production these come from LDAP / ADFS) reviews licenses across divisions.
+  const groups = await admin('GET', '/api/identity/groups');
+  const reviewers = groups.find((g) => g.name === 'Security reviewers') ?? (await admin('POST', '/api/identity/groups', { name: 'Security reviewers', externalId: null }));
+  await admin('PUT', `/api/identity/groups/${reviewers.id}/members`, { userIds: users.slice(10, 14).map((u) => u.id) });
+  await asRachel('POST', `/api/registry/catalogs/${tooling.id}/shares`, { subject: { kind: 'group', id: reviewers.id }, access: { role: 'custom', permissions: ['view', 'comment', 'restricted'] } });
 
   // A lab: the division's test devices and SIMs, shared with Customer Care, who reproduce bugs on them.
   const lab = await asRachel('POST', '/api/registry/catalogs', { unitId: rnd.id, name: 'Device lab', description: 'Test phones, SIM lines and laptops for reproducing customer issues.', icon: 'flask', color: '#0ea5e9' });
   for (const a of [...(await inUnit(rnd, 'hardware', 5)), ...(await inUnit(rnd, 'sim_line', 5))]) await asRachel('PATCH', `/api/registry/assets/${a.id}`, { catalogId: lab.id });
-  await asRachel('POST', `/api/registry/catalogs/${lab.id}/shares`, { subjectKind: 'unit', subjectId: byName('Customer Care').id, level: 'view' });
+  await asRachel('POST', `/api/registry/catalogs/${lab.id}/shares`, { subject: { kind: 'unit', id: byName('Customer Care').id }, access: { role: 'viewer' } });
 
   // Procurement asks Tom whether to renew one of his licenses; a short conversation around it.
   const toms = (await asTom('GET', '/api/scheduler/obligations?mine=true&limit=200')).items.filter((o) => o.recurring && o.ownerId === tom && !o.check);

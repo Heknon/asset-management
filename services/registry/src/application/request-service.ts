@@ -1,7 +1,6 @@
 import {
   AppError,
-  atLeast,
-  effectiveLevel,
+  effectivePermissions,
   requestableUnitIds,
   scopesFor,
   type Page,
@@ -28,11 +27,11 @@ export class RequestService {
   constructor(private readonly store: RegistryStore) {}
 
   private visibility(p: Principal) {
-    return { userId: p.userId, viewScopes: scopesFor(p, 'view'), editScopes: scopesFor(p, 'edit'), myUnitIds: p.units.map((u) => u.unitId) };
+    return { userId: p.userId, viewScopes: scopesFor(p, 'view'), editScopes: scopesFor(p, 'renew'), myUnitIds: p.units.map((u) => u.unitId) };
   }
 
   private isHandler(p: Principal, r: Pick<RequestState, 'unitPath' | 'assetTypeId'>) {
-    return atLeast(effectiveLevel(p, { unitPath: r.unitPath, assetTypeId: r.assetTypeId ?? '' }), 'edit');
+    return effectivePermissions(p, { unitPath: r.unitPath, assetTypeId: r.assetTypeId ?? '' }).has('renew');
   }
 
   private present(p: Principal, r: RequestState & { snippet?: string }): PurchaseRequest {
@@ -62,7 +61,7 @@ export class RequestService {
 
   private async load(p: Principal, id: string, opts?: { forUpdate?: boolean }, store = this.store) {
     const r = await store.getRequest(id, opts);
-    const visible = r && (r.requesterId === p.userId || atLeast(effectiveLevel(p, { unitPath: r.unitPath, assetTypeId: r.assetTypeId ?? '' }), 'view'));
+    const visible = r && (r.requesterId === p.userId || effectivePermissions(p, { unitPath: r.unitPath, assetTypeId: r.assetTypeId ?? '' }).has('view'));
     if (!r || !visible) throw AppError.notFound('Request');
     return r;
   }

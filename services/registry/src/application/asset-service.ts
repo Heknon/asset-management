@@ -1,13 +1,14 @@
 import {
   advanceRecurringDate,
   AppError,
-  atLeast,
   buildSearchText,
-  effectiveLevel,
+  effectivePermissions,
   mergeAttributes,
+  ownerPermissions,
+  permissionList,
   redactAttributes,
   type AccessCheck,
-  type AccessLevel,
+  type Permission,
   type Asset,
   type AssetCreate,
   type AssetQuery,
@@ -29,13 +30,14 @@ export class AssetService {
     private readonly resolver: AccessResolver,
   ) {}
 
-  async list(principal: Principal, query: AssetQuery): Promise<Page<Asset>> {
-    const visibility = await this.resolver.visibility(principal, 'view');
+  /** Assets the caller can see (or, for exports, export). */
+  async list(principal: Principal, query: AssetQuery, permission: Permission = 'view'): Promise<Page<Asset>> {
+    const visibility = await this.resolver.visibility(principal, permission);
     const type = query.assetTypeId ? await this.store.getType(query.assetTypeId) : null;
     const { items, total } = await this.store.queryAssets(query, visibility, type);
-    const [types, shared] = await Promise.all([this.typeMap(items.map((a) => a.assetTypeId)), this.resolver.sharedLevels(principal, items.map((a) => a.catalogId))]);
+    const [types, shared] = await Promise.all([this.typeMap(items.map((a) => a.assetTypeId)), this.resolver.sharedPermissions(principal, items.map((a) => a.catalogId))]);
     return {
-      items: items.map((a) => ({ ...this.present(principal, a, types.get(a.assetTypeId)!, a.catalogId ? shared.get(a.catalogId) : undefined), ...(a.snippet && { snippet: a.snippet }) })),
+      items: items.map((a) => ({ ...this.present(principal, a, types.get(a.assetTypeId)!, [...(a.ownerId === principal.userId ? ownerPermissions : []), ...(a.catalogId ? (shared.get(a.catalogId) ?? []) : [])]), ...(a.snippet && { snippet: a.snippet }) })),
       total,
       limit: query.limit,
       offset: query.offset,
@@ -49,32 +51,32 @@ export class AssetService {
     return this.present(principal, asset, type, scope.shared);
   }
 
-  /** For other application services (conversations): the asset and the caller's level, or not found. */
-  async reach(principal: Principal, id: string, required: AccessLevel): Promise<{ asset: AssetState; level: AccessLevel }> {
+  /** For other application services (conversations): the asset and the caller's permissions, or not found / forbidden. */
+  async reach(principal: Principal, id: string, required: Permission): Promise<{ asset: AssetState; permissions: Set<Permission> }> {
     const asset = await this.store.getAsset(id);
     if (!asset) throw AppError.notFound('Asset');
-    return { asset, level: authorize(principal, required, await this.resolver.assetScope(principal, asset)) };
+    return { asset, permissions: authorize(principal, required, await this.resolver.assetScope(principal, asset)) };
   }
 
   /** Used by other services (files) to authorise access to an asset on behalf of a user. */
   async access(principal: Principal, id: string): Promise<AccessCheck> {
     const asset = await this.store.getAsset(id);
     if (!asset) throw AppError.notFound('Asset');
-    const level = effectiveLevel(principal, await this.resolver.assetScope(principal, asset));
-    if (level === 'none') throw AppError.notFound('Asset');
-    return { assetId: asset.id, assetTypeId: asset.assetTypeId, unitId: asset.unitId, catalogId: asset.catalogId, level };
+    const perms = effectivePermissions(principal, await this.resolver.assetScope(principal, asset));
+    if (!perms.has('view')) throw AppError.notFound('Asset');
+    return { assetId: asset.id, assetTypeId: asset.assetTypeId, unitId: asset.unitId, catalogId: asset.catalogId, permissions: permissionList(perms) };
   }
 
   async create(principal: Principal, input: AssetCreate): Promise<Asset> {
     const type = await this.activeType(input.assetTypeId);
     const unitPath = await this.unitPath(input.unitId);
-    // Someone a catalog is shared with at edit may add to it (inside its unit).
-    const shared = input.catalogId ? await this.resolver.assetScope(principal, { unitPath, assetTypeId: type.id, catalogId: input.catalogId }) : undefined;
-    const level = authorize(principal, 'edit', shared ?? { unitPath, assetTypeId: type.id });
+    // Someone a catalog is shared with (with "Add items") may add to it, inside its unit.
+    const scope = await this.resolver.assetScope(principal, { unitPath, assetTypeId: type.id, catalogId: input.catalogId });
+    const perms = authorize(principal, 'create', scope);
     await this.assertCatalog(this.store, principal, input.catalogId, unitPath);
     await this.assertPeople(type, input.ownerId, input.attributes);
-    const { merged, blocked } = mergeAttributes(type.fields, {}, input.attributes, atLeast(level, 'manage'));
-    if (blocked.length) throw AppError.forbidden(`Only managers can set: ${blocked.join(', ')}`);
+    const { merged, blocked } = mergeAttributes(type.fields, {}, input.attributes, perms.has('restricted'));
+    if (blocked.length) throw AppError.forbidden(`Setting ${blocked.join(', ')} needs the “See secrets” permission`);
 
     const draft: AssetDraft = {
       assetTypeId: type.id,
@@ -102,7 +104,7 @@ export class AssetService {
   private async fulfil(tx: RegistryStore, principal: Principal, requestId: string, assetId: string): Promise<string> {
     const request = await tx.getRequest(requestId, { forUpdate: true });
     if (!request) throw AppError.validation('Unknown request');
-    if (!atLeast(effectiveLevel(principal, { unitPath: request.unitPath, assetTypeId: request.assetTypeId ?? '' }), 'edit')) {
+    if (!effectivePermissions(principal, { unitPath: request.unitPath, assetTypeId: request.assetTypeId ?? '' }).has('renew')) {
       throw AppError.forbidden('You cannot fulfil this request');
     }
     if (request.status === 'fulfilled' || request.status === 'rejected' || request.status === 'cancelled') throw AppError.conflict('The request is already closed');
@@ -129,14 +131,14 @@ export class AssetService {
     return this.store.transaction(async (tx) => {
       const current = await tx.getAsset(id, { forUpdate: true });
       if (!current) throw AppError.notFound('Asset');
-      const level = authorize(principal, 'edit', await this.resolver.assetScope(principal, current, tx));
+      const perms = authorize(principal, 'edit', await this.resolver.assetScope(principal, current, tx));
       const type = (await tx.getType(current.assetTypeId))!;
 
       // Moving an asset to another unit needs edit rights on the destination too.
       let unitPath = current.unitPath;
       if (patch.unitId && patch.unitId !== current.unitId) {
         unitPath = await this.unitPath(patch.unitId, tx);
-        authorize(principal, 'edit', { unitPath, assetTypeId: type.id });
+        authorize(principal, 'create', { unitPath, assetTypeId: type.id });
       }
       // Filing into (or out of) a catalog changes who can see the asset: edit on both catalogs.
       const catalogId = patch.catalogId !== undefined ? patch.catalogId : current.catalogId;
@@ -148,8 +150,8 @@ export class AssetService {
       }
       await this.assertPeople(type, patch.ownerId ?? null, patch.attributes ?? {}, tx);
 
-      const { merged, blocked } = mergeAttributes(type.fields, current.values, patch.attributes ?? {}, atLeast(level, 'manage'));
-      if (blocked.length) throw AppError.forbidden(`Only managers can change: ${blocked.join(', ')}`);
+      const { merged, blocked } = mergeAttributes(type.fields, current.values, patch.attributes ?? {}, perms.has('restricted'));
+      if (blocked.length) throw AppError.forbidden(`Changing ${blocked.join(', ')} needs the “See secrets” permission`);
       const draft: AssetDraft = {
         assetTypeId: type.id,
         typeVersion: type.version,
@@ -162,7 +164,7 @@ export class AssetService {
         reminderOverrides: patch.reminderOverrides ? validatedOverrides(type, patch.reminderOverrides) : current.reminderOverrides,
       };
       const changes = diff(type, current, draft);
-      if (!Object.keys(changes).length) return this.present(principal, current, type, level);
+      if (!Object.keys(changes).length) return this.present(principal, current, type, (await this.resolver.assetScope(principal, current, tx)).shared);
       const saved = await tx.saveAsset(id, draft, principal.userId, await this.searchText(tx, type, draft));
       await tx.addActivity({ assetId: id, actorId: principal.userId, actorName: principal.displayName, action: 'updated', changes });
       await tx.publish('asset.changed', assetChangedEvent(saved, type, await this.kinds(tx)));
@@ -176,7 +178,7 @@ export class AssetService {
       const current = await tx.getAsset(id, { forUpdate: true });
       if (!current) throw AppError.notFound('Asset');
       const scope = await this.resolver.assetScope(principal, current, tx);
-      authorize(principal, 'edit', scope);
+      authorize(principal, 'renew', scope);
       const type = (await tx.getType(current.assetTypeId))!;
       const kinds = await this.kinds(tx);
       const { values, from, to } = advanceRecurringDate(type, current.values, fieldKey, kinds);
@@ -193,7 +195,7 @@ export class AssetService {
     await this.store.transaction(async (tx) => {
       const current = await tx.getAsset(id, { forUpdate: true });
       if (!current) throw AppError.notFound('Asset');
-      authorize(principal, 'manage', scopeOf(current));
+      authorize(principal, 'delete', await this.resolver.assetScope(principal, current, tx));
       await tx.deleteAsset(id);
       await tx.addActivity({ assetId: id, actorId: principal.userId, actorName: principal.displayName, action: 'deleted', changes: { name: { from: current.name, to: null } } });
       await tx.publish('asset.deleted', { assetId: id });
@@ -245,11 +247,11 @@ export class AssetService {
     const catalog = await store.getCatalog(catalogId);
     if (!catalog) throw AppError.validation('Unknown catalog');
     if (assetUnitPath) assertFitsCatalog(catalog, assetUnitPath);
-    if (!atLeast((await this.resolver.catalogLevel(principal, catalog)).level, 'edit')) throw AppError.forbidden(`You cannot change what is in "${catalog.name}"`);
+    if (!(await this.resolver.catalogPermissions(principal, catalog)).permissions.has('edit')) throw AppError.forbidden(`Changing what is in “${catalog.name}” needs “Edit items” on it`);
   }
 
-  private present(principal: Principal, asset: AssetState, type: AssetType, shared?: AccessLevel): Asset {
-    const access: AccessLevel = effectiveLevel(principal, scopeOf(asset, shared));
+  private present(principal: Principal, asset: AssetState, type: AssetType, shared?: readonly Permission[]): Asset {
+    const perms = effectivePermissions(principal, scopeOf(asset, shared));
     return {
       id: asset.id,
       assetTypeId: asset.assetTypeId,
@@ -259,9 +261,9 @@ export class AssetService {
       ownerId: asset.ownerId,
       unitId: asset.unitId,
       catalogId: asset.catalogId,
-      attributes: redactAttributes(type.fields, asset.values, atLeast(access, 'manage')),
+      attributes: redactAttributes(type.fields, asset.values, perms.has('restricted')),
       reminderOverrides: asset.reminderOverrides,
-      access,
+      permissions: permissionList(perms),
       createdAt: asset.createdAt.toISOString(),
       updatedAt: asset.updatedAt.toISOString(),
     };

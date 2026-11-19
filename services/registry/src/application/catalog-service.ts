@@ -1,16 +1,17 @@
 import {
   AppError,
-  atLeast,
-  shareSubjectKey,
+  permissionList,
+  subjectKey,
   unitScopesFor,
   type Catalog,
   type CatalogInput,
   type CatalogQuery,
   type CatalogShareInput,
+  type SubjectKind,
   type Principal,
 } from '@am/core';
 import { assetChangedEvent } from '../domain/asset.js';
-import { catalogChangedEvent, parseSubjectKey, type CatalogState } from '../domain/catalog.js';
+import { catalogChangedEvent, type CatalogState } from '../domain/catalog.js';
 import type { AccessResolver } from './access.js';
 import type { RegistryStore } from './ports.js';
 
@@ -32,20 +33,20 @@ export class CatalogService {
       unitId: q.unitId,
       only: q.scope === 'all' ? undefined : q.scope,
     });
-    return Promise.all(rows.map((c) => this.present(p, c)));
+    return this.presentAll(p, rows);
   }
 
   async get(p: Principal, id: string): Promise<Catalog> {
     const catalog = await this.store.getCatalog(id);
-    if (!catalog || (await this.access.catalogLevel(p, catalog)).level === 'none') throw AppError.notFound('Catalog');
+    if (!catalog || !(await this.access.catalogPermissions(p, catalog)).permissions.has('view')) throw AppError.notFound('Catalog');
     return this.present(p, catalog);
   }
 
   async create(p: Principal, input: CatalogInput): Promise<Catalog> {
     const unit = await this.store.getUnit(input.unitId);
     if (!unit || unit.archived) throw AppError.validation('Unknown or archived unit');
-    if (!atLeast((await this.access.catalogLevel(p, { unitPath: unit.path, shares: [] })).level, 'manage')) {
-      throw AppError.forbidden(`Only people who manage ${unit.name} can create its catalogs`);
+    if (!(await this.access.catalogPermissions(p, { unitPath: unit.path, shares: [] })).permissions.has('manage')) {
+      throw AppError.forbidden(`Creating catalogs for ${unit.name} needs “Manage access” on it`);
     }
     const catalog = await this.store.transaction(async (tx) => {
       const created = await tx.insertCatalog(input, { id: p.userId, name: p.displayName });
@@ -81,24 +82,23 @@ export class CatalogService {
 
   async share(p: Principal, id: string, input: CatalogShareInput): Promise<Catalog> {
     return this.store.transaction(async (tx) => {
-      const catalog = await this.managed(tx, p, id);
-      if (input.subjectKind === 'user') {
-        if (!(await tx.activeUserIds([input.subjectId])).has(input.subjectId)) throw AppError.validation('Unknown or inactive person');
-      } else {
-        if (!(await tx.unitsExist([input.subjectId])).has(input.subjectId)) throw AppError.validation('Unknown or archived unit');
-        if (catalog.unitPath.includes(input.subjectId)) throw AppError.validation('That unit already contains this catalog; its access comes from the organization tree');
-      }
-      await tx.putShare(id, shareSubjectKey(input.subjectKind, input.subjectId), input.level, p.displayName);
+      await this.managed(tx, p, id);
+      const { kind, id: subjectId } = input.subject;
+      if (kind === 'user' && !(await tx.activeUserIds([subjectId])).has(subjectId)) throw AppError.validation('Unknown or inactive person');
+      if (kind === 'unit' && !(await tx.unitsExist([subjectId])).has(subjectId)) throw AppError.validation('Unknown or archived unit');
+      // Groups are not checked: a group synced moments ago may not have reached this service yet,
+      // and a share with a group nobody is in gives nobody access. Its name appears once it arrives.
+      await tx.putShare(id, subjectKey(kind, subjectId), input.access, p.displayName);
       const saved = await tx.touchCatalog(id);
       await tx.publish('catalog.changed', catalogChangedEvent(saved));
       return this.present(p, saved);
     });
   }
 
-  async unshare(p: Principal, id: string, subject: Pick<CatalogShareInput, 'subjectKind' | 'subjectId'>): Promise<Catalog> {
+  async unshare(p: Principal, id: string, subject: { kind: SubjectKind; id: string }): Promise<Catalog> {
     return this.store.transaction(async (tx) => {
       await this.managed(tx, p, id);
-      if (!(await tx.removeShare(id, shareSubjectKey(subject.subjectKind, subject.subjectId)))) throw AppError.notFound('Share');
+      if (!(await tx.removeShare(id, subjectKey(subject.kind, subject.id)))) throw AppError.notFound('Share');
       const saved = await tx.touchCatalog(id);
       await tx.publish('catalog.changed', catalogChangedEvent(saved));
       return this.present(p, saved);
@@ -107,28 +107,37 @@ export class CatalogService {
 
   private async managed(tx: RegistryStore, p: Principal, id: string): Promise<CatalogState> {
     const catalog = await tx.getCatalog(id, { forUpdate: true });
-    const level = catalog ? (await this.access.catalogLevel(p, catalog)).level : 'none';
-    if (!catalog || level === 'none') throw AppError.notFound('Catalog');
-    if (!atLeast(level, 'manage')) throw AppError.forbidden('Only the managers of the owning unit can change this catalog or who it is shared with');
+    const perms = catalog ? (await this.access.catalogPermissions(p, catalog)).permissions : new Set();
+    if (!catalog || !perms.has('view')) throw AppError.notFound('Catalog');
+    if (!perms.has('manage')) throw AppError.forbidden('Changing this catalog or who it is shared with needs “Manage access” on it');
     return catalog;
   }
 
   private async present(p: Principal, c: CatalogState): Promise<Catalog> {
-    const { level, viaShare } = await this.access.catalogLevel(p, c);
-    return {
-      id: c.id,
-      unitId: c.unitId,
-      name: c.name,
-      description: c.description,
-      icon: c.icon,
-      color: c.color,
-      assetCount: c.assetCount,
-      access: level,
-      sharedWithMe: viaShare,
-      shares: c.shares.map((s) => ({ ...parseSubjectKey(s.subjectKey), level: s.level, createdByName: s.createdByName, createdAt: s.createdAt.toISOString() })),
-      createdByName: c.createdByName,
-      createdAt: c.createdAt.toISOString(),
-      updatedAt: c.updatedAt.toISOString(),
-    };
+    return (await this.presentAll(p, [c]))[0]!;
+  }
+
+  private async presentAll(p: Principal, rows: CatalogState[]): Promise<Catalog[]> {
+    const names = await this.store.describeSubjects([...new Set(rows.flatMap((c) => c.shares.map((s) => s.subjectKey)))]);
+    return Promise.all(
+      rows.map(async (c) => {
+        const { permissions, viaShare } = await this.access.catalogPermissions(p, c);
+        return {
+          id: c.id,
+          unitId: c.unitId,
+          name: c.name,
+          description: c.description,
+          icon: c.icon,
+          color: c.color,
+          assetCount: c.assetCount,
+          permissions: permissionList(permissions),
+          sharedWithMe: viaShare,
+          shares: c.shares.map((s) => ({ subject: names.get(s.subjectKey)!, permissions: s.permissions, createdByName: s.createdByName, createdAt: s.createdAt.toISOString() })),
+          createdByName: c.createdByName,
+          createdAt: c.createdAt.toISOString(),
+          updatedAt: c.updatedAt.toISOString(),
+        };
+      }),
+    );
   }
 }

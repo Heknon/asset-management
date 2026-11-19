@@ -1,5 +1,4 @@
 import type {
-  AccessLevel,
   ActivityEntry,
   AssetComment,
   AssetQuery,
@@ -16,7 +15,8 @@ import type {
   SavedView,
   SavedViewInput,
   Scope,
-  ShareLevel,
+  Permission,
+  Subject,
   Visibility,
 } from '@am/core';
 import type { CatalogState } from '../domain/catalog.js';
@@ -68,8 +68,15 @@ export interface RegistryStore {
   queryAssets(query: AssetQuery, visibility: Visibility, type: AssetType | null): Promise<{ items: Array<AssetState & { snippet?: string }>; total: number }>;
   /** The asset types present in a query's results (CSV columns). */
   assetTypeIdsIn(query: AssetQuery, visibility: Visibility): Promise<string[]>;
-  /** The best level any of these share keys has on the catalog ('none' when not shared with them). */
-  catalogShareLevel(catalogId: string | null, shareKeys: readonly string[]): Promise<AccessLevel>;
+  /** What these subject keys are given on the catalog (empty when not shared with them). */
+  catalogSharePermissions(catalogId: string | null, shareKeys: readonly string[]): Promise<Permission[]>;
+  /** Directory groups a person is in (projection of identity). */
+  groupIdsOf(userId: string): Promise<string[]>;
+  /** Whether any share reaching these subject keys includes the permission. */
+  anyShareWith(shareKeys: readonly string[], permission: Permission): Promise<boolean>;
+  upsertGroupRef(g: { id: string; name: string; source: string; memberCount: number }): Promise<void>;
+  /** Display names for share subjects ("unit:…", "user:…", "group:…"). */
+  describeSubjects(keys: string[]): Promise<Map<string, Subject>>;
   getAsset(id: string, opts?: { forUpdate?: boolean }): Promise<AssetState | null>;
   insertAsset(draft: AssetDraft, actorId: string, searchText: string): Promise<AssetState>;
   saveAsset(id: string, draft: AssetDraft, actorId: string, searchText: string): Promise<AssetState>;
@@ -89,7 +96,7 @@ export interface RegistryStore {
   upsertUnitRef(ref: UnitRef): Promise<void>;
   activeUserIds(ids: string[]): Promise<Set<string>>;
   userNames(ids: string[]): Promise<Map<string, string>>;
-  upsertUserRef(ref: { id: string; displayName: string; active: boolean }): Promise<{ renamed: boolean }>;
+  upsertUserRef(ref: { id: string; displayName: string; active: boolean; groupIds?: string[] }): Promise<{ renamed: boolean }>;
 
   insertRequest(row: RequestRow, requester: { id: string; name: string }, searchText: string): Promise<RequestState>;
   updateRequest(id: string, row: RequestRow, searchText: string): Promise<RequestState>;
@@ -116,9 +123,10 @@ export interface RegistryStore {
   assetIdsInCatalog(id: string): Promise<string[]>;
   /** Takes assets out of a catalog (it is being deleted); returns the updated assets. */
   unfileAssets(catalogId: string, actorId: string): Promise<AssetState[]>;
-  putShare(catalogId: string, subjectKey: string, level: ShareLevel, byName: string): Promise<void>;
+  putShare(catalogId: string, subjectKey: string, permissions: Permission[], byName: string): Promise<void>;
   removeShare(catalogId: string, subjectKey: string): Promise<boolean>;
   unitsExist(ids: string[]): Promise<Set<string>>;
+  rootUnitIds(): Promise<string[]>;
 
   listComments(assetId: string): Promise<AssetComment[]>;
   getComment(id: string): Promise<AssetComment | null>;

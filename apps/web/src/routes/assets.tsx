@@ -17,10 +17,10 @@ import { keys, useLookups, useViews } from '@/lib/queries';
 
 /** Create button for a type, shown only where the person can add assets. */
 export function useCanCreate(assetTypeId: string | undefined) {
-  const { me, canEditIn } = useMyOrg();
+  const { me, can } = useMyOrg();
   const { units, typeById } = useLookups();
   const type = assetTypeId ? typeById.get(assetTypeId) : undefined;
-  return !!type && !type.archived && (!!me?.isAdmin || units.some((u) => canEditIn(u.id, type.id)));
+  return !!type && !type.archived && (!!me?.isAdmin || units.some((u) => can(u.id, 'create', type.id)));
 }
 
 export function AssetsPage() {

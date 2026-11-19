@@ -1,4 +1,4 @@
-import { AppError, shareSubjectKey, type CatalogChanged, type CatalogShare, type ShareLevel } from '@am/core';
+import { AppError, type CatalogChanged, type Permission } from '@am/core';
 
 /** The registry's view of a catalog. */
 export interface CatalogState {
@@ -20,7 +20,7 @@ export interface CatalogState {
 
 export interface ShareRow {
   subjectKey: string;
-  level: ShareLevel;
+  permissions: Permission[];
   createdByName: string;
   createdAt: Date;
 }
@@ -35,13 +35,6 @@ export function assertFitsCatalog(catalog: Pick<CatalogState, 'unitId' | 'name'>
   }
 }
 
-export function parseSubjectKey(key: string): Pick<CatalogShare, 'subjectKind' | 'subjectId'> {
-  const [kind, id] = key.split(':') as ['unit' | 'user', string];
-  return { subjectKind: kind, subjectId: id };
-}
-
-export const subjectKeyOf = (s: Pick<CatalogShare, 'subjectKind' | 'subjectId'>) => shareSubjectKey(s.subjectKind, s.subjectId);
-
 export function catalogChangedEvent(c: Pick<CatalogState, 'id' | 'unitId' | 'name' | 'shares' | 'version'>, deleted = false): CatalogChanged {
-  return { catalogId: c.id, unitId: c.unitId, name: c.name, deleted, shares: deleted ? [] : c.shares.map((s) => ({ subjectKey: s.subjectKey, level: s.level })), version: c.version };
+  return { catalogId: c.id, unitId: c.unitId, name: c.name, deleted, shares: deleted ? [] : c.shares.map((s) => ({ subjectKey: s.subjectKey, permissions: s.permissions })), version: c.version };
 }

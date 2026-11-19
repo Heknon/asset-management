@@ -1,4 +1,4 @@
-import type { AccessCheck, AccessLevel, Principal } from '@am/core';
+import { roles, type AccessCheck, type Permission, type Principal } from '@am/core';
 import { describe, expect, it } from 'vitest';
 import { FileService } from './application/file-service.js';
 import type { AssetAccess, FileStore, ObjectStorage } from './application/ports.js';
@@ -7,7 +7,7 @@ import { contentDisposition, type StoredFile } from './domain/file.js';
 const ASSET = '11111111-1111-4111-8111-111111111111';
 const principal = (userId: string): Principal => ({ userId, username: userId, displayName: userId, email: null, isAdmin: false, grants: [], units: [] });
 
-function setup(level: AccessLevel = 'edit') {
+function setup(permissions: readonly Permission[] = roles.editor.permissions) {
   const rows = new Map<string, StoredFile>();
   const objects = new Map<string, { size: number; contentType: string }>();
   const store: FileStore = {
@@ -40,7 +40,7 @@ function setup(level: AccessLevel = 'edit') {
     },
     delete: async (keys) => keys.forEach((k) => objects.delete(k)),
   };
-  const access: AssetAccess = { check: async (_t, id): Promise<AccessCheck | null> => (id === ASSET && level !== 'none' ? { assetId: id, assetTypeId: 't', unitId: 'p', catalogId: null, level } : null) };
+  const access: AssetAccess = { check: async (_t, id): Promise<AccessCheck | null> => (id === ASSET && permissions.length ? { assetId: id, assetTypeId: 't', unitId: 'p', catalogId: null, permissions: [...permissions] } : null) };
   return { service: new FileService(store, storage, access, 10_000), objects, rows };
 }
 
@@ -68,9 +68,10 @@ describe('FileService', () => {
     expect(rows.size).toBe(0);
   });
 
-  it('enforces asset access levels', async () => {
-    await expect(setup('view').service.requestUpload(caller(), { assetId: ASSET, filename: 'a.pdf', contentType: 'application/pdf', size: 1 })).rejects.toThrow(/access/);
-    await expect(setup('none').service.list(caller(), ASSET)).rejects.toThrow(/not found/);
+  it('enforces asset permissions', async () => {
+    await expect(setup(roles.commenter.permissions).service.requestUpload(caller(), { assetId: ASSET, filename: 'a.pdf', contentType: 'application/pdf', size: 1 })).rejects.toThrow(/Add documents/);
+    await setup(roles.contributor.permissions).service.requestUpload(caller(), { assetId: ASSET, filename: 'a.pdf', contentType: 'application/pdf', size: 1 });
+    await expect(setup([]).service.list(caller(), ASSET)).rejects.toThrow(/not found/);
   });
 
   it('previews inline only for previewable types', async () => {
@@ -82,12 +83,12 @@ describe('FileService', () => {
     expect(decodeURIComponent(url)).toContain('attachment;');
   });
 
-  it('only lets the uploader or a manager delete', async () => {
+  it('only lets the uploader or someone with Delete remove a file', async () => {
     const { service, objects } = setup();
     const t = await service.requestUpload(caller('u1'), { assetId: ASSET, filename: 'a.pdf', contentType: 'application/pdf', size: 1 });
     objects.set(t.upload.fields.key!, { size: 1, contentType: 'application/pdf' });
     await service.completeUpload(caller('u1'), t.file.id);
-    await expect(service.remove(caller('u2'), t.file.id)).rejects.toThrow(/uploader or a manager/);
+    await expect(service.remove(caller('u2'), t.file.id)).rejects.toThrow(/uploaded it/);
     await service.remove(caller('u1'), t.file.id);
   });
 

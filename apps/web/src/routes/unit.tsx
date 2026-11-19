@@ -1,4 +1,5 @@
-import { addDuration, atLeast, unitLevel, type Catalog, type OrgUnit, type UnitPerson, type UnitRollup, type UnitRole } from '@am/core';
+import { addDuration, type Catalog, type OrgUnit, type UnitPerson, type UnitRollup, type UnitRole } from '@am/core';
+import { GrantsEditor } from '@/components/access-grants';
 import { CatalogCard, CatalogFormDialog } from '@/components/catalogs';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
@@ -16,7 +17,7 @@ import { Avatar, Badge, Card, EmptyState, IconTile, PageHeader, Spinner, Stat, T
 import { Select } from '@/components/ui/form';
 import { api, ApiError } from '@/lib/api';
 import { useMyOrg } from '@/lib/org';
-import { keys, useAssets, useCatalogs, useLookups, useMe, useObligations, useRequests, useRollup, useSummary, useUnitPeople } from '@/lib/queries';
+import { keys, useAssets, useCatalogs, useLookups, useObligations, useRequests, useRollup, useSummary, useUnitPeople } from '@/lib/queries';
 import { formatMoney, relativeDays, todayIso } from '@/lib/utils';
 
 const money = (list: Array<{ currency: string; amount: number }> | undefined) => (list?.length ? list.map((s) => formatMoney(s.amount, s.currency, true)).join(' + ') : '—');
@@ -24,7 +25,7 @@ const money = (list: Array<{ currency: string; amount: number }> | undefined) =>
 export function UnitPage() {
   const { unitId } = useParams({ strict: false }) as { unitId: string };
   const { unitById, childrenOf, ready } = useLookups();
-  const { me, canEditIn, mine } = useMyOrg();
+  const { me, can, mine } = useMyOrg();
   const unit = unitById.get(unitId);
   const [tab, setTab] = useState('overview');
   const summary = useSummary({ unitId });
@@ -88,6 +89,7 @@ export function UnitPage() {
             { value: 'assets', label: 'Assets', count: assets.data?.total },
             { value: 'requests', label: 'Requests', count: openRequests.data?.total },
             { value: 'catalogs', label: 'Catalogs', count: catalogs.data?.length },
+            { value: 'access', label: 'Access' },
             { value: 'people', label: 'People', count: people.data ? new Set(people.data.map((p) => p.id)).size : undefined },
           ]}
         />
@@ -102,7 +104,7 @@ export function UnitPage() {
             <Stat label="Open requests" value={openRequests.data?.total ?? '–'} />
           </div>
           <SubUnits unitId={unit.id} childIds={childrenOf(unit.id).filter((c) => !c.archived).map((c) => c.id)} />
-          <UpcomingFor unitId={unit.id} canEdit={(o) => canEditIn(o.unitId, o.assetTypeId)} />
+          <UpcomingFor unitId={unit.id} canEdit={(o) => can(o.unitId, 'renew', o.assetTypeId)} />
           {(openRequests.data?.items.length ?? 0) > 0 && <RequestList items={openRequests.data!.items.slice(0, 8)} title="Open requests" />}
         </div>
       )}
@@ -110,6 +112,12 @@ export function UnitPage() {
       {tab === 'requests' && (
         <div className="mx-auto w-full max-w-5xl px-6 py-6">
           <RequestList items={openRequests.data?.items ?? []} title="Open requests" empty="No open requests for this team." />
+        </div>
+      )}
+      {tab === 'access' && (
+        <div className="mx-auto w-full max-w-3xl space-y-3 px-6 py-6">
+          <p className="text-[13px] text-muted">Who can see and work with {unit.name}’s items — and everything in the units beneath it. Give access to people, other units or directory groups.</p>
+          <GrantsEditor unitId={unit.id} />
         </div>
       )}
       {tab === 'catalogs' && <CatalogsTab unitId={unit.id} catalogs={catalogs.data ?? []} />}
@@ -120,12 +128,9 @@ export function UnitPage() {
 
 /** Catalogs owned by this unit and its sub-units, plus creating one (managers). */
 function CatalogsTab({ unitId, catalogs }: { unitId: string; catalogs: Catalog[] }) {
-  const me = useMe().data;
-  const { unitById } = useLookups();
   const navigate = useNavigate();
   const [creating, setCreating] = useState(false);
-  const unit = unitById.get(unitId);
-  const canCreate = !!me && !!unit && atLeast(unitLevel(me, unit.path), 'manage');
+  const canCreate = useMyOrg().unitPermissionsOn(unitId).has('manage');
   return (
     <div className="mx-auto w-full max-w-5xl space-y-4 px-6 py-6">
       <div className="flex items-center justify-between gap-3">

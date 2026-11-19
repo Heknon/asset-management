@@ -1,11 +1,11 @@
-import { AppError, type Grant, type GrantLevel, type Principal, type UnitRole } from '@am/core';
+import { AppError, fromMask, permissionsOfLevel, toMask, type Grant, type Principal, type UnitRole } from '@am/core';
 import { createRemoteJWKSet, jwtVerify, type CryptoKey, type JWTPayload, type JWTVerifyGetKey, type KeyObject } from 'jose';
 
 export const ACCESS_COOKIE = 'am_access';
 export const REFRESH_COOKIE = 'am_refresh';
 
-/** Compact encodings keep tokens small: grants [unitId|0, assetTypeId|0, level], units [unitId, 'm'|'g']. */
-type CompactGrant = [string | 0, string | 0, GrantLevel];
+/** Compact encodings keep tokens small: grants [unitId|0, assetTypeId|0, permission bitmask], units [unitId, 'm'|'g']. */
+type CompactGrant = [string | 0, string | 0, number | string];
 type CompactUnit = [string, 'm' | 'g'];
 
 export interface AccessClaims extends JWTPayload {
@@ -25,7 +25,7 @@ export function principalToClaims(p: Principal): Omit<AccessClaims, 'iat' | 'exp
     name: p.displayName,
     email: p.email,
     adm: p.isAdmin,
-    grt: p.grants.map((g) => [g.unitId ?? 0, g.assetTypeId ?? 0, g.level]),
+    grt: p.grants.map((g) => [g.unitId ?? 0, g.assetTypeId ?? 0, toMask(g.permissions)]),
     unt: p.units.map((u) => [u.unitId, u.role === 'manager' ? 'g' : 'm']),
   };
 }
@@ -37,7 +37,8 @@ export function claimsToPrincipal(c: AccessClaims): Principal {
     displayName: c.name,
     email: c.email,
     isAdmin: c.adm === true,
-    grants: (c.grt ?? []).map(([unit, at, level]): Grant => ({ unitId: unit || null, assetTypeId: at || null, level })),
+    // Tokens issued before roles carried 'view' | 'edit' | 'manage'; they expire within minutes.
+    grants: (c.grt ?? []).map(([unit, at, p]): Grant => ({ unitId: unit || null, assetTypeId: at || null, permissions: typeof p === 'number' ? fromMask(p) : permissionsOfLevel(p) })),
     units: (c.unt ?? []).map(([unitId, r]) => ({ unitId, role: (r === 'g' ? 'manager' : 'member') as UnitRole })),
   };
 }

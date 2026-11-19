@@ -1,4 +1,4 @@
-import { AppError, atLeast, renewalDecisionMeta, type AssetComment, type CommentInput, type Principal, type RenewalCheckChanged } from '@am/core';
+import { AppError, renewalDecisionMeta, type AssetComment, type CommentInput, type Principal, type RenewalCheckChanged } from '@am/core';
 import type { AssetService } from './asset-service.js';
 import type { RegistryStore } from './ports.js';
 
@@ -19,7 +19,7 @@ export class CommentService {
   }
 
   async create(p: Principal, assetId: string, input: CommentInput): Promise<AssetComment> {
-    const { asset } = await this.assets.reach(p, assetId, 'view');
+    const { asset } = await this.assets.reach(p, assetId, 'comment');
     const mentionIds = await this.mentions(input.mentionIds, p.userId);
     return this.store.transaction(async (tx) => {
       const comment = (await tx.insertComment({ assetId, authorId: p.userId, authorName: p.displayName, body: input.body, mentionIds }))!;
@@ -48,7 +48,7 @@ export class CommentService {
   /** Authors, and people who manage the asset, can delete a message (a placeholder stays in the thread). */
   async remove(p: Principal, commentId: string): Promise<AssetComment> {
     const comment = await this.load(p, commentId);
-    if (comment.authorId !== p.userId && !atLeast((await this.assets.reach(p, comment.assetId, 'view')).level, 'manage')) {
+    if (comment.authorId !== p.userId && !(await this.assets.reach(p, comment.assetId, 'view')).permissions.has('delete')) {
       throw AppError.forbidden('You can only delete your own messages');
     }
     return this.store.updateComment(commentId, { deleted: true });

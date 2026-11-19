@@ -1,4 +1,4 @@
-import { atLeast, computeDerivedDates, effectiveLevel, isRestricted, type Asset, type AssetType, type Attributes, type Catalog, type Duration, type FieldDefinition, type PurchaseRequest } from '@am/core';
+import { computeDerivedDates, effectivePermissions, isRestricted, type Asset, type AssetType, type Attributes, type Catalog, type Duration, type FieldDefinition, type PurchaseRequest } from '@am/core';
 import { useMutation } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { Lock, Sparkles } from 'lucide-react';
@@ -58,15 +58,15 @@ export function AssetFormSheet({
 }) {
   const me = useMe().data;
   const { kindById, unitById } = useLookups();
-  const { mine, canEditIn } = useMyOrg();
+  const { mine, can } = useMyOrg();
   const navigate = useNavigate();
   const invalidate = useInvalidateAssets();
   // A catalog shared with me at edit lets me add items to its unit's teams, even outside my own.
-  const inCatalog = (unitId: string) => !!catalog && atLeast(catalog.access, 'edit') && !!unitById.get(unitId)?.path.includes(catalog.unitId);
-  const teamAllowed = (unitId: string) => canEditIn(unitId, type.id) || inCatalog(unitId);
+  const inCatalog = (unitId: string) => !!catalog && catalog.permissions.includes('create') && !!unitById.get(unitId)?.path.includes(catalog.unitId);
+  const teamAllowed = (unitId: string) => (asset ? can(unitId, 'edit', type.id) || unitId === asset.unitId : can(unitId, 'create', type.id)) || inCatalog(unitId);
   const defaultUnit = catalog
     ? (mine.find((m) => m.unit.path.includes(catalog.unitId) && teamAllowed(m.unit.id))?.unit.id ?? catalog.unitId)
-    : (mine.find((m) => canEditIn(m.unit.id, type.id))?.unit.id ?? null);
+    : (mine.find((m) => can(m.unit.id, 'create', type.id))?.unit.id ?? null);
   const [draft, setDraft] = useState<Draft>(() => fromAsset(type, asset ?? null, me?.userId, defaultUnit, request, catalog));
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -79,8 +79,7 @@ export function AssetFormSheet({
   }, [open, asset?.id, type.id, request?.id]);
 
   const unit = draft.unitId ? unitById.get(draft.unitId) : undefined;
-  const level = asset ? asset.access : me && unit ? effectiveLevel(me, { unitPath: unit.path, assetTypeId: type.id }) : 'none';
-  const canRestricted = atLeast(level, 'manage');
+  const canRestricted = asset ? asset.permissions.includes('restricted') : !!me && !!unit && effectivePermissions(me, { unitPath: unit.path, assetTypeId: type.id }).has('restricted');
   const derived = useMemo(() => computeDerivedDates(type.fields, draft.attributes as Attributes), [type.fields, draft.attributes]);
 
   const sections = useMemo(() => {

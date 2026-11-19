@@ -5,6 +5,7 @@ import { useEffect } from 'react';
 import { AppShell } from './components/app-shell';
 import { Spinner } from './components/ui/display';
 import { api, ApiError, sessionEvents } from './lib/api';
+import { useMyOrg } from './lib/org';
 import { keys, useLookups, useMe } from './lib/queries';
 import { AssetDetailPage } from './routes/asset-detail';
 import { AssetsPage, SavedViewPage } from './routes/assets';
@@ -53,6 +54,12 @@ function AdminOnly({ children }: { children: React.ReactNode }) {
   return me?.isAdmin ? <>{children}</> : <Navigate to="/" />;
 }
 
+/** Templates, date kinds and organization-wide access: admins and people who manage the whole organization. */
+function OrganizationManagers({ children }: { children: React.ReactNode }) {
+  const { canManageOrganization } = useMyOrg();
+  return canManageOrganization ? <>{children}</> : <Navigate to="/" />;
+}
+
 const root = createRootRouteWithContext<{ queryClient: QueryClient }>()({ component: Outlet });
 const app = createRoute({
   getParentRoute: () => root,
@@ -73,6 +80,11 @@ const admin = (Component: () => React.ReactNode) => () => (
   <AdminOnly>
     <Component />
   </AdminOnly>
+);
+const orgManagers = (Component: () => React.ReactNode) => () => (
+  <OrganizationManagers>
+    <Component />
+  </OrganizationManagers>
 );
 const optionalString = (v: unknown) => (typeof v === 'string' && v ? v : undefined);
 const login = createRoute({
@@ -97,12 +109,12 @@ const routeTree = root.addChildren([
     createRoute({ getParentRoute: () => app, path: '/catalogs', component: CatalogsPage }),
     createRoute({ getParentRoute: () => app, path: '/catalogs/$catalogId', component: CatalogPage }),
     createRoute({ getParentRoute: () => app, path: '/profile', component: ProfilePage }),
-    createRoute({ getParentRoute: () => app, path: '/templates', component: admin(TemplatesPage) }),
-    createRoute({ getParentRoute: () => app, path: '/templates/$typeId', component: admin(TemplateBuilderPage) }),
-    createRoute({ getParentRoute: () => app, path: '/settings/date-kinds', component: admin(DateKindsPage) }),
+    createRoute({ getParentRoute: () => app, path: '/templates', component: orgManagers(TemplatesPage) }),
+    createRoute({ getParentRoute: () => app, path: '/templates/$typeId', component: orgManagers(TemplateBuilderPage) }),
+    createRoute({ getParentRoute: () => app, path: '/settings/date-kinds', component: orgManagers(DateKindsPage) }),
     createRoute({ getParentRoute: () => app, path: '/settings/organization', component: admin(OrganizationPage) }),
     createRoute({ getParentRoute: () => app, path: '/settings/people', component: admin(PeoplePage) }),
-    createRoute({ getParentRoute: () => app, path: '/settings/access', component: admin(AccessPage) }),
+    createRoute({ getParentRoute: () => app, path: '/settings/access', component: orgManagers(AccessPage) }),
   ]),
 ]);
 

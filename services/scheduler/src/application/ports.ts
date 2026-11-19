@@ -1,4 +1,4 @@
-import type { AccessLevel, CatalogChanged, EventMap, EventName, IsoDate, ObligationQuery, ObligationSummary, TrackedDate, UnitRollup, Visibility } from '@am/core';
+import type { CatalogChanged, Permission, EventMap, EventName, IsoDate, ObligationQuery, ObligationSummary, TrackedDate, UnitRollup, Visibility } from '@am/core';
 import type { AssetRef, ObligationRecord, RenewalCheckRecord } from '../domain/obligation.js';
 
 export interface UserRef {
@@ -50,7 +50,7 @@ export interface SchedulerStore {
   /** Obligations a user owns or is a contact for, for their calendar feed. */
   feedFor(userId: string, from: IsoDate): Promise<ObligationWithAsset[]>;
 
-  upsertUser(u: UserRef & { username: string }): Promise<void>;
+  upsertUser(u: UserRef & { username: string; groupIds?: string[] }): Promise<void>;
   users(ids: string[]): Promise<Map<string, UserRef>>;
   calendarToken(userId: string, rotate: boolean): Promise<string>;
   userByCalendarToken(token: string): Promise<UserRef | null>;
@@ -60,7 +60,8 @@ export interface SchedulerStore {
   confirmable(today: IsoDate): Promise<ObligationWithAsset[]>;
   /** Replaces a catalog's shares; false when the event is older than what we hold. */
   applyCatalog(e: CatalogChanged): Promise<boolean>;
-  catalogShareLevel(catalogId: string | null, shareKeys: readonly string[]): Promise<AccessLevel>;
+  catalogSharePermissions(catalogId: string | null, shareKeys: readonly string[]): Promise<Permission[]>;
+  groupIdsOf(userId: string): Promise<string[]>;
   publish<E extends EventName>(event: E, payload: EventMap[E]): Promise<void>;
 }
 

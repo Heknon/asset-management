@@ -1,4 +1,4 @@
-import { AppError, consolidateGrants, type AuthSource, type Grant, type GrantInput, type GrantRecord, type Group, type OrgUnit, type OrgUnitInput, type Page, type UnitPerson, type UnitRole, type User, type UserSummary } from '@am/core';
+import { AppError, consolidateGrants, normalizePermissions, roles, type AuthSource, type Grant, type GrantInput, type GrantRecord, type Group, type OrgUnit, type OrgUnitInput, type Page, type Permission, type Subject, type SubjectKind, type UnitPerson, type UnitRole, type User, type UserSummary } from '@am/core';
 import { enqueue } from '@am/platform';
 import { sql, type Kysely, type Selectable } from 'kysely';
 import type { IdentityStore } from '../application/ports.js';
@@ -32,7 +32,7 @@ const toUnit = (r: UnitRow): OrgUnit => ({
   parentId: r.parent_id,
   path: r.path,
   color: r.color,
-  memberAccess: r.member_access,
+  memberRole: r.member_role,
   directoryMembers: r.directory_members,
   directoryManagers: r.directory_managers,
   archived: r.archived,
@@ -228,6 +228,7 @@ export class PgIdentityStore implements IdentityStore {
         .onConflict((oc) => oc.doNothing())
         .execute();
     }
+    await this.publishGroupChanged(groupIds);
   }
 
   async listGroups(): Promise<Group[]> {
@@ -262,15 +263,25 @@ export class PgIdentityStore implements IdentityStore {
   }
 
   async deleteGroup(id: string) {
-    await this.db.deleteFrom('grants').where('principal_type', '=', 'group').where('principal_id', '=', id).execute();
+    await this.db.deleteFrom('grants').where('subject_kind', '=', 'group').where('subject_id', '=', id).execute();
     await this.db.deleteFrom('groups').where('id', '=', id).execute();
   }
 
   async setGroupMembers(groupId: string, userIds: string[]) {
     await this.transaction(async (tx) => {
       const self = tx as PgIdentityStore;
+      const before = (await self.db.selectFrom('group_members').select('user_id').where('group_id', '=', groupId).execute()).map((r) => r.user_id);
       await self.db.deleteFrom('group_members').where('group_id', '=', groupId).execute();
       if (userIds.length) await self.db.insertInto('group_members').values(userIds.map((user_id) => ({ group_id: groupId, user_id }))).execute();
+      // Other services match catalog shares to groups through each person's group list.
+      const was = new Set(before);
+      const now = new Set(userIds);
+      for (const id of new Set([...before, ...userIds])) {
+        if (was.has(id) === now.has(id)) continue;
+        const u = await self.findUserById(id);
+        if (u) await self.publishUserChanged(u);
+      }
+      await self.publishGroupChanged([groupId]);
     });
   }
 
@@ -331,7 +342,7 @@ export class PgIdentityStore implements IdentityStore {
           parent_id: input.parentId,
           path: [...parentPath, id],
           color: input.color,
-          member_access: input.memberAccess,
+          member_role: input.memberRole,
           directory_members: input.directoryMembers,
           directory_managers: input.directoryManagers,
           archived: input.archived,
@@ -356,7 +367,7 @@ export class PgIdentityStore implements IdentityStore {
         description: input.description,
         parent_id: input.parentId,
         color: input.color,
-        member_access: input.memberAccess,
+        member_role: input.memberRole,
         directory_members: input.directoryMembers,
         directory_managers: input.directoryManagers,
         archived: input.archived,
@@ -474,42 +485,85 @@ export class PgIdentityStore implements IdentityStore {
 
   // ─── Grants ──────────────────────────────────────────────────────────────
 
-  async listGrants(filter: { principalType?: 'user' | 'group'; principalId?: string } = {}): Promise<GrantRecord[]> {
+  async listGrants(filter: { unitIds?: Array<string | null>; subject?: { kind: SubjectKind; id: string }; ids?: string[] } = {}): Promise<GrantRecord[]> {
     let q = this.db
       .selectFrom('grants')
-      .leftJoin('users', (j) => j.onRef('users.id', '=', 'grants.principal_id').on('grants.principal_type', '=', 'user'))
-      .leftJoin('groups', (j) => j.onRef('groups.id', '=', 'grants.principal_id').on('grants.principal_type', '=', 'group'))
-      .select(['grants.id', 'grants.principal_type', 'grants.principal_id', 'grants.unit_id', 'grants.asset_type_id', 'grants.level', 'users.display_name', 'groups.name as group_name'])
+      .leftJoin('users', (j) => j.onRef('users.id', '=', 'grants.subject_id').on('grants.subject_kind', '=', 'user'))
+      .leftJoin('groups', (j) => j.onRef('groups.id', '=', 'grants.subject_id').on('grants.subject_kind', '=', 'group'))
+      .leftJoin('org_units', (j) => j.onRef('org_units.id', '=', 'grants.subject_id').on('grants.subject_kind', '=', 'unit'))
+      .select([
+        'grants.id',
+        'grants.subject_kind',
+        'grants.subject_id',
+        'grants.unit_id',
+        'grants.asset_type_id',
+        'grants.permissions',
+        'grants.created_by_name',
+        'grants.created_at',
+        'users.display_name',
+        'users.email',
+        'groups.name as group_name',
+        'groups.source as group_source',
+        'org_units.name as unit_name',
+        'org_units.kind as unit_kind',
+        sql<number>`(select count(*) from group_members gm where gm.group_id = grants.subject_id)`.as('group_size'),
+      ])
       .orderBy('grants.created_at');
-    if (filter.principalType) q = q.where('grants.principal_type', '=', filter.principalType);
-    if (filter.principalId) q = q.where('grants.principal_id', '=', filter.principalId);
+    if (filter.unitIds) {
+      const ids = filter.unitIds.filter((x): x is string => !!x);
+      q = q.where((eb) => eb.or([...(ids.length ? [eb('grants.unit_id', 'in', ids)] : []), ...(filter.unitIds!.includes(null) ? [eb('grants.unit_id', 'is', null)] : [])]));
+    }
+    if (filter.subject) q = q.where('grants.subject_kind', '=', filter.subject.kind).where('grants.subject_id', '=', filter.subject.id);
+    if (filter.ids) q = q.where('grants.id', 'in', filter.ids);
     const rows = await q.execute();
     return rows.map((r) => ({
       id: r.id,
-      principalType: r.principal_type,
-      principalId: r.principal_id,
-      principalName: r.display_name ?? r.group_name ?? 'Unknown',
+      subject: {
+        kind: r.subject_kind,
+        id: r.subject_id,
+        name: r.display_name ?? r.group_name ?? r.unit_name ?? 'Unknown',
+        detail:
+          r.subject_kind === 'user'
+            ? r.email
+            : r.subject_kind === 'group'
+              ? `${r.group_source === 'local' ? 'Group' : `${r.group_source === 'ldap' ? 'LDAP' : 'ADFS'} group`} · ${Number(r.group_size)} ${Number(r.group_size) === 1 ? 'person' : 'people'}`
+              : `${r.unit_kind ?? 'Unit'} · everyone in it`,
+      },
       unitId: r.unit_id,
       assetTypeId: r.asset_type_id,
-      level: r.level,
+      permissions: normalizePermissions(r.permissions),
+      createdByName: r.created_by_name,
+      createdAt: r.created_at.toISOString(),
     }));
   }
 
-  async createGrant(input: GrantInput) {
-    const table = input.principalType === 'user' ? 'users' : 'groups';
-    const exists = await this.db.selectFrom(table).select('id').where('id', '=', input.principalId).executeTakeFirst();
-    if (!exists) throw AppError.validation(`Unknown ${input.principalType}`);
+  async subjectExists(kind: SubjectKind, id: string) {
+    const table = kind === 'user' ? 'users' : kind === 'group' ? 'groups' : 'org_units';
+    return !!(await this.db.selectFrom(table).select('id').where('id', '=', id).executeTakeFirst());
+  }
+
+  async createGrant(input: GrantInput, byName: string) {
+    if (!(await this.subjectExists(input.subject.kind, input.subject.id))) throw AppError.validation(`Unknown ${input.subject.kind}`);
     try {
       const r = await this.db
         .insertInto('grants')
-        .values({ principal_type: input.principalType, principal_id: input.principalId, unit_id: input.unitId, asset_type_id: input.assetTypeId, level: input.level })
+        .values({ subject_kind: input.subject.kind, subject_id: input.subject.id, unit_id: input.unitId, asset_type_id: input.assetTypeId, permissions: input.access, created_by_name: byName })
         .returning('id')
         .executeTakeFirstOrThrow();
-      return (await this.listGrants()).find((g) => g.id === r.id)!;
+      return (await this.listGrants({ ids: [r.id] }))[0]!;
     } catch (e) {
-      if (isUniqueViolation(e)) throw AppError.conflict('An identical grant already exists; change its level instead');
+      if (isUniqueViolation(e)) throw AppError.conflict('They already have access here; change their role instead');
       throw e;
     }
+  }
+
+  async getGrant(id: string) {
+    return (await this.listGrants({ ids: [id] }))[0] ?? null;
+  }
+
+  async updateGrant(id: string, permissions: Permission[]) {
+    await this.db.updateTable('grants').set({ permissions }).where('id', '=', id).execute();
+    return (await this.getGrant(id))!;
   }
 
   async deleteGrant(id: string) {
@@ -517,33 +571,81 @@ export class PgIdentityStore implements IdentityStore {
   }
 
   /**
-   * Everything a person may do: explicit grants to them or their groups, plus
-   * unit membership (the unit's member access) and management (manage), each
-   * applying to the unit's subtree. Collapsed to the highest level per scope.
+   * Everything a person may do: grants to them, to their directory groups and
+   * to any unit they belong to or sit beneath; plus their units' member role
+   * and Admin on the units they manage.
    */
   async effectiveGrants(userId: string): Promise<Grant[]> {
     const groupIds = this.db.selectFrom('group_members').select('group_id').where('user_id', '=', userId);
+    // Units that contain the person: their units and every ancestor (a grant to R&D reaches its teams).
+    const unitIds = this.db
+      .selectFrom('unit_people')
+      .innerJoin('org_units', 'org_units.id', 'unit_people.unit_id')
+      .select(sql<string>`unnest(org_units.path)`.as('id'))
+      .where('unit_people.user_id', '=', userId)
+      .where('org_units.archived', '=', false);
     const explicit = await this.db
       .selectFrom('grants')
-      .select(['unit_id', 'asset_type_id', 'level'])
+      .select(['unit_id', 'asset_type_id', 'permissions'])
       .where((eb) =>
         eb.or([
-          eb.and([eb('principal_type', '=', 'user'), eb('principal_id', '=', userId)]),
-          eb.and([eb('principal_type', '=', 'group'), eb('principal_id', 'in', groupIds)]),
+          eb.and([eb('subject_kind', '=', 'user'), eb('subject_id', '=', userId)]),
+          eb.and([eb('subject_kind', '=', 'group'), eb('subject_id', 'in', groupIds)]),
+          eb.and([eb('subject_kind', '=', 'unit'), eb('subject_id', 'in', unitIds)]),
         ]),
       )
       .execute();
-    const roles = await this.db
+    const memberships = await this.db
       .selectFrom('unit_people')
       .innerJoin('org_units', 'org_units.id', 'unit_people.unit_id')
-      .select(['unit_people.unit_id', 'unit_people.role', 'org_units.member_access'])
+      .select(['unit_people.unit_id', 'unit_people.role', 'org_units.member_role'])
       .where('unit_people.user_id', '=', userId)
       .where('org_units.archived', '=', false)
       .execute();
-    const fromUnits: Grant[] = roles.flatMap((r): Grant[] =>
-      r.role === 'manager' ? [{ unitId: r.unit_id, assetTypeId: null, level: 'manage' }] : r.member_access === 'none' ? [] : [{ unitId: r.unit_id, assetTypeId: null, level: r.member_access }],
+    const fromUnits: Grant[] = memberships.flatMap((r): Grant[] =>
+      r.role === 'manager'
+        ? [{ unitId: r.unit_id, assetTypeId: null, permissions: [...roles.admin.permissions] }]
+        : r.member_role === 'none'
+          ? []
+          : [{ unitId: r.unit_id, assetTypeId: null, permissions: [...roles[r.member_role].permissions] }],
     );
-    return consolidateGrants([...explicit.map((r) => ({ unitId: r.unit_id, assetTypeId: r.asset_type_id, level: r.level })), ...fromUnits]);
+    return consolidateGrants([...explicit.map((r) => ({ unitId: r.unit_id, assetTypeId: r.asset_type_id, permissions: normalizePermissions(r.permissions) })), ...fromUnits]);
+  }
+
+  /** People, units and directory groups matching a query, for "share with…" pickers. */
+  async searchSubjects(q: string, kinds: SubjectKind[], limit = 12): Promise<Subject[]> {
+    const like = `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+    const out: Subject[] = [];
+    if (kinds.includes('user')) {
+      const rows = await this.db
+        .selectFrom('users')
+        .select(['id', 'display_name', 'email', 'username'])
+        .where('active', '=', true)
+        .where((eb) => eb.or([eb('display_name', 'ilike', like), eb('username', 'ilike', like), eb('email', 'ilike', like)]))
+        .orderBy('display_name')
+        .limit(limit)
+        .execute();
+      out.push(...rows.map((r): Subject => ({ kind: 'user', id: r.id, name: r.display_name, detail: r.email ?? r.username })));
+    }
+    if (kinds.includes('unit')) {
+      const rows = await this.db.selectFrom('org_units').select(['id', 'name', 'kind']).where('archived', '=', false).where('name', 'ilike', like).orderBy('name').limit(limit).execute();
+      out.push(...rows.map((r): Subject => ({ kind: 'unit', id: r.id, name: r.name, detail: `${r.kind} · everyone in it` })));
+    }
+    if (kinds.includes('group')) {
+      const rows = await this.db
+        .selectFrom('groups')
+        .select(['id', 'name', 'source', sql<number>`(select count(*) from group_members gm where gm.group_id = groups.id)`.as('size')])
+        .where((eb) => eb.or([eb('name', 'ilike', like), eb('external_id', 'ilike', like)]))
+        .orderBy('name')
+        .limit(limit)
+        .execute();
+      out.push(...rows.map((r): Subject => ({ kind: 'group', id: r.id, name: r.name, detail: `${r.source === 'local' ? 'Group' : `${r.source === 'ldap' ? 'LDAP' : 'ADFS'} group`} · ${Number(r.size)} people` })));
+    }
+    return out;
+  }
+
+  async groupIdsOf(userId: string) {
+    return (await this.db.selectFrom('group_members').select('group_id').where('user_id', '=', userId).execute()).map((r) => r.group_id);
   }
 
   // ─── Sessions ────────────────────────────────────────────────────────────
@@ -580,15 +682,26 @@ export class PgIdentityStore implements IdentityStore {
 
   // ─── Events ──────────────────────────────────────────────────────────────
 
-  publishUserChanged(u: UserRecord) {
-    return enqueue(this.db, 'user.changed', {
+  async publishUserChanged(u: UserRecord) {
+    await enqueue(this.db, 'user.changed', {
       userId: u.id,
       username: u.username,
       displayName: u.displayName,
       email: u.email,
       active: u.active,
       preferences: u.preferences,
+      groupIds: await this.groupIdsOf(u.id),
     });
+  }
+
+  async publishGroupChanged(groupIds: string[]) {
+    if (!groupIds.length) return;
+    const rows = await this.db
+      .selectFrom('groups')
+      .select(['id', 'name', 'source', sql<number>`(select count(*) from group_members gm where gm.group_id = groups.id)`.as('size')])
+      .where('id', 'in', [...new Set(groupIds)])
+      .execute();
+    for (const r of rows) await enqueue(this.db, 'group.changed', { groupId: r.id, name: r.name, source: r.source, memberCount: Number(r.size) });
   }
 
   async publishUnitChanged(unitIds: string[]) {

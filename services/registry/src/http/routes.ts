@@ -18,8 +18,8 @@ import {
   savedViewInputSchema,
   searchQuerySchema,
 } from '@am/core';
-import { AppError } from '@am/core';
-import { metrics, parse, requireAdmin, requirePrincipal } from '@am/platform';
+import { AppError, subjectKinds } from '@am/core';
+import { metrics, parse, requirePrincipal } from '@am/platform';
 import { Readable } from 'node:stream';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -63,11 +63,11 @@ export function registerRoutes(app: FastifyInstance, { types, assets, catalogs, 
     return types.listDateKinds();
   });
   app.post(`${PREFIX}/date-kinds`, async (req) => {
-    requireAdmin(req);
+    await types.assertCanManage(requirePrincipal(req));
     return types.createDateKind(parse(dateKindInputSchema, req.body));
   });
   app.put(`${PREFIX}/date-kinds/:id`, async (req) => {
-    requireAdmin(req);
+    await types.assertCanManage(requirePrincipal(req));
     const body = parse(dateKindInputSchema.extend({ archived: z.boolean().default(false) }), req.body);
     return types.updateDateKind(parse(idParam, req.params).id, body);
   });
@@ -83,27 +83,27 @@ export function registerRoutes(app: FastifyInstance, { types, assets, catalogs, 
     return types.getType(parse(idParam, req.params).id);
   });
   app.post(`${PREFIX}/asset-types`, async (req) => {
-    requireAdmin(req);
+    await types.assertCanManage(requirePrincipal(req));
     return types.createType(parse(assetTypeInputSchema, req.body));
   });
   app.put(`${PREFIX}/asset-types/:id`, async (req) => {
-    requireAdmin(req);
+    await types.assertCanManage(requirePrincipal(req));
     const body = parse(assetTypeInputSchema.extend({ version: z.number().int().positive() }), req.body);
     const { version, ...input } = body;
     return types.updateType(parse(idParam, req.params).id, input, version);
   });
   app.post(`${PREFIX}/asset-types/:id/archive`, async (req) => {
-    requireAdmin(req);
+    await types.assertCanManage(requirePrincipal(req));
     const { archived } = parse(z.object({ archived: z.boolean() }), req.body);
     return types.setArchived(parse(idParam, req.params).id, archived);
   });
 
   app.get(`${PREFIX}/templates`, async (req) => {
-    requireAdmin(req);
+    await types.assertCanManage(requirePrincipal(req));
     return types.templates();
   });
   app.post(`${PREFIX}/templates/:key/instantiate`, async (req) => {
-    requireAdmin(req);
+    await types.assertCanManage(requirePrincipal(req));
     return types.createFromTemplate(parse(z.object({ key: fieldKeySchema }), req.params).key);
   });
 
@@ -112,6 +112,7 @@ export function registerRoutes(app: FastifyInstance, { types, assets, catalogs, 
   app.get(`${PREFIX}/assets/export.csv`, async (req, reply) => {
     const principal = requirePrincipal(req);
     if (!features.csvExport) throw AppError.forbidden('CSV export is turned off');
+    await exports.assertCanExport(principal);
     const query = parse(assetExportSchema.extend({ title: z.string().max(120).default('Assets') }), req.query);
     const { title, ...rest } = query;
     const filename = csvFilename(title, new Date().toISOString().slice(0, 10));
@@ -164,9 +165,9 @@ export function registerRoutes(app: FastifyInstance, { types, assets, catalogs, 
     return reply.status(204).send();
   });
   app.post(`${PREFIX}/catalogs/:id/shares`, async (req) => catalogs.share(requirePrincipal(req), parse(idParam, req.params).id, parse(catalogShareInputSchema, req.body)));
-  app.delete(`${PREFIX}/catalogs/:id/shares/:subjectKind/:subjectId`, async (req) => {
-    const p = parse(z.object({ id: z.string().uuid(), subjectKind: z.enum(['unit', 'user']), subjectId: z.string().uuid() }), req.params);
-    return catalogs.unshare(requirePrincipal(req), p.id, p);
+  app.delete(`${PREFIX}/catalogs/:id/shares/:kind/:subjectId`, async (req) => {
+    const p = parse(z.object({ id: z.string().uuid(), kind: z.enum(subjectKinds), subjectId: z.string().uuid() }), req.params);
+    return catalogs.unshare(requirePrincipal(req), p.id, { kind: p.kind, id: p.subjectId });
   });
 
   // ─── Requests ────────────────────────────────────────────────────────────

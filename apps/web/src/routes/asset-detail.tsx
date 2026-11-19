@@ -1,4 +1,4 @@
-import { atLeast, isRestricted, type ActivityEntry, type AssetType, type FieldDefinition } from '@am/core';
+import { isRestricted, type ActivityEntry, type AssetType, type FieldDefinition } from '@am/core';
 import { useMutation } from '@tanstack/react-query';
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import { ArrowLeft, CalendarClock, FolderOpen, History, MoreHorizontal, Pencil, Sparkles, Trash2 } from 'lucide-react';
@@ -14,12 +14,12 @@ import { PersonName, UnitPath } from '@/components/pickers';
 import { RequestStatusBadge } from '@/components/badges';
 import { TypeIcon } from '@/components/type-icon';
 import { Button } from '@/components/ui/button';
-import { Badge, Card, EmptyState, PageHeader, SectionTitle, Spinner } from '@/components/ui/display';
+import { Card, EmptyState, PageHeader, SectionTitle, Spinner } from '@/components/ui/display';
 import { ConfirmDialog, Menu, MenuItem } from '@/components/ui/overlay';
 import { api, ApiError } from '@/lib/api';
 import { useActivity, useAsset, useAssetRequest, useCatalog, useInvalidateAssets, useLookups, useMe, useObligations } from '@/lib/queries';
 import { formatDateTime } from '@/lib/utils';
-import type { Obligation } from '@am/core';
+import type { Obligation, Permission } from '@am/core';
 
 export function AssetDetailPage() {
   const { assetId } = useParams({ strict: false }) as { assetId: string };
@@ -52,7 +52,8 @@ export function AssetDetailPage() {
   if (!asset.data || !type) return <EmptyState title="Asset not found" description="It may have been deleted, or you may not have access." action={<Link to="/assets" className="text-accent-fg">Back to assets</Link>} />;
 
   const a = asset.data;
-  const canEdit = atLeast(a.access, 'edit');
+  const can = (perm: Permission) => a.permissions.includes(perm);
+  const canEdit = can('edit');
 
   return (
     <>
@@ -70,7 +71,7 @@ export function AssetDetailPage() {
               <UnitPath id={a.unitId} />
             </Link>
             <CatalogLink catalogId={a.catalogId} />
-            <AccessBadge level={a.access} />
+            <AccessBadge permissions={a.permissions} />
           </span>
         }
         actions={
@@ -79,7 +80,7 @@ export function AssetDetailPage() {
               <Button icon={<Pencil className="size-3.5" />} onClick={() => setEditing(true)}>
                 Edit
               </Button>
-              {atLeast(a.access, 'manage') && (
+              {can('delete') && (
                 <Menu trigger={<Button size="icon" aria-label="More" icon={<MoreHorizontal className="size-4" />} />}>
                   <MenuItem danger icon={<Trash2 />} onSelect={() => setDeleting(true)}>
                     Delete asset
@@ -92,13 +93,13 @@ export function AssetDetailPage() {
       />
       <div className="mx-auto grid w-full max-w-6xl gap-6 px-6 py-6 lg:grid-cols-[minmax(0,1fr)_380px]">
         <div className="space-y-6">
-          <Details type={type} attributes={a.attributes} ownerId={a.ownerId} canSeeRestricted={atLeast(a.access, 'manage')} />
-          <Documents assetId={a.id} canEdit={canEdit} canManage={atLeast(a.access, 'manage')} currentUserId={me.userId} />
-          <Conversation assetId={a.id} access={a.access} />
+          <Details type={type} attributes={a.attributes} ownerId={a.ownerId} canSeeRestricted={can('restricted')} />
+          <Documents assetId={a.id} canEdit={can('attach')} canManage={can('delete')} currentUserId={me.userId} />
+          <Conversation assetId={a.id} permissions={a.permissions} />
         </div>
         <div className="space-y-6">
           <OriginRequest assetId={a.id} />
-          <KeyDates assetId={a.id} canEdit={canEdit} />
+          <KeyDates assetId={a.id} canEdit={can('renew')} />
           <Activity assetId={a.id} type={type} />
         </div>
       </div>

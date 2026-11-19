@@ -1,3 +1,4 @@
+import { permissionsOfLevel, type Permission } from '@am/core';
 import { defaultDateKinds, type AssetStatus, type Attributes, type DateBehavior, type Duration, type FieldDefinition, type RequestEvent, type RequestStatus, type SavedQuery } from '@am/core';
 import { outboxMigration, trySavepoint, type OutboxTable } from '@am/platform';
 import { sql, type ColumnType, type Generated, type Migration } from 'kysely';
@@ -76,7 +77,8 @@ export interface RegistryDB extends OutboxTable {
     path: ColumnType<string[], string[], string[]>;
     archived: boolean;
   };
-  users_ref: { id: string; display_name: string; active: boolean };
+  users_ref: { id: string; display_name: string; active: boolean; group_ids: ColumnType<string[], string[] | undefined, string[]> };
+  groups_ref: { id: string; name: string; source: string; member_count: number };
   requests: {
     id: Generated<string>;
     seq: Generated<number>;
@@ -127,7 +129,7 @@ export interface RegistryDB extends OutboxTable {
   catalog_shares: {
     catalog_id: string;
     subject_key: string;
-    level: 'view' | 'edit';
+    permissions: ColumnType<Permission[], Permission[], Permission[]>;
     created_by_name: string;
     created_at: Timestamp;
   };
@@ -375,6 +377,23 @@ export const migrations: Record<string, Migration> = {
         .addColumn('deleted', 'boolean', (c) => c.notNull().defaultTo(false))
         .execute();
       await db.schema.createIndex('asset_comments_asset').on('asset_comments').columns(['asset_id', 'created_at']).execute();
+    },
+  },
+  '0006_roles': {
+    async up(db) {
+      // Share levels become permission sets; catalogs can be shared with directory groups.
+      await sql`alter table catalog_shares add column permissions text[]`.execute(db);
+      for (const level of ['view', 'edit']) await sql`update catalog_shares set permissions = ${permissionsOfLevel(level)}::text[] where level = ${level}`.execute(db);
+      await sql`alter table catalog_shares alter column permissions set not null, drop column level`.execute(db);
+      await sql`create index if not exists catalog_shares_subject_only on catalog_shares (subject_key)`.execute(db);
+      await sql`alter table users_ref add column group_ids uuid[] not null default '{}'`.execute(db);
+      await db.schema
+        .createTable('groups_ref')
+        .addColumn('id', 'uuid', (c) => c.primaryKey())
+        .addColumn('name', 'text', (c) => c.notNull())
+        .addColumn('source', 'text', (c) => c.notNull())
+        .addColumn('member_count', 'integer', (c) => c.notNull().defaultTo(0))
+        .execute();
     },
   },
 };

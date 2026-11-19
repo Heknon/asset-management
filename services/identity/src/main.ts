@@ -1,5 +1,6 @@
 import { createTokenVerifier, main, runService } from '@am/platform';
 import { importJWK, type CryptoKey } from 'jose';
+import { AccessService } from './application/access-service.js';
 import { AuthService } from './application/auth-service.js';
 import { DirectoryService } from './application/directory-service.js';
 import { OrgService } from './application/org-service.js';
@@ -90,6 +91,7 @@ main(() =>
         auth,
         directory: new DirectoryService(store, hasher),
         org: new OrgService(store),
+        access: new AccessService(store),
         jwks: () => issuer.jwks(),
         publicUrl: config.PUBLIC_URL.replace(/\/$/, ''),
         secureCookies: config.COOKIE_SECURE,

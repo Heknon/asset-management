@@ -4,6 +4,9 @@ import type {
   Grant,
   GrantInput,
   GrantRecord,
+  Permission,
+  Subject,
+  SubjectKind,
   Group,
   Page,
   Preferences,
@@ -75,9 +78,12 @@ export interface IdentityStore {
   syncUserDirectory(userId: string): Promise<string[]>;
   userUnits(userId: string): Promise<Array<{ unitId: string; role: UnitRole }>>;
 
-  listGrants(filter?: { principalType?: 'user' | 'group'; principalId?: string }): Promise<GrantRecord[]>;
-  createGrant(input: GrantInput): Promise<GrantRecord>;
+  listGrants(filter?: { unitIds?: Array<string | null>; subject?: { kind: SubjectKind; id: string }; ids?: string[] }): Promise<GrantRecord[]>;
+  getGrant(id: string): Promise<GrantRecord | null>;
+  createGrant(input: GrantInput, byName: string): Promise<GrantRecord>;
+  updateGrant(id: string, permissions: Permission[]): Promise<GrantRecord>;
   deleteGrant(id: string): Promise<void>;
+  searchSubjects(q: string, kinds: SubjectKind[], limit?: number): Promise<Subject[]>;
   effectiveGrants(userId: string): Promise<Grant[]>;
 
   createSession(userId: string, tokenHash: string, expiresAt: Date, userAgent: string | null): Promise<Session>;
@@ -88,6 +94,7 @@ export interface IdentityStore {
 
   publishUserChanged(user: UserRecord): Promise<void>;
   publishUnitChanged(unitIds: string[]): Promise<void>;
+  publishGroupChanged(groupIds: string[]): Promise<void>;
 }
 
 export interface PasswordHasher {

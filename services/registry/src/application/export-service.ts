@@ -1,4 +1,5 @@
 import {
+  AppError,
   attributeText,
   CSV_BOM,
   csvLine,
@@ -42,18 +43,26 @@ export class ExportService {
     private readonly access: AccessResolver,
   ) {}
 
+  /** Refuses up front when the caller may export nothing at all (rather than sending an empty file). */
+  async assertCanExport(p: Principal): Promise<void> {
+    const v = await this.access.visibility(p, 'export');
+    if (v.scopes.length || (await this.store.anyShareWith(v.shareKeys, 'export'))) return;
+    throw AppError.forbidden('Exporting needs the “Export” permission (Editors and Admins have it)');
+  }
+
   /** Yields the CSV in chunks; `onDone` gets the row count (audit log, metrics). */
   async *assetsCsv(p: Principal, query: AssetExportQuery, onDone: (rows: number) => void): AsyncGenerator<string> {
-    const typeIds = await this.store.assetTypeIdsIn({ ...query, limit: 1, offset: 0 }, await this.access.visibility(p, 'view'));
+    const visibility = await this.access.visibility(p, 'export');
+    const typeIds = await this.store.assetTypeIdsIn({ ...query, limit: 1, offset: 0 }, visibility);
     const types = (await Promise.all(typeIds.map((id) => this.store.getType(id)))).filter((t): t is AssetType => !!t).sort((a, b) => a.name.localeCompare(b.name));
-    const columns = this.columns(types, scopesFor(p, 'manage').length > 0);
+    const columns = this.columns(types, scopesFor(p, 'restricted').length > 0);
     yield CSV_BOM + csvLine(columns.map((c) => c.header));
 
     let rows = 0;
     const units = new Map<string, string>();
     const catalogs = new Map<string, string | undefined>();
     for (let offset = 0; offset < EXPORT_ROW_LIMIT; offset += PAGE) {
-      const page = await this.assets.list(p, { ...query, limit: Math.min(PAGE, EXPORT_ROW_LIMIT - offset), offset });
+      const page = await this.assets.list(p, { ...query, limit: Math.min(PAGE, EXPORT_ROW_LIMIT - offset), offset }, 'export');
       if (!page.items.length) break;
       const names = await this.names(page.items, types, units, catalogs);
       let chunk = '';

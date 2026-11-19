@@ -1,5 +1,6 @@
 import type { AuthSource, Preferences } from '@am/core';
 import type { OutboxTable } from '@am/platform';
+import { permissionsOfLevel, type Permission } from '@am/core';
 import { sql, type ColumnType, type Generated, type Migration } from 'kysely';
 import { outboxMigration } from '@am/platform';
 
@@ -42,7 +43,7 @@ export interface IdentityDB extends OutboxTable {
     /** Ancestor ids, root first, including the unit itself. */
     path: ColumnType<string[], string[] | undefined, string[]>;
     color: string;
-    member_access: 'none' | 'view' | 'edit';
+    member_role: 'none' | 'viewer' | 'commenter' | 'contributor' | 'editor';
     directory_members: ColumnType<string[], string[] | undefined, string[]>;
     directory_managers: ColumnType<string[], string[] | undefined, string[]>;
     archived: Generated<boolean>;
@@ -56,11 +57,14 @@ export interface IdentityDB extends OutboxTable {
   };
   grants: {
     id: Generated<string>;
-    principal_type: 'user' | 'group';
-    principal_id: string;
+    /** Who: a person, a directory group, or a unit (everyone in it and beneath it). */
+    subject_kind: 'user' | 'group' | 'unit';
+    subject_id: string;
+    /** On: a unit and everything beneath it; null = the whole organization. */
     unit_id: string | null;
     asset_type_id: string | null;
-    level: 'view' | 'edit' | 'manage';
+    permissions: ColumnType<Permission[], Permission[], Permission[]>;
+    created_by_name: string | null;
     created_at: Timestamp;
   };
   sessions: {
@@ -181,6 +185,29 @@ export const migrations: Record<string, Migration> = {
         .addPrimaryKeyConstraint('unit_people_pk', ['unit_id', 'user_id', 'role', 'source'])
         .execute();
       await db.schema.createIndex('unit_people_user').on('unit_people').column('user_id').execute();
+    },
+  },
+  '0004_roles': {
+    async up(db) {
+      // Levels become permission sets (roles); grants can also go to units.
+      await sql`alter table grants rename column principal_type to subject_kind`.execute(db);
+      await sql`alter table grants rename column principal_id to subject_id`.execute(db);
+      await sql`alter table grants drop constraint if exists grants_principal_type_check`.execute(db);
+      await sql`alter table grants add constraint grants_subject_kind_check check (subject_kind in ('user','group','unit'))`.execute(db);
+      await sql`alter table grants add column permissions text[], add column created_by_name text`.execute(db);
+      for (const level of ['view', 'edit', 'manage']) {
+        await sql`update grants set permissions = ${permissionsOfLevel(level)}::text[] where level = ${level}`.execute(db);
+      }
+      await sql`alter table grants alter column permissions set not null, drop column level`.execute(db);
+      await sql`drop index if exists grants_unique`.execute(db);
+      await sql`create unique index grants_unique on grants (subject_kind, subject_id, coalesce(unit_id, '00000000-0000-0000-0000-000000000000'), coalesce(asset_type_id, '00000000-0000-0000-0000-000000000000'))`.execute(db);
+      await sql`create index grants_unit on grants (unit_id)`.execute(db);
+
+      await sql`alter table org_units rename column member_access to member_role`.execute(db);
+      await sql`alter table org_units drop constraint if exists org_units_member_access_check`.execute(db);
+      await sql`update org_units set member_role = case member_role when 'view' then 'viewer' when 'edit' then 'editor' else 'none' end`.execute(db);
+      await sql`alter table org_units alter column member_role set default 'viewer'`.execute(db);
+      await sql`alter table org_units add constraint org_units_member_role_check check (member_role in ('none','viewer','commenter','contributor','editor'))`.execute(db);
     },
   },
 };

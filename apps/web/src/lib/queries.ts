@@ -9,7 +9,6 @@ import type {
   AuthProviderInfo,
   DateKind,
   FileRecord,
-  GrantRecord,
   Group,
   Me,
   Obligation,
@@ -63,7 +62,6 @@ export const keys = {
   users: (q: string) => ['users', q] as const,
   groups: ['groups'] as const,
   groupMembers: (id: string) => ['groups', id, 'members'] as const,
-  grants: ['grants'] as const,
   calendarFeed: ['calendar-feed'] as const,
   features: ['features'] as const,
   catalogs: ['catalogs'] as const,
@@ -158,7 +156,6 @@ export const useUsers = (q: string) => useQuery({ queryKey: keys.users(q), query
 export const useGroups = () => useQuery({ queryKey: keys.groups, queryFn: () => api.get<Group[]>('/api/identity/groups') });
 export const useGroupMembers = (id: string | null) =>
   useQuery({ queryKey: keys.groupMembers(id ?? ''), queryFn: () => api.get<UserSummary[]>(`/api/identity/groups/${id}/members`), enabled: !!id });
-export const useGrants = () => useQuery({ queryKey: keys.grants, queryFn: () => api.get<GrantRecord[]>('/api/identity/grants') });
 
 /** After any asset mutation the asset, its lists and its obligations change together. */
 export function useInvalidateAssets() {

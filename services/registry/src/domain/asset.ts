@@ -4,7 +4,7 @@ import {
   resolveTrackedDates,
   spendOf,
   validateAttributes,
-  type AccessLevel,
+  type Permission,
   type AccessScope,
   type AssetChanged,
   type AssetType,
@@ -34,7 +34,7 @@ export interface AssetState {
 
 export type AssetDraft = Omit<AssetState, 'id' | 'version' | 'createdAt' | 'updatedAt' | 'unitPath'>;
 
-export const scopeOf = (a: Pick<AssetState, 'unitPath' | 'assetTypeId'>, shared?: AccessLevel): AccessScope => ({ unitPath: a.unitPath, assetTypeId: a.assetTypeId, ...(shared && { shared }) });
+export const scopeOf = (a: Pick<AssetState, 'unitPath' | 'assetTypeId'>, shared?: readonly Permission[]): AccessScope => ({ unitPath: a.unitPath, assetTypeId: a.assetTypeId, ...(shared?.length && { shared }) });
 
 /** Validates attribute values against the type, or throws a field-addressed validation error. */
 export function validatedValues(type: AssetType, raw: Record<string, unknown>): Attributes {

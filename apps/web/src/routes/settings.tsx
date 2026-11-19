@@ -3,24 +3,26 @@ import {
   type DateBehavior,
   type DateKind,
   type DateKindInput,
-  type GrantInput,
-  type GrantLevel,
+  roleKeys,
+  roles,
   type Group,
   type User,
 } from '@am/core';
 import { useMutation, useQueryClient, type QueryKey } from '@tanstack/react-query';
-import { Building2, CalendarDays, KeyRound, Pencil, Plus, RefreshCcw, Shield, Trash2, Users } from 'lucide-react';
+import { Building2, CalendarDays, KeyRound, Pencil, Plus, RefreshCcw, Trash2, Users } from 'lucide-react';
 import { Link } from '@tanstack/react-router';
 import { useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
+import { accessLabel } from '@/components/access';
+import { GrantsEditor } from '@/components/access-grants';
 import { DurationInput, DurationListEditor } from '@/components/duration-editor';
-import { AssetTypeSelect, ColorPicker, PersonName, PersonPicker, UnitPath, UnitPicker } from '@/components/pickers';
+import { ColorPicker, PersonName, PersonPicker, UnitPath } from '@/components/pickers';
 import { Button } from '@/components/ui/button';
 import { Avatar, Badge, Card, EmptyState, PageHeader, Tabs } from '@/components/ui/display';
-import { Field, Input, Segmented, Select, Switch } from '@/components/ui/form';
+import { Field, Input, Segmented, Switch } from '@/components/ui/form';
 import { ConfirmDialog, Dialog } from '@/components/ui/overlay';
 import { api, ApiError } from '@/lib/api';
-import { keys, useDateKinds, useGrants, useGroupMembers, useGroups, useLookups, useMe, useUsers } from '@/lib/queries';
+import { keys, useDateKinds, useGroupMembers, useGroups, useLookups, useMe, useUsers } from '@/lib/queries';
 import { useMyOrg } from '@/lib/org';
 import { formatDateTime, formatDurations, slugKey } from '@/lib/utils';
 
@@ -251,7 +253,7 @@ function GroupDialog({ group, onClose }: { group: Group | null; onClose: () => v
     'Group saved',
     onClose,
   );
-  const remove = useSave(() => api.delete(`/api/identity/groups/${group!.id}`), [keys.groups, keys.grants], 'Group deleted', onClose);
+  const remove = useSave(() => api.delete(`/api/identity/groups/${group!.id}`), [keys.groups], 'Group deleted', onClose);
   return (
     <Dialog
       open
@@ -322,114 +324,32 @@ function MemberList({ ids, onRemove }: { ids: string[]; onRemove: (id: string) =
 
 // ─── Access ──────────────────────────────────────────────────────────────────
 
-const levelText: Record<GrantLevel, string> = {
-  view: 'View assets, dates and documents',
-  edit: 'Create and edit assets, upload documents, act on reminders',
-  manage: 'Everything, plus delete and restricted fields',
-};
 
 export function AccessPage() {
-  const grants = useGrants();
-  const lookups = useLookups();
-  const [adding, setAdding] = useState(false);
-  const remove = useSave((id: string) => api.delete(`/api/identity/grants/${id}`), [keys.grants], 'Access removed');
-
   return (
     <>
       <PageHeader
         title="Access"
-        description="Most access comes from the org chart: members see their unit, managers manage everything beneath it. Use grants for everything else — e.g. Procurement manages the whole company, Finance views it. The highest matching level wins; changes apply within 15 minutes."
-        actions={<Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setAdding(true)}>Grant access</Button>}
+        description="Most access comes from the organization chart: members get their unit’s default role, managers are Admins of everything beneath their unit. Add access here for what spans the whole company — e.g. Procurement as Admin, Finance as Viewer. Access adds up; changes apply within 15 minutes."
       />
-      <div className="mx-auto w-full max-w-4xl space-y-4 px-6 py-6">
-        <div className="grid gap-3 sm:grid-cols-3">
-          {(Object.keys(levelText) as GrantLevel[]).map((l) => (
-            <Card key={l}>
-              <Badge tone={l === 'manage' ? 'accent' : 'neutral'}>{l[0]!.toUpperCase() + l.slice(1)}</Badge>
-              <p className="mt-2 text-xs text-muted">{levelText[l]}</p>
+      <div className="mx-auto w-full max-w-4xl space-y-6 px-6 py-6">
+        <div className="grid gap-3 sm:grid-cols-5">
+          {roleKeys.map((r) => (
+            <Card key={r}>
+              <Badge tone={r === 'admin' ? 'accent' : 'neutral'}>{roles[r].label}</Badge>
+              <p className="mt-2 text-xs text-muted">{roles[r].description}</p>
             </Card>
           ))}
         </div>
-        <Card padded={false}>
-          {grants.data?.length ? (
-            <ul className="divide-y divide-border">
-              {grants.data.map((g) => (
-                <Row
-                  key={g.id}
-                  lead={g.principalType === 'user' ? <Avatar name={g.principalName} size={30} /> : <span className="flex size-[30px] items-center justify-center rounded-full bg-surface-2 text-muted"><Users className="size-4" /></span>}
-                  title={g.principalName}
-                  subtitle={
-                    <>
-                      {g.unitId ? <UnitPath id={g.unitId} /> : 'Whole organization'}
-                      {' and everything beneath · '}
-                      {g.assetTypeId ? lookups.typeById.get(g.assetTypeId)?.name ?? 'Unknown type' : 'All asset types'}
-                    </>
-                  }
-                  meta={<Badge tone={g.level === 'manage' ? 'accent' : 'neutral'}>{g.level}</Badge>}
-                  actions={<Button size="icon" variant="danger-ghost" aria-label="Remove" icon={<Trash2 className="size-3.5" />} onClick={() => remove.mutate(g.id)} />}
-                />
-              ))}
-            </ul>
-          ) : (
-            <EmptyState icon={<Shield />} title="No grants yet" description="Only administrators can see assets until access is granted." />
-          )}
-        </Card>
+        <section>
+          <h2 className="mb-1 text-[13px] font-semibold">The whole organization</h2>
+          <p className="mb-3 text-xs text-muted">For a single unit, use the Access tab on its page.</p>
+          <GrantsEditor unitId={null} />
+        </section>
       </div>
-      {adding && <GrantDialog onClose={() => setAdding(false)} />}
     </>
   );
 }
-
-function GrantDialog({ onClose }: { onClose: () => void }) {
-  const groups = useGroups();
-  const [d, setD] = useState<Omit<GrantInput, 'principalId'> & { principalId: string | null }>({ principalType: 'group', principalId: null, unitId: null, assetTypeId: null, level: 'view' });
-  const save = useSave(() => api.post('/api/identity/grants', d), [keys.grants], 'Access granted', onClose);
-  return (
-    <Dialog
-      open
-      onOpenChange={(o) => !o && onClose()}
-      title="Grant access"
-      footer={
-        <>
-          <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" loading={save.isPending} disabled={!d.principalId} onClick={() => save.mutate(undefined)}>
-            Grant
-          </Button>
-        </>
-      }
-    >
-      <div className="space-y-4">
-        <Segmented value={d.principalType} onChange={(principalType) => setD({ ...d, principalType, principalId: null })} options={[{ value: 'group', label: 'Group' }, { value: 'user', label: 'Person' }]} />
-        <Field label={d.principalType === 'group' ? 'Group' : 'Person'}>
-          {(id) =>
-            d.principalType === 'group' ? (
-              <Select id={id} value={d.principalId ?? ''} onChange={(e) => setD({ ...d, principalId: e.target.value || null })}>
-                <option value="">Select a group</option>
-                {(groups.data ?? []).map((g) => (
-                  <option key={g.id} value={g.id}>
-                    {g.name}
-                  </option>
-                ))}
-              </Select>
-            ) : (
-              <PersonPicker id={id} value={d.principalId} onChange={(principalId) => setD({ ...d, principalId })} />
-            )
-          }
-        </Field>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Unit" hint="Applies to everything beneath it too.">{(id) => <UnitPicker id={id} allowClear value={d.unitId} onChange={(unitId) => setD({ ...d, unitId })} />}</Field>
-          <Field label="Asset type">{(id) => <AssetTypeSelect id={id} includeAll value={d.assetTypeId} onChange={(assetTypeId) => setD({ ...d, assetTypeId })} />}</Field>
-        </div>
-        <Field label="Level" hint={levelText[d.level]}>
-          {() => <Segmented value={d.level} onChange={(level) => setD({ ...d, level })} options={[{ value: 'view', label: 'View' }, { value: 'edit', label: 'Edit' }, { value: 'manage', label: 'Manage' }]} />}
-        </Field>
-      </div>
-    </Dialog>
-  );
-}
-
-// ─── Profile ─────────────────────────────────────────────────────────────────
-
 export function ProfilePage() {
   const me = useMe().data!;
   const qc = useQueryClient();
@@ -485,7 +405,7 @@ export function ProfilePage() {
                   <span>
                     {g.unitId ? lookups.unitPathNames(g.unitId).join(' › ') : 'Whole organization'} · {g.assetTypeId ? lookups.typeById.get(g.assetTypeId)?.name : 'All asset types'}
                   </span>
-                  <Badge>{g.level}</Badge>
+                  <Badge>{accessLabel(g.permissions)}</Badge>
                 </li>
               ))}
             </ul>

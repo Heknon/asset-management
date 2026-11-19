@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
-import { AppError, addDuration, type AccessLevel, type CatalogChanged, type EventMap, type EventName, type IsoDate, type ObligationQuery, type TrackedDate, type Visibility } from '@am/core';
-import { catalogShareLevel, enqueue, inSubtree, visibleFilter } from '@am/platform';
+import { AppError, addDuration, type CatalogChanged, type Permission, type EventMap, type EventName, type IsoDate, type ObligationQuery, type TrackedDate, type Visibility } from '@am/core';
+import { catalogSharePermissions, enqueue, inSubtree, visibleFilter } from '@am/platform';
 import { sql, type Kysely, type Selectable } from 'kysely';
 import type { ObligationWithAsset, SchedulerStore, UserRef } from '../application/ports.js';
 import type { AssetRef, ObligationRecord, RenewalCheckRecord } from '../domain/obligation.js';
@@ -8,7 +8,7 @@ import type { SchedulerDB } from './schema.js';
 
 const json = (v: unknown) => JSON.stringify(v);
 const ACTIVE = ['open', 'snoozed'] as const;
-const VISIBLE_COLS = { unitPath: 'units_ref.path', assetType: 'assets_ref.asset_type_id', catalog: 'assets_ref.catalog_id' };
+const VISIBLE_COLS = { unitPath: 'units_ref.path', assetType: 'assets_ref.asset_type_id', catalog: 'assets_ref.catalog_id', owner: 'assets_ref.owner_id' };
 
 type Row = Selectable<SchedulerDB['obligations']> & Selectable<SchedulerDB['assets_ref']> & { unit_path: string[] | null };
 
@@ -378,8 +378,9 @@ export class PgSchedulerStore implements SchedulerStore {
 
   // ─── People ──────────────────────────────────────────────────────────────
 
-  async upsertUser(u: UserRef & { username: string }) {
+  async upsertUser(u: UserRef & { username: string; groupIds?: string[] }) {
     const values = {
+      ...(u.groupIds && { group_ids: u.groupIds }),
       username: u.username,
       display_name: u.displayName,
       email: u.email?.toLowerCase() ?? null,
@@ -460,12 +461,16 @@ export class PgSchedulerStore implements SchedulerStore {
       .executeTakeFirst();
     if (!r) return false; // older than what we hold
     await this.db.deleteFrom('catalog_shares').where('catalog_id', '=', e.catalogId).execute();
-    if (e.shares.length) await this.db.insertInto('catalog_shares').values(e.shares.map((x) => ({ catalog_id: e.catalogId, subject_key: x.subjectKey, level: x.level }))).execute();
+    if (e.shares.length) await this.db.insertInto('catalog_shares').values(e.shares.map((x) => ({ catalog_id: e.catalogId, subject_key: x.subjectKey, permissions: x.permissions }))).execute();
     return true;
   }
 
-  catalogShareLevel(catalogId: string | null, shareKeys: readonly string[]): Promise<AccessLevel> {
-    return catalogShareLevel(this.db, catalogId, shareKeys);
+  catalogSharePermissions(catalogId: string | null, shareKeys: readonly string[]): Promise<Permission[]> {
+    return catalogSharePermissions(this.db, catalogId, shareKeys);
+  }
+
+  async groupIdsOf(userId: string) {
+    return (await this.db.selectFrom('users_ref').select('group_ids').where('id', '=', userId).executeTakeFirst())?.group_ids ?? [];
   }
 
   publish<E extends EventName>(event: E, payload: EventMap[E]) {

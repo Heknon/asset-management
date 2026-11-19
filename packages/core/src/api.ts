@@ -5,7 +5,7 @@
 import { z } from 'zod';
 import { durationSchema, isoDateSchema, type Duration, type IsoDate } from './duration.js';
 import { fieldKeySchema } from './fields.js';
-import type { AccessLevel, Grant, GrantLevel, Principal, UnitRole } from './permissions.js';
+import { accessSchema, roleKeys, subjectKinds, type Grant, type Permission, type Principal, type RoleKey, type SubjectKind, type UnitRole } from './permissions.js';
 import type { Attributes } from './attributes.js';
 import type { DateBehavior } from './date-kinds.js';
 
@@ -94,9 +94,9 @@ export const groupInputSchema = z.object({
 
 // ─── Organization ──────────────────────────────────────────────────────────
 
-/** Default access unit members get to the unit's own assets and requests. */
-export const memberAccessLevels = ['none', 'view', 'edit'] as const;
-export type MemberAccess = (typeof memberAccessLevels)[number];
+/** The role unit members get on the unit's own assets and requests ("none": membership only). */
+export const memberRoles = ['none', ...roleKeys.filter((r) => r !== 'admin')] as const;
+export type MemberRole = 'none' | Exclude<RoleKey, 'admin'>;
 
 export interface OrgUnit {
   id: string;
@@ -109,7 +109,8 @@ export interface OrgUnit {
   /** Ancestor ids, root first, ending with this unit. */
   path: string[];
   color: string;
-  memberAccess: MemberAccess;
+  /** Unit managers are always Admins of the unit. */
+  memberRole: MemberRole;
   /** Directory identifiers whose people are members: group DNs, ADFS group names, or `attribute=value`. */
   directoryMembers: string[];
   directoryManagers: string[];
@@ -127,7 +128,7 @@ export const orgUnitInputSchema = z.object({
   description: z.string().max(400).nullable().default(null),
   parentId: uuid.nullable().default(null),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#64748b'),
-  memberAccess: z.enum(memberAccessLevels).default('view'),
+  memberRole: z.enum(memberRoles).default('commenter'),
   directoryMembers: directoryIds,
   directoryManagers: directoryIds,
   archived: z.boolean().default(false),
@@ -161,21 +162,53 @@ export const unitPeopleSchema = z.object({
   managers: z.array(uuid).max(500),
 });
 
+/** Someone access is given to. Units include everyone in the units beneath them. */
+export interface Subject {
+  kind: SubjectKind;
+  id: string;
+  name: string;
+  /** "LDAP group · 34 people", "Division · Wix › R&D", an email… */
+  detail: string | null;
+}
+
+export const subjectInputSchema = z.object({ kind: z.enum(subjectKinds), id: uuid });
+
+/** Access on an organization unit (with everything beneath it) or, with unitId null, the whole organization. */
 export interface GrantRecord extends Grant {
   id: string;
-  principalType: 'user' | 'group';
-  principalId: string;
-  principalName: string;
+  subject: Subject;
+  createdByName: string | null;
+  createdAt: string;
 }
 
 export const grantInputSchema = z.object({
-  principalType: z.enum(['user', 'group']),
-  principalId: uuid,
+  subject: subjectInputSchema,
   unitId: uuid.nullable(),
-  assetTypeId: uuid.nullable(),
-  level: z.enum(['view', 'edit', 'manage']),
+  /** Only items of this type (optional). */
+  assetTypeId: uuid.nullable().default(null),
+  access: accessSchema,
 });
 export type GrantInput = z.infer<typeof grantInputSchema>;
+
+/** Changing who has which role on a grant or share. */
+export const accessUpdateSchema = z.object({ access: accessSchema });
+
+/**
+ * Everything that gives access to a unit, for the access screen: explicit
+ * grants on it, and what comes from above (ancestors, the whole organization)
+ * or from membership.
+ */
+export interface UnitAccess {
+  unitId: string;
+  direct: GrantRecord[];
+  inherited: Array<GrantRecord & { fromUnitId: string | null }>;
+  memberRole: MemberRole;
+  managers: Array<{ id: string; displayName: string }>;
+  /** The caller may change this unit's access. */
+  canManage: boolean;
+}
+
+export const subjectSearchSchema = z.object({ q: z.string().trim().min(1).max(100), kinds: z.string().optional() });
 
 // ─── Registry ──────────────────────────────────────────────────────────────
 
@@ -191,8 +224,8 @@ export interface Asset {
   catalogId: string | null;
   attributes: Attributes;
   reminderOverrides: Record<string, Duration[]>;
-  /** The caller's effective access to this asset (org grants and catalog shares combined). */
-  access: AccessLevel;
+  /** What the caller may do with this asset (org grants and catalog shares combined). */
+  permissions: Permission[];
   createdAt: string;
   updatedAt: string;
   /** When searching: where the query matched, with «highlights». */
@@ -293,8 +326,8 @@ export interface Catalog {
   icon: string;
   color: string;
   assetCount: number;
-  /** The caller's access: manage (can edit and share), edit or view (through the org tree or a share). */
-  access: AccessLevel;
+  /** What the caller may do here (through the org tree, a share, or both). */
+  permissions: Permission[];
   /** True when the caller reaches it through a share rather than the org tree. */
   sharedWithMe: boolean;
   shares: CatalogShare[];
@@ -304,9 +337,8 @@ export interface Catalog {
 }
 
 export interface CatalogShare {
-  subjectKind: 'unit' | 'user';
-  subjectId: string;
-  level: 'view' | 'edit';
+  subject: Subject;
+  permissions: Permission[];
   createdByName: string;
   createdAt: string;
 }
@@ -323,9 +355,8 @@ export const catalogInputSchema = z.object({
 export type CatalogInput = z.infer<typeof catalogInputSchema>;
 
 export const catalogShareInputSchema = z.object({
-  subjectKind: z.enum(['unit', 'user']),
-  subjectId: uuid,
-  level: z.enum(['view', 'edit']),
+  subject: subjectInputSchema,
+  access: accessSchema,
 });
 export type CatalogShareInput = z.infer<typeof catalogShareInputSchema>;
 
@@ -376,7 +407,7 @@ export interface AccessCheck {
   assetTypeId: string;
   unitId: string;
   catalogId: string | null;
-  level: AccessLevel;
+  permissions: Permission[];
 }
 
 // ─── Files ─────────────────────────────────────────────────────────────────
@@ -670,4 +701,4 @@ export const savedViewInputSchema = z.object({
 });
 export type SavedViewInput = z.infer<typeof savedViewInputSchema>;
 
-export type { GrantLevel };
+

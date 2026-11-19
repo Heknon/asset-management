@@ -1,4 +1,4 @@
-import { AppError, type GrantInput, type LocalUserCreate, type Preferences } from '@am/core';
+import { AppError, type LocalUserCreate, type Preferences } from '@am/core';
 import { normalizeUsername } from '../domain/model.js';
 import type { IdentityStore, PasswordHasher } from './ports.js';
 
@@ -53,11 +53,15 @@ export class DirectoryService {
   listGroups() {
     return this.store.listGroups();
   }
-  createGroup(input: { name: string; externalId: string | null }) {
-    return this.store.createGroup(input);
+  async createGroup(input: { name: string; externalId: string | null }) {
+    const g = await this.store.createGroup(input);
+    await this.store.publishGroupChanged([g.id]);
+    return g;
   }
-  updateGroup(id: string, input: { name: string; externalId: string | null }) {
-    return this.store.updateGroup(id, input);
+  async updateGroup(id: string, input: { name: string; externalId: string | null }) {
+    const g = await this.store.updateGroup(id, input);
+    await this.store.publishGroupChanged([g.id]);
+    return g;
   }
   deleteGroup(id: string) {
     return this.store.deleteGroup(id);
@@ -67,18 +71,5 @@ export class DirectoryService {
   }
   setGroupMembers(id: string, userIds: string[]) {
     return this.store.setGroupMembers(id, userIds);
-  }
-
-  listGrants(filter?: { principalType?: 'user' | 'group'; principalId?: string }) {
-    return this.store.listGrants(filter);
-  }
-
-  /** Grant changes reach access tokens on the next refresh (at most ACCESS_TOKEN_TTL later). */
-  createGrant(input: GrantInput) {
-    return this.store.createGrant(input);
-  }
-
-  deleteGrant(id: string) {
-    return this.store.deleteGrant(id);
   }
 }

@@ -1,20 +1,20 @@
-import { atLeast, unitLevel, type Catalog, type CatalogShare } from '@am/core';
+import { unitPermissions, type Catalog, type CatalogShare, type Permission, type Subject } from '@am/core';
+import { AccessEditor, accessLabel, SubjectIcon } from './access';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { Building2, Share2, Trash2, User, Users } from 'lucide-react';
+import { Share2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { api, ApiError } from '@/lib/api';
-import { keys, useCatalogs, useLookups, useMe, usePeople } from '@/lib/queries';
+import { keys, useCatalogs, useLookups, useMe } from '@/lib/queries';
 import { cn } from '@/lib/utils';
-import { ColorPicker, IconPicker, PersonPicker, UnitPath, UnitPicker } from './pickers';
+import { ColorPicker, IconPicker, UnitPath, UnitPicker } from './pickers';
 import { TypeIcon } from './type-icon';
 import { Button } from './ui/button';
 import { Badge, Card } from './ui/display';
-import { Field, Input, Segmented, Select, Textarea } from './ui/form';
+import { Field, Input, Select, Textarea } from './ui/form';
 import { Dialog } from './ui/overlay';
 
-export const levelLabel = { view: 'Can view', edit: 'Can edit' } as const;
 
 const onError = (e: unknown) => toast.error(e instanceof ApiError ? e.message : 'Something went wrong');
 
@@ -31,7 +31,7 @@ function useInvalidateCatalogs() {
 export function useManageableUnits() {
   const me = useMe().data;
   const { units } = useLookups();
-  return units.filter((u) => !u.archived && me && atLeast(unitLevel(me, u.path), 'manage'));
+  return units.filter((u) => !u.archived && me && unitPermissions(me, u.path).has('manage'));
 }
 
 export function CatalogCard({ catalog }: { catalog: Catalog }) {
@@ -46,7 +46,7 @@ export function CatalogCard({ catalog }: { catalog: Catalog }) {
               <UnitPath id={catalog.unitId} />
             </p>
           </div>
-          {catalog.sharedWithMe && <Badge tone="accent">{levelLabel[catalog.access === 'edit' ? 'edit' : 'view']}</Badge>}
+          {catalog.sharedWithMe && <Badge tone="accent">{accessLabel(catalog.permissions)}</Badge>}
         </div>
         {catalog.description && <p className="line-clamp-2 text-xs text-muted">{catalog.description}</p>}
         <div className="mt-auto flex items-center gap-3 pt-1 text-xs text-subtle">
@@ -132,99 +132,40 @@ export function CatalogFormDialog({ open, onOpenChange, catalog, unitId, onSaved
 /** Who a catalog is shared with, and adding/removing/changing shares. */
 export function ShareDialog({ catalog, open, onOpenChange }: { catalog: Catalog; open: boolean; onOpenChange: (o: boolean) => void }) {
   const invalidate = useInvalidateCatalogs();
-  const { unitById } = useLookups();
-  const people = usePeople(catalog.shares.filter((s) => s.subjectKind === 'user').map((s) => s.subjectId));
-  const [kind, setKind] = useState<'unit' | 'user'>('unit');
-  const [subject, setSubject] = useState<string | null>(null);
-  const [level, setLevel] = useState<'view' | 'edit'>('view');
-  const canManage = catalog.access === 'manage';
-
+  const canManage = catalog.permissions.includes('manage');
   const put = useMutation({
-    mutationFn: (s: Pick<CatalogShare, 'subjectKind' | 'subjectId' | 'level'>) => api.post<Catalog>(`/api/registry/catalogs/${catalog.id}/shares`, s),
-    onSuccess: () => (setSubject(null), invalidate()),
-    onError,
-  });
-  const remove = useMutation({
-    mutationFn: (s: Pick<CatalogShare, 'subjectKind' | 'subjectId'>) => api.delete<Catalog>(`/api/registry/catalogs/${catalog.id}/shares/${s.subjectKind}/${s.subjectId}`),
+    mutationFn: ({ subject, permissions }: { subject: Pick<Subject, 'kind' | 'id'>; permissions: Permission[] }) =>
+      api.post<Catalog>(`/api/registry/catalogs/${catalog.id}/shares`, { subject: { kind: subject.kind, id: subject.id }, access: { role: 'custom', permissions } }),
     onSuccess: invalidate,
     onError,
   });
-  const nameOf = (s: CatalogShare) => (s.subjectKind === 'unit' ? (unitById.get(s.subjectId)?.name ?? 'Unknown unit') : (people.get(s.subjectId)?.displayName ?? '…'));
+  const remove = useMutation({
+    mutationFn: (s: CatalogShare) => api.delete<Catalog>(`/api/registry/catalogs/${catalog.id}/shares/${s.subject.kind}/${s.subject.id}`),
+    onSuccess: invalidate,
+    onError,
+  });
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange} title={`Share “${catalog.name}”`} description="Everyone you share with sees everything in this catalog, including items added later." footer={<Button onClick={() => onOpenChange(false)}>Done</Button>}>
-      <div className="space-y-5 text-[13px]">
-        {canManage && (
-          <div className="space-y-2 rounded-lg border border-border p-3">
-            <Segmented
-              value={kind}
-              onChange={(k) => (setKind(k), setSubject(null))}
-              options={[
-                { value: 'unit', label: 'Team, department or division' },
-                { value: 'user', label: 'Person' },
-              ]}
-            />
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="min-w-56 flex-1">
-                {kind === 'unit' ? (
-                  <UnitPicker value={subject} onChange={setSubject} placeholder="Choose a unit" filter={(u) => !u.archived && !catalog.shares.some((s) => s.subjectId === u.id)} />
-                ) : (
-                  <PersonPicker value={subject} onChange={setSubject} placeholder="Choose a person" />
-                )}
-              </div>
-              <Select className="w-32" value={level} onChange={(e) => setLevel(e.target.value as 'view' | 'edit')} aria-label="Access">
-                <option value="view">{levelLabel.view}</option>
-                <option value="edit">{levelLabel.edit}</option>
-              </Select>
-              <Button variant="primary" disabled={!subject} loading={put.isPending} onClick={() => subject && put.mutate({ subjectKind: kind, subjectId: subject, level })}>
-                Share
-              </Button>
-            </div>
-            <p className="text-xs text-muted">
-              {kind === 'unit' ? 'Sharing with a unit includes every team beneath it. ' : ''}
-              “Can edit” lets them update items and their documents and add new items here; only your unit’s managers can delete, see restricted fields or share further.
-            </p>
-          </div>
-        )}
-
-        <div>
-          <p className="mb-2 text-xs font-medium text-subtle">Has access</p>
-          <ul className="divide-y divide-border rounded-lg border border-border">
-            <li className="flex items-center gap-2.5 px-3 py-2">
-              <Building2 className="size-4 text-muted" />
-              <span className="min-w-0 flex-1">
-                <span className="font-medium">
-                  <UnitPath id={catalog.unitId} />
-                </span>
-                <span className="block text-xs text-muted">Owner · access from the organization chart</span>
+    <Dialog open={open} onOpenChange={onOpenChange} title={`Share “${catalog.name}”`} description="Everyone you add gets access to everything in this catalog, including items added later." footer={<Button onClick={() => onOpenChange(false)}>Done</Button>}>
+      <AccessEditor
+        canManage={canManage}
+        pending={put.isPending}
+        entries={catalog.shares.map((s) => ({ key: `${s.subject.kind}:${s.subject.id}`, subject: s.subject, permissions: s.permissions, note: `shared by ${s.createdByName}` }))}
+        onAdd={(subject, permissions) => put.mutate({ subject, permissions })}
+        onChange={(e, permissions) => put.mutate({ subject: e.subject, permissions })}
+        onRemove={(e) => remove.mutate(catalog.shares.find((s) => `${s.subject.kind}:${s.subject.id}` === e.key)!)}
+        inherited={
+          <div className="flex items-center gap-2.5 rounded-lg bg-surface-2/60 px-3 py-2 text-[13px]">
+            <SubjectIcon kind="unit" />
+            <span className="min-w-0 flex-1">
+              <span className="block font-medium">
+                <UnitPath id={catalog.unitId} />
               </span>
-            </li>
-            {catalog.shares.map((s) => (
-              <li key={`${s.subjectKind}:${s.subjectId}`} className="flex items-center gap-2.5 px-3 py-2">
-                {s.subjectKind === 'unit' ? <Users className="size-4 text-muted" /> : <User className="size-4 text-muted" />}
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate font-medium">{s.subjectKind === 'unit' ? <UnitPath id={s.subjectId} /> : nameOf(s)}</span>
-                  <span className="block text-xs text-muted">
-                    {s.subjectKind === 'unit' ? 'Everyone in it' : 'Person'} · shared by {s.createdByName}
-                  </span>
-                </span>
-                {canManage ? (
-                  <>
-                    <Select className="w-28" value={s.level} onChange={(e) => put.mutate({ subjectKind: s.subjectKind, subjectId: s.subjectId, level: e.target.value as 'view' | 'edit' })} aria-label={`Access for ${nameOf(s)}`}>
-                      <option value="view">{levelLabel.view}</option>
-                      <option value="edit">{levelLabel.edit}</option>
-                    </Select>
-                    <Button size="icon" variant="ghost" aria-label={`Stop sharing with ${nameOf(s)}`} icon={<Trash2 className="size-3.5" />} onClick={() => remove.mutate(s)} />
-                  </>
-                ) : (
-                  <Badge>{levelLabel[s.level]}</Badge>
-                )}
-              </li>
-            ))}
-          </ul>
-          {!catalog.shares.length && <p className="mt-2 text-xs text-muted">Not shared yet — only its own unit can see it.</p>}
-        </div>
-      </div>
+              <span className="block text-xs text-muted">Owner · its people keep the access the organization chart gives them</span>
+            </span>
+          </div>
+        }
+      />
     </Dialog>
   );
 }
@@ -232,7 +173,7 @@ export function ShareDialog({ catalog, open, onOpenChange }: { catalog: Catalog;
 /** Catalogs an asset in `unitPath` can be filed in (those I can edit). */
 export function CatalogSelect({ id, value, unitPath, onChange }: { id?: string; value: string | null; unitPath: string[]; onChange: (v: string | null) => void }) {
   const catalogs = useCatalogs();
-  const options = (catalogs.data ?? []).filter((c) => unitPath.includes(c.unitId) && (atLeast(c.access, 'edit') || c.id === value));
+  const options = (catalogs.data ?? []).filter((c) => unitPath.includes(c.unitId) && (c.permissions.includes('edit') || c.id === value));
   if (!options.length && !value) return <p className="text-xs text-muted">No catalogs for this team yet.</p>;
   return (
     <Select id={id} value={value ?? ''} onChange={(e) => onChange(e.target.value || null)} className={cn(!value && 'text-muted')}>

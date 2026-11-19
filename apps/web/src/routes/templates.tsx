@@ -7,7 +7,7 @@ import { TypeIcon } from '@/components/type-icon';
 import { Button } from '@/components/ui/button';
 import { Badge, Card, EmptyState, PageHeader, SectionTitle } from '@/components/ui/display';
 import { api, ApiError } from '@/lib/api';
-import { keys, useAssetTypes } from '@/lib/queries';
+import { keys } from '@/lib/queries';
 
 interface TemplateSummary {
   key: string;

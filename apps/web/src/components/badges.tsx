@@ -1,4 +1,4 @@
-import { requestStatusMeta, type AccessLevel, type AssetType, type Obligation, type RequestStatus, type Urgency } from '@am/core';
+import { permissionMeta, roleOf, roles, requestStatusMeta, type Permission, type AssetType, type Obligation, type RequestStatus, type Urgency } from '@am/core';
 import { Badge } from './ui/display';
 import { relativeDays } from '@/lib/utils';
 
@@ -20,9 +20,14 @@ export function DueBadge({ obligation }: { obligation: Pick<Obligation, 'urgency
   return <Badge tone={urgencyTone[obligation.urgency]}>{relativeDays(obligation.dueDate)}</Badge>;
 }
 
-export function AccessBadge({ level }: { level: AccessLevel }) {
-  const label = { none: 'No access', view: 'Viewer', edit: 'Editor', manage: 'Manager' }[level];
-  return <Badge tone={level === 'manage' ? 'accent' : 'neutral'}>{label}</Badge>;
+/** "You: Editor" — hover lists exactly what the caller may do. */
+export function AccessBadge({ permissions }: { permissions: readonly Permission[] }) {
+  const role = roleOf(permissions);
+  return (
+    <span title={`You can: ${permissions.map((p) => permissionMeta[p].label.toLowerCase()).join(', ')}`}>
+      <Badge tone={role === 'admin' ? 'accent' : 'neutral'}>{role === 'custom' ? 'Custom access' : roles[role].label}</Badge>
+    </span>
+  );
 }
 
 export function RequestStatusBadge({ status }: { status: RequestStatus }) {

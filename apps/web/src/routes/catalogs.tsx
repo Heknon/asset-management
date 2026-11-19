@@ -1,4 +1,5 @@
-import { atLeast, type AssetType } from '@am/core';
+import { type AssetType } from '@am/core';
+import { accessLabel } from '@/components/access';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { FolderOpen, MoreHorizontal, Pencil, Plus, Share2, Trash2, Users } from 'lucide-react';
@@ -6,7 +7,7 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import { AssetExplorer } from '@/components/asset-explorer';
 import { AssetFormSheet } from '@/components/asset-form';
-import { CatalogCard, CatalogFormDialog, levelLabel, ShareDialog, useManageableUnits } from '@/components/catalogs';
+import { CatalogCard, CatalogFormDialog, ShareDialog, useManageableUnits } from '@/components/catalogs';
 import { UnitPath } from '@/components/pickers';
 import { TypeIcon } from '@/components/type-icon';
 import { Button } from '@/components/ui/button';
@@ -81,7 +82,7 @@ function Section({ title, hint, items }: { title: string; hint: string; items: N
 export function CatalogPage() {
   const { catalogId } = useParams({ strict: false }) as { catalogId: string };
   const catalog = useCatalog(catalogId);
-  const { types, unitById } = useLookups();
+  const { types } = useLookups();
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [sharing, setSharing] = useState(false);
@@ -110,9 +111,9 @@ export function CatalogPage() {
   if (!catalog.data) return <EmptyState title="Catalog not found" description="It may have been deleted, or it is not shared with you." action={<Link to="/catalogs" className="text-accent-fg">All catalogs</Link>} />;
 
   const c = catalog.data;
-  const canEdit = atLeast(c.access, 'edit');
-  const canManage = c.access === 'manage';
-  const sharedUnits = c.shares.filter((s) => s.subjectKind === 'unit');
+  const canAdd = c.permissions.includes('create');
+  const canManage = c.permissions.includes('manage');
+  const sharedUnits = c.shares.filter((s) => s.subject.kind !== 'user');
   const sharedPeople = c.shares.length - sharedUnits.length;
 
   return (
@@ -125,7 +126,7 @@ export function CatalogPage() {
             <Link to="/units/$unitId" params={{ unitId: c.unitId }} className="hover:text-fg">
               <UnitPath id={c.unitId} />
             </Link>
-            {c.sharedWithMe && <Badge tone="accent">Shared with you · {levelLabel[c.access === 'edit' ? 'edit' : 'view']}</Badge>}
+            {c.sharedWithMe && <Badge tone="accent">Shared with you · {accessLabel(c.permissions)}</Badge>}
             {c.description && <span className="text-muted">· {c.description}</span>}
           </span>
         }
@@ -135,7 +136,7 @@ export function CatalogPage() {
               {canManage ? 'Share' : 'Who has access'}
               {c.shares.length > 0 && <span className="ml-1 text-muted">{c.shares.length}</span>}
             </Button>
-            {canEdit && (
+            {canAdd && (
               <Menu trigger={<Button variant="primary" icon={<Plus className="size-3.5" />}>Add item</Button>}>
                 {types
                   .filter((t) => !t.archived)
@@ -164,7 +165,7 @@ export function CatalogPage() {
             <Share2 className="size-3" />
             Shared with
             {sharedUnits.slice(0, 4).map((s) => (
-              <Badge key={s.subjectId}>{unitById.get(s.subjectId)?.name ?? 'unit'}</Badge>
+              <Badge key={s.subject.id}>{s.subject.name}</Badge>
             ))}
             {sharedUnits.length > 4 && <span>+{sharedUnits.length - 4} units</span>}
             {sharedPeople > 0 && <span>{sharedUnits.length ? 'and ' : ''}{sharedPeople} {sharedPeople === 1 ? 'person' : 'people'}</span>}
@@ -174,7 +175,7 @@ export function CatalogPage() {
       <AssetExplorer
         fixed={{ catalogId: c.id }}
         title={c.name}
-        empty={<EmptyState icon={<FolderOpen />} title="Nothing in this catalog yet" description={canEdit ? 'Add new items here, or open an existing asset and choose this catalog when editing it.' : 'Items appear here when its owners add them.'} />}
+        empty={<EmptyState icon={<FolderOpen />} title="Nothing in this catalog yet" description={canAdd ? 'Add new items here, or open an existing asset and choose this catalog when editing it.' : 'Items appear here when its owners add them.'} />}
       />
       <ShareDialog catalog={c} open={sharing} onOpenChange={setSharing} />
       <CatalogFormDialog open={editing} onOpenChange={setEditing} catalog={c} />

@@ -1,4 +1,4 @@
-import { AppError, atLeast, previewKindOf, type AccessLevel, type FileRecord, type Principal, type SignedUrl, type UploadRequest, type UploadTicket } from '@am/core';
+import { AppError, permissionMeta, previewKindOf, type Permission, type FileRecord, type Principal, type SignedUrl, type UploadRequest, type UploadTicket } from '@am/core';
 import { contentDisposition, objectKeyFor, toRecord, validateUpload } from '../domain/file.js';
 import type { AssetAccess, FileStore, ObjectStorage } from './ports.js';
 
@@ -26,7 +26,7 @@ export class FileService {
   }
 
   async requestUpload(caller: Caller, input: UploadRequest): Promise<UploadTicket> {
-    await this.require(caller, input.assetId, 'edit');
+    await this.require(caller, input.assetId, 'attach');
     const { filename, contentType } = validateUpload(input, this.maxBytes);
     const id = globalThis.crypto.randomUUID();
     const objectKey = objectKeyFor(input.assetId, id);
@@ -50,7 +50,7 @@ export class FileService {
   /** Confirms the object actually landed in S3 with the declared type and size. */
   async completeUpload(caller: Caller, fileId: string): Promise<FileRecord> {
     const file = await this.get(fileId);
-    await this.require(caller, file.assetId, 'edit');
+    await this.require(caller, file.assetId, 'attach');
     if (file.status === 'ready') return toRecord(file);
     if (file.uploadedBy !== caller.principal.userId) throw AppError.forbidden('Only the uploader can complete this upload');
     const head = await this.storage.head(file.objectKey);
@@ -78,9 +78,9 @@ export class FileService {
 
   async remove(caller: Caller, fileId: string): Promise<void> {
     const file = await this.get(fileId);
-    const level = await this.require(caller, file.assetId, 'edit');
-    if (file.uploadedBy !== caller.principal.userId && !atLeast(level, 'manage')) {
-      throw AppError.forbidden('Only the uploader or a manager can delete this file');
+    const perms = await this.require(caller, file.assetId, 'view');
+    if (!(file.uploadedBy === caller.principal.userId && perms.has('attach')) && !perms.has('delete')) {
+      throw AppError.forbidden('Only the person who uploaded it, or someone with “Delete”, can delete this file');
     }
     await this.files.delete(file.id);
     await this.storage.delete([file.objectKey]);
@@ -107,10 +107,11 @@ export class FileService {
     return file;
   }
 
-  private async require(caller: Caller, assetId: string, level: AccessLevel): Promise<AccessLevel> {
+  private async require(caller: Caller, assetId: string, permission: Permission): Promise<Set<Permission>> {
     const check = await this.access.check(caller.token, assetId);
     if (!check) throw AppError.notFound('Asset');
-    if (!atLeast(check.level, level)) throw AppError.forbidden();
-    return check.level;
+    const perms = new Set(check.permissions);
+    if (!perms.has(permission)) throw AppError.forbidden(`This needs the “${permissionMeta[permission].label}” permission`);
+    return perms;
   }
 }

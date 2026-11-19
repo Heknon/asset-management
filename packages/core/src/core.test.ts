@@ -7,9 +7,22 @@ import {
   csvCell,
   csvFilename,
   csvLine,
-  effectiveLevel,
-  shareKeysOf,
-  shareLevelsFor,
+  accessSchema,
+  can,
+  canManageTemplates,
+  effectivePermissions,
+  fromMask,
+  normalizePermissions,
+  parseSubjectKey,
+  permissionKeys,
+  permissionList,
+  permissionsOfLevel,
+  roleOf,
+  roles,
+  subjectKeysOf,
+  toMask,
+  unionPermissions,
+  unitPermissions,
   instantiateTemplate,
   mergeAttributes,
   redactAttributes,
@@ -130,23 +143,43 @@ describe('permissions', () => {
   const principal = {
     isAdmin: false,
     grants: [
-      { unitId: rnd, assetTypeId: null, level: 'view' as const },
-      { unitId: team, assetTypeId: type, level: 'edit' as const },
+      { unitId: rnd, assetTypeId: null, permissions: [...roles.viewer.permissions] },
+      { unitId: team, assetTypeId: type, permissions: [...roles.editor.permissions] },
     ],
   };
+  const perms = (scope: Parameters<typeof effectivePermissions>[1], p = principal) => permissionList(effectivePermissions(p, scope));
 
-  it('applies grants to the whole subtree and takes the highest', () => {
-    expect(effectiveLevel(principal, { unitPath: [root, rnd, team], assetTypeId: type })).toBe('edit');
-    expect(effectiveLevel(principal, { unitPath: [root, rnd, team], assetTypeId: 'other' })).toBe('view');
-    expect(effectiveLevel(principal, { unitPath: [root, rnd], assetTypeId: type })).toBe('view');
-    expect(effectiveLevel(principal, { unitPath: [root, sales], assetTypeId: type })).toBe('none');
-    expect(effectiveLevel(principal, { unitPath: [root], assetTypeId: type })).toBe('none');
-    expect(effectiveLevel({ isAdmin: true, grants: [] }, { unitPath: [root, sales], assetTypeId: type })).toBe('manage');
+  it('applies grants to the whole subtree and adds them up', () => {
+    expect(perms({ unitPath: [root, rnd, team], assetTypeId: type })).toEqual(roles.editor.permissions);
+    expect(perms({ unitPath: [root, rnd, team], assetTypeId: 'other' })).toEqual(['view']);
+    expect(perms({ unitPath: [root, rnd], assetTypeId: type })).toEqual(['view']);
+    expect(perms({ unitPath: [root, sales], assetTypeId: type })).toEqual([]);
+    expect(perms({ unitPath: [root, sales], assetTypeId: type }, { isAdmin: true, grants: [] })).toEqual([...permissionKeys]);
+    expect(can(principal, 'edit', { unitPath: [root, rnd, team], assetTypeId: type })).toBe(true);
+    expect(can(principal, 'delete', { unitPath: [root, rnd, team], assetTypeId: type })).toBe(false);
   });
 
   it('builds query scopes and consolidates grants', () => {
     expect(scopesFor(principal, 'edit')).toEqual([{ unitId: team, assetTypeId: type }]);
-    expect(consolidateGrants([...principal.grants, { unitId: rnd, assetTypeId: null, level: 'manage' }])).toHaveLength(2);
+    const merged = consolidateGrants([...principal.grants, { unitId: rnd, assetTypeId: null, permissions: ['view', 'comment'] }]);
+    expect(merged).toHaveLength(2);
+    expect(merged[0]!.permissions).toEqual(['view', 'comment']);
+  });
+
+  it('recognises roles and keeps custom sets canonical', () => {
+    expect(roleOf(['view', 'comment'])).toBe('commenter');
+    expect(roleOf(['export'])).toBe('custom');
+    expect(normalizePermissions(['export', 'export', 'attach'])).toEqual(['view', 'attach', 'export']);
+    expect(fromMask(toMask(roles.editor.permissions))).toEqual(roles.editor.permissions);
+    expect(accessSchema.parse({ role: 'contributor' })).toEqual(roles.contributor.permissions);
+    expect(accessSchema.safeParse({ role: 'custom', permissions: [] }).success).toBe(false);
+    expect(permissionsOfLevel('manage')).toEqual([...permissionKeys]);
+  });
+
+  it('only lets type-wide managers of the company change templates', () => {
+    expect(canManageTemplates({ isAdmin: false, grants: [{ unitId: root, assetTypeId: null, permissions: [...permissionKeys] }] }, [root])).toBe(true);
+    expect(canManageTemplates({ isAdmin: false, grants: [{ unitId: rnd, assetTypeId: null, permissions: [...permissionKeys] }] }, [root])).toBe(false);
+    expect(unitPermissions(principal, [root, rnd, team]).has('edit')).toBe(false);
   });
 
   it('lets people request for their units and every unit above them', () => {
@@ -199,20 +232,16 @@ describe('catalog shares', () => {
   const team = '00000000-0000-4000-8000-00000000000e';
   const paths = new Map([[team, [division, team]]]);
 
-  it('reaches a person through their units and every ancestor', () => {
-    const keys = shareKeysOf({ userId: 'u1', units: [{ unitId: team, role: 'member' }] }, (id) => paths.get(id));
-    expect(keys).toEqual(['user:u1', `unit:${division}`, `unit:${team}`]);
+  it('reaches a person directly, through their groups, units and every ancestor unit', () => {
+    const keys = subjectKeysOf({ userId: 'u1', units: [{ unitId: team, role: 'member' }] }, (id) => paths.get(id), ['g1']);
+    expect(keys).toEqual(['user:u1', 'group:g1', `unit:${division}`, `unit:${team}`]);
+    expect(parseSubjectKey('group:g1')).toEqual({ kind: 'group', id: 'g1' });
   });
 
-  it('adds access but never manage', () => {
-    const principal = { isAdmin: false, grants: [] };
-    const scope = { unitPath: ['other'], assetTypeId: 't' };
-    expect(effectiveLevel(principal, scope)).toBe('none');
-    expect(effectiveLevel(principal, { ...scope, shared: 'view' })).toBe('view');
-    expect(effectiveLevel(principal, { ...scope, shared: 'manage' })).toBe('edit');
-    expect(effectiveLevel({ isAdmin: false, grants: [{ unitId: null, assetTypeId: null, level: 'manage' }] }, { ...scope, shared: 'view' })).toBe('manage');
-    expect(shareLevelsFor('edit')).toEqual(['edit']);
-    expect(shareLevelsFor('manage')).toEqual([]);
+  it('adds what shares give to what the org chart gives', () => {
+    const p = { isAdmin: false, grants: [{ unitId: division, assetTypeId: null, permissions: ['view' as const] }] };
+    expect(permissionList(effectivePermissions(p, { unitPath: [division], assetTypeId: 't', shared: ['view', 'comment'] }))).toEqual(['view', 'comment']);
+    expect(unionPermissions([['view'], ['view', 'attach']])).toEqual(['view', 'attach']);
   });
 });
 

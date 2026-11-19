@@ -6,6 +6,7 @@
  */
 import type { IsoDate } from './duration.js';
 import type { TrackedDate } from './tracking.js';
+import type { Permission } from './permissions.js';
 
 export interface AssetChanged {
   assetId: string;
@@ -43,6 +44,16 @@ export interface UserChanged {
   email: string | null;
   active: boolean;
   preferences: { emailReminders: boolean; outlookInvites: boolean };
+  /** Directory groups the person is in (catalogs can be shared with groups). */
+  groupIds: string[];
+}
+
+/** A directory group appeared or was renamed (names for sharing screens). */
+export interface GroupChanged {
+  groupId: string;
+  name: string;
+  source: string;
+  memberCount: number;
 }
 
 export interface UnitChanged {
@@ -81,7 +92,7 @@ export interface CatalogChanged {
   name: string;
   deleted: boolean;
   /** "unit:<id>" / "user:<id>" → level. */
-  shares: Array<{ subjectKey: string; level: 'view' | 'edit' }>;
+  shares: Array<{ subjectKey: string; permissions: Permission[] }>;
   version: number;
 }
 
@@ -124,6 +135,7 @@ export interface EventMap {
   'asset.changed': AssetChanged;
   'asset.deleted': AssetDeleted;
   'user.changed': UserChanged;
+  'group.changed': GroupChanged;
   'catalog.changed': CatalogChanged;
   'asset.commented': AssetCommented;
   'renewal.check': RenewalCheckChanged;

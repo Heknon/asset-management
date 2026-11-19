@@ -1,9 +1,10 @@
 import {
   AppError,
   isValidIsoDate,
-  ShareKeyResolver,
+  ownerPermissions,
+  SubjectKeyResolver,
   visibilityFor,
-  type AccessLevel,
+  type Permission,
   type AssetChanged,
   type CatalogChanged,
   type Obligation,
@@ -24,18 +25,21 @@ import type { ObligationWithAsset } from './ports.js';
 import type { Clock, SchedulerStore } from './ports.js';
 
 export class ObligationService {
-  private readonly shareKeys: ShareKeyResolver;
+  private readonly shareKeys: SubjectKeyResolver;
 
   constructor(
     private readonly store: SchedulerStore,
     private readonly clock: Clock,
     private readonly appUrl: string,
   ) {
-    this.shareKeys = new ShareKeyResolver((ids) => store.unitPaths(ids));
+    this.shareKeys = new SubjectKeyResolver(
+      (ids) => store.unitPaths(ids),
+      (userId) => store.groupIdsOf(userId),
+    );
   }
 
   /** Org-tree scopes plus catalogs shared with the caller (same rules as the registry). */
-  private async visibility(p: Principal, required: AccessLevel): Promise<Visibility> {
+  private async visibility(p: Principal, required: Permission): Promise<Visibility> {
     return visibilityFor(p, required, p.isAdmin ? [] : await this.shareKeys.of(p));
   }
 
@@ -80,6 +84,7 @@ export class ObligationService {
       active: e.active,
       emailReminders: e.preferences.emailReminders,
       outlookInvites: e.preferences.outlookInvites,
+      groupIds: e.groupIds,
     });
   }
 
@@ -118,9 +123,11 @@ export class ObligationService {
   async act(principal: Principal, id: string, action: ObligationAction): Promise<Obligation> {
     const found = await this.store.getObligation(id);
     if (!found) throw AppError.notFound('Obligation');
-    const shared = principal.isAdmin ? undefined : await this.store.catalogShareLevel(found.asset.catalogId, await this.shareKeys.of(principal));
-    // Anyone who can see it may answer "still needed?"; everything else needs edit.
-    authorize(principal, action.action === 'answer' ? 'view' : 'edit', { unitPath: found.asset.unitPath, assetTypeId: found.asset.assetTypeId, shared });
+    const shared = principal.isAdmin
+      ? undefined
+      : [...(found.asset.ownerId === principal.userId ? ownerPermissions : []), ...(await this.store.catalogSharePermissions(found.asset.catalogId, await this.shareKeys.of(principal)))];
+    // Anyone who can see it may answer "still needed?" (owners usually only see); the rest is "Handle renewals".
+    authorize(principal, action.action === 'answer' ? 'view' : 'renew', { unitPath: found.asset.unitPath, assetTypeId: found.asset.assetTypeId, shared });
     const o = found.obligation;
     const today = this.clock.today();
 

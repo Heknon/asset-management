@@ -1,11 +1,13 @@
 import {
   AppError,
+  normalizePermissions,
+  parseSubjectKey,
   foldText,
-  type AccessLevel,
   type ActivityEntry,
   type AssetComment,
   type CatalogInput,
-  type ShareLevel,
+  type Permission,
+  type Subject,
   type Visibility,
   type AssetQuery,
   type AssetType,
@@ -21,7 +23,7 @@ import {
   type SavedViewInput,
   type Scope,
 } from '@am/core';
-import { catalogShareLevel, enqueue, inSubtree, scopeFilter, visibleFilter } from '@am/platform';
+import { catalogSharePermissions, enqueue, inSubtree, scopeFilter, visibleFilter } from '@am/platform';
 import { sql, type Kysely, type Selectable, type SqlBool } from 'kysely';
 import type { RegistryStore, RequestRow, UnitRef } from '../application/ports.js';
 import { splitRestricted, type AssetDraft, type AssetState } from '../domain/asset.js';
@@ -107,7 +109,7 @@ const toRequest = (r: RequestRowDb): RequestState & { snippet?: string } => ({
   ...(r.snippet && r.snippet.includes('«') ? { snippet: r.snippet } : {}),
 });
 
-type ShareJson = { subjectKey: string; level: ShareLevel; createdByName: string; createdAt: string };
+type ShareJson = { subjectKey: string; permissions: string[]; createdByName: string; createdAt: string };
 type CatalogRow = Selectable<RegistryDB['catalogs']> & { unit_path: string[] | null; asset_count: number | string; shares: ShareJson[] };
 
 const toCatalog = (r: CatalogRow): CatalogState => ({
@@ -120,7 +122,7 @@ const toCatalog = (r: CatalogRow): CatalogState => ({
   color: r.color,
   version: r.version,
   assetCount: Number(r.asset_count),
-  shares: r.shares.map((x) => ({ subjectKey: x.subjectKey, level: x.level, createdByName: x.createdByName, createdAt: new Date(x.createdAt) })),
+  shares: r.shares.map((x) => ({ subjectKey: x.subjectKey, permissions: normalizePermissions(x.permissions), createdByName: x.createdByName, createdAt: new Date(x.createdAt) })),
   createdByName: r.created_by_name,
   createdAt: r.created_at,
   updatedAt: r.updated_at,
@@ -280,7 +282,7 @@ export class PgRegistryStore implements RegistryStore {
     let q = this.db
       .selectFrom('assets')
       .leftJoin('units_ref', 'units_ref.id', 'assets.unit_id')
-      .where(visibleFilter(visibility, { unitPath: 'units_ref.path', assetType: 'assets.asset_type_id', catalog: 'assets.catalog_id' }));
+      .where(visibleFilter(visibility, { unitPath: 'units_ref.path', assetType: 'assets.asset_type_id', catalog: 'assets.catalog_id', owner: 'assets.owner_id' }));
     if (query.assetTypeId) q = q.where('assets.asset_type_id', '=', query.assetTypeId);
     if (query.unitId) q = q.where(query.includeSubunits ? inSubtree(query.unitId, 'units_ref.path') : sql<SqlBool>`assets.unit_id = ${query.unitId}`);
     if (query.catalogId) q = q.where('assets.catalog_id', '=', query.catalogId);
@@ -298,8 +300,49 @@ export class PgRegistryStore implements RegistryStore {
     return (await q.select('assets.asset_type_id').distinct().execute()).map((r) => r.asset_type_id);
   }
 
-  catalogShareLevel(catalogId: string | null, shareKeys: readonly string[]): Promise<AccessLevel> {
-    return catalogShareLevel(this.db, catalogId, shareKeys);
+  catalogSharePermissions(catalogId: string | null, shareKeys: readonly string[]): Promise<Permission[]> {
+    return catalogSharePermissions(this.db, catalogId, shareKeys);
+  }
+
+  async anyShareWith(shareKeys: readonly string[], permission: Permission) {
+    if (!shareKeys.length) return false;
+    const r = await sql<{ ok: number }>`select 1 as ok from catalog_shares where subject_key = any(${sql.val([...shareKeys])}::text[]) and ${permission} = any(permissions) limit 1`.execute(this.db);
+    return r.rows.length > 0;
+  }
+
+  async groupIdsOf(userId: string) {
+    return (await this.db.selectFrom('users_ref').select('group_ids').where('id', '=', userId).executeTakeFirst())?.group_ids ?? [];
+  }
+
+  async upsertGroupRef(g: { id: string; name: string; source: string; memberCount: number }) {
+    const values = { name: g.name, source: g.source, member_count: g.memberCount };
+    await this.db.insertInto('groups_ref').values({ id: g.id, ...values }).onConflict((oc) => oc.column('id').doUpdateSet(values)).execute();
+  }
+
+  async describeSubjects(keys: string[]) {
+    const ids = { unit: [] as string[], user: [] as string[], group: [] as string[] };
+    for (const k of keys) {
+      const { kind, id } = parseSubjectKey(k);
+      ids[kind].push(id);
+    }
+    const out = new Map<string, Subject>();
+    if (ids.unit.length) {
+      for (const r of await this.db.selectFrom('units_ref').select(['id', 'name', 'kind']).where('id', 'in', ids.unit).execute()) {
+        out.set(`unit:${r.id}`, { kind: 'unit', id: r.id, name: r.name, detail: `${r.kind} · everyone in it` });
+      }
+    }
+    if (ids.user.length) {
+      for (const r of await this.db.selectFrom('users_ref').select(['id', 'display_name']).where('id', 'in', ids.user).execute()) {
+        out.set(`user:${r.id}`, { kind: 'user', id: r.id, name: r.display_name, detail: 'Person' });
+      }
+    }
+    if (ids.group.length) {
+      for (const r of await this.db.selectFrom('groups_ref').selectAll().where('id', 'in', ids.group).execute()) {
+        out.set(`group:${r.id}`, { kind: 'group', id: r.id, name: r.name, detail: `${r.source === 'local' ? 'Group' : `${r.source === 'ldap' ? 'LDAP' : 'ADFS'} group`} · ${r.member_count} people` });
+      }
+    }
+    for (const k of keys) if (!out.has(k)) out.set(k, { ...parseSubjectKey(k), name: 'Unknown', detail: null });
+    return out;
   }
 
   async queryAssets(query: AssetQuery, visibility: Visibility, type: AssetType | null) {
@@ -447,12 +490,13 @@ export class PgRegistryStore implements RegistryStore {
     return new Map(rows.map((r) => [r.id, r.display_name]));
   }
 
-  async upsertUserRef(ref: { id: string; displayName: string; active: boolean }) {
+  async upsertUserRef(ref: { id: string; displayName: string; active: boolean; groupIds?: string[] }) {
     const prev = await this.db.selectFrom('users_ref').select('display_name').where('id', '=', ref.id).executeTakeFirst();
+    const values = { display_name: ref.displayName, active: ref.active, ...(ref.groupIds && { group_ids: ref.groupIds }) };
     await this.db
       .insertInto('users_ref')
-      .values({ id: ref.id, display_name: ref.displayName, active: ref.active })
-      .onConflict((oc) => oc.column('id').doUpdateSet({ display_name: ref.displayName, active: ref.active }))
+      .values({ id: ref.id, ...values })
+      .onConflict((oc) => oc.column('id').doUpdateSet(values))
       .execute();
     return { renamed: !!prev && prev.display_name !== ref.displayName };
   }
@@ -618,7 +662,7 @@ export class PgRegistryStore implements RegistryStore {
       .select([
         sql<string[] | null>`units_ref.path`.as('unit_path'),
         sql<number>`(select count(*) from assets a where a.catalog_id = catalogs.id)`.as('asset_count'),
-        sql<ShareJson[]>`coalesce((select json_agg(json_build_object('subjectKey', s.subject_key, 'level', s.level, 'createdByName', s.created_by_name, 'createdAt', s.created_at) order by s.created_at) from catalog_shares s where s.catalog_id = catalogs.id), '[]')`.as('shares'),
+        sql<ShareJson[]>`coalesce((select json_agg(json_build_object('subjectKey', s.subject_key, 'permissions', s.permissions, 'createdByName', s.created_by_name, 'createdAt', s.created_at) order by s.created_at) from catalog_shares s where s.catalog_id = catalogs.id), '[]')`.as('shares'),
       ]);
   }
 
@@ -695,17 +739,21 @@ export class PgRegistryStore implements RegistryStore {
     return out;
   }
 
-  async putShare(catalogId: string, subjectKey: string, level: ShareLevel, byName: string) {
+  async putShare(catalogId: string, subjectKey: string, permissions: Permission[], byName: string) {
     await this.db
       .insertInto('catalog_shares')
-      .values({ catalog_id: catalogId, subject_key: subjectKey, level, created_by_name: byName })
-      .onConflict((oc) => oc.columns(['catalog_id', 'subject_key']).doUpdateSet({ level }))
+      .values({ catalog_id: catalogId, subject_key: subjectKey, permissions, created_by_name: byName })
+      .onConflict((oc) => oc.columns(['catalog_id', 'subject_key']).doUpdateSet({ permissions }))
       .execute();
   }
 
   async removeShare(catalogId: string, subjectKey: string) {
     const r = await this.db.deleteFrom('catalog_shares').where('catalog_id', '=', catalogId).where('subject_key', '=', subjectKey).executeTakeFirst();
     return Number(r.numDeletedRows) > 0;
+  }
+
+  async rootUnitIds() {
+    return (await this.db.selectFrom('units_ref').select('id').where('parent_id', 'is', null).execute()).map((r) => r.id);
   }
 
   async unitsExist(ids: string[]) {

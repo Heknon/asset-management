@@ -1,4 +1,4 @@
-import type { Duration, ObligationState, TrackedDate } from '@am/core';
+import { permissionsOfLevel, type Duration, type ObligationState, type TrackedDate } from '@am/core';
 import { outboxMigration, type OutboxTable } from '@am/platform';
 import { sql, type ColumnType, type Generated, type Migration } from 'kysely';
 
@@ -37,6 +37,7 @@ export interface SchedulerDB extends OutboxTable {
     email_reminders: boolean;
     outlook_invites: boolean;
     calendar_token: string | null;
+    group_ids: ColumnType<string[], string[] | undefined, string[]>;
   };
   obligations: {
     id: Generated<string>;
@@ -70,7 +71,7 @@ export interface SchedulerDB extends OutboxTable {
   };
   /** Projection of catalog sharing (owned by the registry). */
   catalogs_ref: { id: string; version: number; deleted: boolean };
-  catalog_shares: { catalog_id: string; subject_key: string; level: 'view' | 'edit' };
+  catalog_shares: { catalog_id: string; subject_key: string; permissions: ColumnType<string[], string[], string[]> };
   deliveries: {
     obligation_id: string;
     recipient: string;
@@ -208,6 +209,15 @@ export const migrations: Record<string, Migration> = {
         add column check_answered_by_name text,
         add column check_note text`.execute(db);
       await sql`create index obligations_check on obligations (check_status) where check_status is not null`.execute(db);
+    },
+  },
+  '0005_roles': {
+    async up(db) {
+      await sql`alter table catalog_shares add column permissions text[]`.execute(db);
+      for (const level of ['view', 'edit']) await sql`update catalog_shares set permissions = ${permissionsOfLevel(level)}::text[] where level = ${level}`.execute(db);
+      await sql`alter table catalog_shares alter column permissions set not null, drop column level`.execute(db);
+      await sql`create index if not exists catalog_shares_subject_only on catalog_shares (subject_key)`.execute(db);
+      await sql`alter table users_ref add column group_ids uuid[] not null default '{}'`.execute(db);
     },
   },
 };

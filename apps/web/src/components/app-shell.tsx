@@ -70,7 +70,7 @@ function Sidebar({ me, onSearch }: { me: Me; onSearch: () => void }) {
   const summary = useSummary();
   const counts = useRequestCounts();
   const views = useViews();
-  const { mine } = useMyOrg();
+  const { mine, canManageOrganization } = useMyOrg();
   const newRequest = useNewRequest();
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -159,23 +159,27 @@ function Sidebar({ me, onSearch }: { me: Me; onSearch: () => void }) {
             <span className="truncate">{t.name}</span>
           </Link>
         ))}
-        {types.data?.length === 0 && <p className="px-2 text-xs text-subtle">{me.isAdmin ? 'Create a template to get started.' : 'No asset types yet.'}</p>}
+        {types.data?.length === 0 && <p className="px-2 text-xs text-subtle">{me.isAdmin || canManageOrganization ? 'Create a template to get started.' : 'No asset types yet.'}</p>}
 
-        {me.isAdmin && (
+        {(me.isAdmin || canManageOrganization) && (
           <>
             <Heading>Administration</Heading>
-            <NavItem to="/settings/organization" icon={<Network />} active={path === '/settings/organization'}>
-              Organization
-            </NavItem>
+            {me.isAdmin && (
+              <NavItem to="/settings/organization" icon={<Network />} active={path === '/settings/organization'}>
+                Organization
+              </NavItem>
+            )}
             <NavItem to="/templates" icon={<LayoutTemplate />} active={path.startsWith('/templates')}>
               Templates
             </NavItem>
             <NavItem to="/settings/date-kinds" icon={<CalendarDays />} active={path === '/settings/date-kinds'}>
               Date kinds
             </NavItem>
-            <NavItem to="/settings/people" icon={<Users />} active={path === '/settings/people'}>
-              People & groups
-            </NavItem>
+            {me.isAdmin && (
+              <NavItem to="/settings/people" icon={<Users />} active={path === '/settings/people'}>
+                People & groups
+              </NavItem>
+            )}
             <NavItem to="/settings/access" icon={<KeyRound />} active={path === '/settings/access'}>
               Access
             </NavItem>
@@ -213,6 +217,7 @@ function Sidebar({ me, onSearch }: { me: Me; onSearch: () => void }) {
 }
 
 export function AppShell({ me }: { me: Me }) {
+  const { canManageOrganization } = useMyOrg();
   const [paletteOpen, setPaletteOpen] = useState(false);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -233,7 +238,7 @@ export function AppShell({ me }: { me: Me }) {
         <main className="flex min-w-0 flex-1 flex-col overflow-y-auto">
           <Outlet />
         </main>
-        <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} isAdmin={me.isAdmin} />
+        <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} isAdmin={me.isAdmin || canManageOrganization} />
       </div>
     </NewRequestProvider>
   );

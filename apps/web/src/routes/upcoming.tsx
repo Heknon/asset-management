@@ -112,10 +112,10 @@ export function UpcomingPage() {
   );
 }
 
-/** Edit rights on an obligation follow its asset's team and type. */
+/** Acting on dates (renew, snooze, ask the owner) is the “Handle renewals” permission. */
 function useCanEditObligation() {
-  const { canEditIn } = useMyOrg();
-  return (o: Obligation) => canEditIn(o.unitId, o.assetTypeId);
+  const { can } = useMyOrg();
+  return (o: Obligation) => can(o.unitId, 'renew', o.assetTypeId);
 }
 
 /** "Do you still need it?" questions waiting for me, with one-click answers. */

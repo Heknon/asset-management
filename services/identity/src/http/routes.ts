@@ -1,6 +1,8 @@
 import {
   AppError,
+  accessUpdateSchema,
   grantInputSchema,
+  subjectSearchSchema,
   groupInputSchema,
   pageQuerySchema,
   passwordLoginSchema,
@@ -15,6 +17,7 @@ import { ACCESS_COOKIE, parse, REFRESH_COOKIE, requireAdmin, requirePrincipal } 
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import type { AuthService, IssuedSession } from '../application/auth-service.js';
+import type { AccessService } from '../application/access-service.js';
 import type { DirectoryService } from '../application/directory-service.js';
 import type { OrgService } from '../application/org-service.js';
 import type { RedirectState } from '../application/ports.js';
@@ -27,6 +30,7 @@ export interface RouteOptions {
   auth: AuthService;
   directory: DirectoryService;
   org: OrgService;
+  access: AccessService;
   jwks: () => Promise<unknown>;
   publicUrl: string;
   secureCookies: boolean;
@@ -227,18 +231,19 @@ export function registerRoutes(app: FastifyInstance, o: RouteOptions): void {
     return o.org.import(parse(orgImportSchema, req.body));
   });
 
-  app.get(`${PREFIX}/grants`, async (req) => {
-    requireAdmin(req);
-    const f = parse(z.object({ principalType: z.enum(['user', 'group']).optional(), principalId: z.string().uuid().optional() }), req.query);
-    return o.directory.listGrants(f);
+  // ─── Access (roles on units and the whole organization) ──────────────────
+
+  app.get(`${PREFIX}/subjects`, async (req) => {
+    requirePrincipal(req);
+    const q = parse(subjectSearchSchema, req.query);
+    return o.access.searchSubjects(q.q, q.kinds);
   });
-  app.post(`${PREFIX}/grants`, async (req) => {
-    requireAdmin(req);
-    return o.directory.createGrant(parse(grantInputSchema, req.body));
-  });
+  app.get(`${PREFIX}/units/:id/access`, async (req) => o.access.unitAccess(requirePrincipal(req), parse(idParam, req.params).id));
+  app.get(`${PREFIX}/access`, async (req) => o.access.organizationAccess(requirePrincipal(req)));
+  app.post(`${PREFIX}/grants`, async (req, reply) => reply.status(201).send(await o.access.grant(requirePrincipal(req), parse(grantInputSchema, req.body))));
+  app.patch(`${PREFIX}/grants/:id`, async (req) => o.access.update(requirePrincipal(req), parse(idParam, req.params).id, parse(accessUpdateSchema, req.body).access));
   app.delete(`${PREFIX}/grants/:id`, async (req, reply) => {
-    requireAdmin(req);
-    await o.directory.deleteGrant(parse(idParam, req.params).id);
+    await o.access.revoke(requirePrincipal(req), parse(idParam, req.params).id);
     return reply.status(204).send();
   });
 }

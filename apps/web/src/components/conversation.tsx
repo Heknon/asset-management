@@ -1,4 +1,4 @@
-import { atLeast, type AccessLevel, type AssetComment, type UserSummary } from '@am/core';
+import { type AssetComment, type Permission, type UserSummary } from '@am/core';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { CircleHelp, MessagesSquare, MoreHorizontal, Pencil, Send, Trash2 } from 'lucide-react';
 import { Fragment, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
@@ -17,7 +17,7 @@ import { Menu, MenuItem } from './ui/overlay';
  * renewal decisions. Everyone who can see the asset can read and write;
  * @mentioned people and the owner are emailed.
  */
-export function Conversation({ assetId, access }: { assetId: string; access: AccessLevel }) {
+export function Conversation({ assetId, permissions }: { assetId: string; permissions: readonly Permission[] }) {
   const comments = useComments(assetId);
   const me = useMe().data!;
   const qc = useQueryClient();
@@ -65,7 +65,7 @@ export function Conversation({ assetId, access }: { assetId: string; access: Acc
                       {formatDateTime(c.createdAt)}
                       {c.editedAt && !c.deleted && ' · edited'}
                     </span>
-                    {!c.deleted && (c.authorId === me.userId || atLeast(access, 'manage')) && (
+                    {!c.deleted && (c.authorId === me.userId || permissions.includes('delete')) && (
                       <span className="ml-auto opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                         <Menu trigger={<Button size="icon" variant="ghost" aria-label="Message actions" icon={<MoreHorizontal className="size-3.5" />} />}>
                           {c.authorId === me.userId && (
@@ -101,8 +101,12 @@ export function Conversation({ assetId, access }: { assetId: string; access: Acc
         </ol>
       )}
       <div className={cn('px-4 pb-4', items.length ? 'border-t border-border pt-3' : 'pt-1')}>
-        {!items.length && <p className="mb-2 text-xs text-muted">Ask the owner a question, note a vendor update, or record a decision. Type @ to mention someone — they’ll get an email.</p>}
-        <Composer key={items.length} people={mentioned} submitLabel="Send" pending={post.isPending} onSubmit={(body) => post.mutate(body)} />
+        {!items.length && permissions.includes('comment') && <p className="mb-2 text-xs text-muted">Ask the owner a question, note a vendor update, or record a decision. Type @ to mention someone — they’ll get an email.</p>}
+        {permissions.includes('comment') ? (
+          <Composer key={items.length} people={mentioned} submitLabel="Send" pending={post.isPending} onSubmit={(body) => post.mutate(body)} />
+        ) : (
+          <p className="text-xs text-muted">You can read this conversation. Writing needs the “Comment” permission.</p>
+        )}
       </div>
     </Card>
   );

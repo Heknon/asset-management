@@ -1,4 +1,4 @@
-import { memberAccessLevels, type OrgImportResult, type OrgUnit, type OrgUnitInput } from '@am/core';
+import { memberRoles, roles, type MemberRole, type OrgImportResult, type OrgUnit, type OrgUnitInput } from '@am/core';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { Building2, ChevronDown, ChevronRight, FileUp, MoreHorizontal, Plus, RefreshCcw, Search, Users } from 'lucide-react';
@@ -15,11 +15,7 @@ import { cn, slugKey } from '@/lib/utils';
 
 const LEVELS = ['Company', 'Division', 'Department', 'Team', 'Squad', 'Project', 'Client'];
 
-const accessText = {
-  none: 'Members see nothing by default (use grants).',
-  view: 'Members can see this unit’s assets and requests. Recommended.',
-  edit: 'Members can also add and edit this unit’s assets.',
-};
+const memberRoleText = (r: MemberRole) => (r === 'none' ? 'Members get no access from membership alone (use the Access tab).' : `${roles[r].description}.${r === 'viewer' ? ' Recommended.' : ''}`);
 
 /**
  * The org chart: divisions, departments and teams, each linked to directory
@@ -179,7 +175,7 @@ function UnitEditor({ unit, parentId, onSaved }: { unit: OrgUnit | null; parentI
           description: null,
           parentId: parentId ?? null,
           color: parent?.color ?? '#6366f1',
-          memberAccess: 'view',
+          memberRole: 'viewer',
           directoryMembers: [],
           directoryManagers: [],
           archived: false,
@@ -248,8 +244,8 @@ function UnitEditor({ unit, parentId, onSaved }: { unit: OrgUnit | null; parentI
       <Field label="What members can do">
         {() => (
           <div className="space-y-1.5">
-            <Segmented value={d.memberAccess} onChange={(memberAccess) => set({ memberAccess })} options={memberAccessLevels.map((l) => ({ value: l, label: l === 'none' ? 'Nothing' : l === 'view' ? 'View' : 'View & edit' }))} />
-            <p className="text-xs text-subtle">{accessText[d.memberAccess]} Managers always manage the unit and everything below it.</p>
+            <Segmented value={d.memberRole} onChange={(memberRole) => set({ memberRole })} options={memberRoles.map((r) => ({ value: r, label: r === 'none' ? 'Nothing' : roles[r].label }))} />
+            <p className="text-xs text-subtle">{memberRoleText(d.memberRole)} Managers are always Admins of the unit and everything below it. Give anyone else access in the unit’s Access tab.</p>
           </div>
         )}
       </Field>
