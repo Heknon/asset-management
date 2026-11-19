@@ -83,14 +83,16 @@ export function Field({ label, hint, error, required, children, className, aside
 
 /** Pill-style segmented control for small enums. */
 export function Segmented<T extends string>({ value, onChange, options, className }: { value: T; onChange: (v: T) => void; options: Array<{ value: T; label: ReactNode }>; className?: string }) {
+  // Long choices ("Add every row as a new item") stack on phones instead of squeezing into two-line pills.
+  const long = options.some((o) => typeof o.label === 'string' && o.label.length > 18);
   return (
-    <div className={cn('inline-flex rounded-lg bg-surface-2 p-0.5', className)}>
+    <div className={cn('inline-flex rounded-lg bg-surface-2 p-0.5', long && 'max-sm:flex max-sm:w-full max-sm:flex-col', className)}>
       {options.map((o) => (
         <button
           key={o.value}
           type="button"
           onClick={() => onChange(o.value)}
-          className={cn('h-6 rounded-md px-2.5 text-xs font-medium transition-colors', value === o.value ? 'bg-surface text-fg shadow-sm' : 'text-muted hover:text-fg')}
+          className={cn('h-6 rounded-md px-2.5 text-xs font-medium transition-colors', long && 'max-sm:h-8 max-sm:text-left', value === o.value ? 'bg-surface text-fg shadow-sm' : 'text-muted hover:text-fg')}
         >
           {o.label}
         </button>

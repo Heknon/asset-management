@@ -415,7 +415,7 @@ function CommandPalette({ open, onOpenChange, isAdmin, onHelp }: { open: boolean
     ...creatable.map((t) => ({ label: `New ${inSentence(t.name)}`, icon: <TypeIcon icon={t.icon} color={t.color} size={20} />, keys: [] as string[], run: () => void navigate({ to: '/assets', search: { type: t.id, new: '1' } }) })),
     ...(isAdmin ? [{ label: 'New template', icon: <LayoutTemplate />, keys: [] as string[], run: () => void navigate({ to: '/templates', search: { new: '1' } }) }] : []),
     { label: 'Import a spreadsheet', icon: <FileUp />, keys: ['G', 'I'], run: () => void navigate({ to: '/import' }) },
-    { label: 'Keyboard shortcuts', icon: <Keyboard />, keys: ['?'], run: onHelp },
+    ...(matchMedia('(pointer: coarse)').matches ? [] : [{ label: 'Keyboard shortcuts', icon: <Keyboard />, keys: ['?'], run: onHelp }]),
   ].filter((x) => matches(x.label));
   const recents = needle ? recent.filter((x) => x.title.toLowerCase().includes(needle)).slice(0, 4) : recent.slice(0, 5);
   const jumps = [
@@ -490,7 +490,7 @@ function CommandPalette({ open, onOpenChange, isAdmin, onHelp }: { open: boolean
                 <Command.Group heading="Recent" className={group}>
                   {recents.map((x) => (
                     <Command.Item key={`${x.kind}-${x.id}`} value={`recent-${x.kind}-${x.id}`} className={item} onSelect={() => go(() => void navigate(recentLink(x) as never))}>
-                      {x.icon ? <TypeIcon icon={x.icon} color={x.color ?? '#64748b'} size={24} /> : <Clock />}
+                      {x.icon ? <TypeIcon icon={x.icon} color={x.color ?? '#64748b'} size={24} /> : x.kind === 'request' ? <ShoppingCart /> : x.kind === 'catalog' ? <FolderOpen /> : x.kind === 'unit' ? <Building2 /> : <Clock />}
                       <span className="flex min-w-0 flex-1 items-baseline gap-2">
                         <span className="truncate font-medium">{x.title}</span>
                         {x.subtitle && <span className="truncate text-xs text-subtle">{x.subtitle}</span>}

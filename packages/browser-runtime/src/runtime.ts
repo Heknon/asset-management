@@ -159,6 +159,9 @@ export class BrowserRuntime {
     return this.queue.run(async () => {
       const res = await this.dispatch(req);
       await this.relayAll();
+      // Reads stay fast (PGlite flushes lazily); a change is written through to IndexedDB before
+      // it is acknowledged, so closing the tab right after saving cannot lose it.
+      if (req.method !== 'GET' && req.method !== 'HEAD') await (this.pg as unknown as { fs: { syncToFs(relaxed: boolean): Promise<void> } }).fs.syncToFs(false);
       return res;
     });
   }

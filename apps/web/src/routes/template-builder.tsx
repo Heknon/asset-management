@@ -55,7 +55,7 @@ import { toast } from 'sonner';
 import { AttributeInput } from '@/components/attribute';
 import { DurationInput, DurationListEditor } from '@/components/duration-editor';
 import { ColorPicker, IconPicker, AssetTypeSelect, UnitPath, UnitPicker } from '@/components/pickers';
-import { TypeIcon } from '@/components/type-icon';
+import { guessIcon, TypeIcon } from '@/components/type-icon';
 import { Button } from '@/components/ui/button';
 import { Badge, Card, EmptyState, PageHeader, SectionTitle, Spinner } from '@/components/ui/display';
 import { WorkflowEditor } from '@/components/workflow-editor';
@@ -105,12 +105,13 @@ export function TemplateBuilderPage() {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const { name: startName } = useSearch({ strict: false }) as { name?: string };
-  const [draft, setDraft] = useState<AssetTypeInput & { version?: number; archived?: boolean }>(() => ({ ...blankType(), ...(isNew && startName && { name: startName, key: slugKey(startName) }) }));
+  const [draft, setDraft] = useState<AssetTypeInput & { version?: number; archived?: boolean }>(() => ({ ...blankType(), ...(isNew && startName && { name: startName, key: slugKey(startName), icon: guessIcon(startName) ?? 'box' }) }));
   const [savedKeys, setSavedKeys] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<string | null>(null);
   const [issues, setIssues] = useState<Array<{ path: string; message: string }>>([]);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [iconPicked, setIconPicked] = useState(false);
 
   useEffect(() => {
     if (existing.data) {
@@ -230,7 +231,7 @@ export function TemplateBuilderPage() {
         info={
           <Card className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Name" required>
-              {(id) => <Input id={id} value={draft.name} placeholder="e.g. Software license" onChange={(e) => update({ name: e.target.value, ...(isNew && { key: slugKey(e.target.value) }) })} />}
+              {(id) => <Input id={id} value={draft.name} placeholder="e.g. Software license" onChange={(e) => update({ name: e.target.value, ...(isNew && { key: slugKey(e.target.value), ...(!iconPicked && { icon: guessIcon(e.target.value) ?? 'box' }) }) })} />}
             </Field>
             <Field label="Key" hint={isNew ? 'Stable identifier used in integrations' : 'Cannot be changed'}>
               {(id) => <Input id={id} value={draft.key} disabled={!isNew} className="font-mono text-xs" onChange={(e) => update({ key: e.target.value })} />}
@@ -242,7 +243,7 @@ export function TemplateBuilderPage() {
               {(id) => <Input id={id} className="w-28 font-mono uppercase" maxLength={6} value={draft.refPrefix ?? ''} placeholder={defaultRefPrefix(draft.key || 'item')} onChange={(e) => update({ refPrefix: e.target.value.toUpperCase() || undefined })} />}
             </Field>
             <Field label="Color">{() => <ColorPicker value={draft.color} onChange={(color) => update({ color })} />}</Field>
-            <Field label="Icon" className="sm:col-span-2">{() => <IconPicker value={draft.icon} color={draft.color} onChange={(icon) => update({ icon })} />}</Field>
+            <Field label="Icon" className="sm:col-span-2">{() => <IconPicker value={draft.icon} color={draft.color} onChange={(icon) => (setIconPicked(true), update({ icon }))} />}</Field>
           </Card>
         }
         extra={
@@ -346,7 +347,9 @@ function SchemaWorkbench({
             </ul>
           )}
           {fields.length === 0 ? (
-            <EmptyState
+            !locked ? (
+              <p className="px-4 pt-4 pb-1 text-[13px] text-muted">No fields yet. Pick the common ones below, or add any field with “Add field”. Tracked dates drive reminders and renewals.</p>
+            ) : <EmptyState
               icon={<Plus />}
               title={locked ? 'Add what this team tracks on top' : 'No fields yet'}
               description={locked ? 'e.g. the workstation, MAC addresses or the lab that uses it. Template fields above stay as they are.' : 'Add the attributes every item of this type has. Tracked dates drive reminders and renewals.'}
