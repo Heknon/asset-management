@@ -11,6 +11,7 @@ import { AssetDetailPage } from './routes/asset-detail';
 import { AssetsPage, SavedViewPage } from './routes/assets';
 import { CalendarPage } from './routes/calendar';
 import { CatalogPage, CatalogsPage } from './routes/catalogs';
+import { ImportPage } from './routes/import';
 import { LoginPage } from './routes/login';
 import { OrganizationPage } from './routes/organization';
 import { RequestDetailPage, RequestsPage } from './routes/requests';
@@ -99,7 +100,18 @@ const routeTree = root.addChildren([
   app.addChildren([
     createRoute({ getParentRoute: () => app, path: '/', component: UpcomingPage }),
     createRoute({ getParentRoute: () => app, path: '/calendar', component: CalendarPage }),
-    createRoute({ getParentRoute: () => app, path: '/assets', component: AssetsPage, validateSearch: (s: Record<string, unknown>) => ({ type: optionalString(s.type), q: optionalString(s.q) }) }),
+    createRoute({
+      getParentRoute: () => app,
+      path: '/assets',
+      component: AssetsPage,
+      validateSearch: (s: Record<string, unknown>) => ({ type: optionalString(s.type), q: optionalString(s.q), import: optionalString(s.import) }),
+    }),
+    createRoute({
+      getParentRoute: () => app,
+      path: '/import',
+      component: ImportPage,
+      validateSearch: (s: Record<string, unknown>) => ({ type: optionalString(s.type), unit: optionalString(s.unit), catalog: optionalString(s.catalog) }),
+    }),
     createRoute({ getParentRoute: () => app, path: '/search', component: SearchPage, validateSearch: (s: Record<string, unknown>) => ({ q: optionalString(s.q) }) }),
     createRoute({ getParentRoute: () => app, path: '/requests', component: RequestsPage }),
     createRoute({ getParentRoute: () => app, path: '/requests/$requestId', component: RequestDetailPage }),

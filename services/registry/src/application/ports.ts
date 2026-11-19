@@ -3,6 +3,7 @@ import type {
   AssetComment,
   AssetQuery,
   CatalogInput,
+  ImportBatch,
   TypeVariant,
   TypeVariantInput,
   AssetType,
@@ -145,6 +146,19 @@ export interface RegistryStore {
   insertComment(c: Pick<AssetComment, 'assetId' | 'authorId' | 'authorName' | 'body' | 'mentionIds'> & { kind?: AssetComment['kind']; sourceKey?: string }): Promise<AssetComment | null>;
   updateComment(id: string, patch: { body: string; mentionIds: string[] } | { deleted: true }): Promise<AssetComment>;
   commentCounts(assetIds: string[]): Promise<Map<string, number>>;
+
+  /** Runs fn in a savepoint: its writes are undone if it throws (one bad import row never blocks the others). */
+  attempt<T>(fn: () => Promise<T>): Promise<{ ok: true; value: T } | { ok: false; error: unknown }>;
+  /** Existing items an import row may update (same template). */
+  findForImport(assetTypeId: string, match: { reference?: { prefix: string; no: number }; name?: string; unitId?: string | null; field?: { key: string; value: unknown } }): Promise<Array<{ id: string; updatedAt: Date }>>;
+  insertImportBatch(b: { assetTypeId: string; fileName: string; createdBy: string; createdByName: string }): Promise<string>;
+  addToImportBatch(id: string, counts: { created: number; updated: number }): Promise<void>;
+  setImportBatch(assetId: string, batchId: string): Promise<void>;
+  getImportBatch(id: string): Promise<(ImportBatch & { createdBy: string }) | null>;
+  listImportBatches(createdBy: string | null, limit: number): Promise<ImportBatch[]>;
+  /** Items of a batch never changed since it created them. */
+  untouchedImported(batchId: string): Promise<string[]>;
+  markImportUndone(id: string): Promise<void>;
 
   listViews(ownerId: string): Promise<SavedView[]>;
   createView(ownerId: string, input: SavedViewInput): Promise<SavedView>;

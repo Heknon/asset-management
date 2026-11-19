@@ -644,6 +644,28 @@ export class PgIdentityStore implements IdentityStore {
     return out;
   }
 
+  async resolvePeople(values: string[]) {
+    const wanted = [...new Set(values.map((v) => v.trim()).filter(Boolean))];
+    const out: Record<string, UserSummary | null> = Object.fromEntries(wanted.map((v) => [v, null]));
+    if (!wanted.length) return out;
+    const lower = wanted.map((v) => v.toLowerCase());
+    const rows = await this.db
+      .selectFrom('users')
+      .select(['id', 'username', 'display_name', 'email'])
+      .where('active', '=', true)
+      .where((eb) => eb.or([eb(sql`lower(email)`, 'in', lower), eb(sql`lower(username)`, 'in', lower), eb(sql`lower(display_name)`, 'in', lower)]))
+      .execute();
+    for (const v of wanted) {
+      const l = v.toLowerCase();
+      // Email and username are unique; a display name only counts when exactly one person has it.
+      const exact = rows.find((r) => r.email?.toLowerCase() === l || r.username.toLowerCase() === l);
+      const byName = rows.filter((r) => r.display_name.toLowerCase() === l);
+      const hit = exact ?? (byName.length === 1 ? byName[0] : undefined);
+      out[v] = hit ? { id: hit.id, username: hit.username, displayName: hit.display_name, email: hit.email } : null;
+    }
+    return out;
+  }
+
   async groupIdsOf(userId: string) {
     return (await this.db.selectFrom('group_members').select('group_id').where('user_id', '=', userId).execute()).map((r) => r.group_id);
   }

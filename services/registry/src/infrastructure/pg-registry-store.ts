@@ -9,6 +9,7 @@ import {
   type CatalogInput,
   type Permission,
   type Subject,
+  type ImportBatch,
   type TypeVariant,
   type TypeVariantInput,
   type Visibility,
@@ -160,6 +161,18 @@ const toComment = (r: Selectable<RegistryDB['asset_comments']>): AssetComment =>
   createdAt: r.created_at.toISOString(),
   editedAt: r.edited_at ? r.edited_at.toISOString() : null,
   deleted: r.deleted,
+});
+
+const toBatch = (r: Selectable<RegistryDB['import_batches']> & { undoable: number | string }): ImportBatch => ({
+  id: r.id,
+  assetTypeId: r.asset_type_id,
+  fileName: r.file_name,
+  createdByName: r.created_by_name,
+  created: r.created_count,
+  updated: r.updated_count,
+  createdAt: r.created_at.toISOString(),
+  undoneAt: r.undone_at ? r.undone_at.toISOString() : null,
+  undoable: r.undone_at ? 0 : Number(r.undoable),
 });
 
 type RequestVisibility = { userId: string; viewScopes: Scope[]; editScopes: Scope[]; myUnitIds: string[] };
@@ -358,6 +371,7 @@ export class PgRegistryStore implements RegistryStore {
     if (query.unitId) q = q.where(query.includeSubunits ? inSubtree(query.unitId, 'units_ref.path') : sql<SqlBool>`assets.unit_id = ${query.unitId}`);
     if (query.catalogId) q = q.where('assets.catalog_id', '=', query.catalogId);
     if (query.variantId) q = q.where('assets.variant_id', '=', query.variantId);
+    if (query.importBatchId) q = q.where('assets.import_batch_id', '=', query.importBatchId);
     if (query.status) q = q.where('assets.status', '=', query.status);
     if (query.ownerId) q = q.where('assets.owner_id', '=', query.ownerId);
     // Only non-restricted values are indexed, so search cannot reveal secrets.
@@ -895,6 +909,78 @@ export class PgRegistryStore implements RegistryStore {
   }
 
   // ─── Saved views ─────────────────────────────────────────────────────────
+
+  private savepoints = 0;
+
+  async attempt<T>(fn: () => Promise<T>) {
+    const name = sql.raw(`import_row_${++this.savepoints}`);
+    await sql`savepoint ${name}`.execute(this.db);
+    try {
+      const value = await fn();
+      await sql`release savepoint ${name}`.execute(this.db);
+      return { ok: true as const, value };
+    } catch (error) {
+      await sql`rollback to savepoint ${name}`.execute(this.db);
+      this.typeCache.clear();
+      return { ok: false as const, error };
+    }
+  }
+
+  async findForImport(assetTypeId: string, match: { reference?: { prefix: string; no: number }; name?: string; unitId?: string | null; field?: { key: string; value: unknown } }) {
+    let q = this.db.selectFrom('assets').select(['assets.id', 'assets.updated_at']).where('assets.asset_type_id', '=', assetTypeId);
+    if (match.reference) {
+      q = q.where('assets.ref_no', '=', match.reference.no).where(sql<SqlBool>`exists (select 1 from asset_types t where t.id = assets.asset_type_id and t.ref_prefix = ${match.reference.prefix})`);
+    } else if (match.field) {
+      q = q.where(sql<SqlBool>`(assets.attributes -> ${match.field.key}) = ${json(match.field.value)}::jsonb`);
+    } else if (match.name) {
+      q = q.where(sql<SqlBool>`lower(assets.name) = lower(${match.name})`);
+      if (match.unitId) q = q.where('assets.unit_id', '=', match.unitId);
+    } else return [];
+    return (await q.limit(5).execute()).map((r) => ({ id: r.id, updatedAt: r.updated_at }));
+  }
+
+  async insertImportBatch(b: { assetTypeId: string; fileName: string; createdBy: string; createdByName: string }) {
+    const r = await this.db
+      .insertInto('import_batches')
+      .values({ asset_type_id: b.assetTypeId, file_name: b.fileName, created_by: b.createdBy, created_by_name: b.createdByName, undone_at: null })
+      .returning('id')
+      .executeTakeFirstOrThrow();
+    return r.id;
+  }
+
+  async addToImportBatch(id: string, counts: { created: number; updated: number }) {
+    await this.db.updateTable('import_batches').set({ created_count: sql`created_count + ${counts.created}`, updated_count: sql`updated_count + ${counts.updated}` }).where('id', '=', id).execute();
+  }
+
+  async setImportBatch(assetId: string, batchId: string) {
+    await this.db.updateTable('assets').set({ import_batch_id: batchId }).where('id', '=', assetId).execute();
+  }
+
+  private batches() {
+    return this.db
+      .selectFrom('import_batches')
+      .selectAll('import_batches')
+      .select(sql<number>`(select count(*) from assets a where a.import_batch_id = import_batches.id and a.version = 1)`.as('undoable'));
+  }
+
+  async getImportBatch(id: string) {
+    const r = await this.batches().where('id', '=', id).executeTakeFirst();
+    return r ? { ...toBatch(r), createdBy: r.created_by } : null;
+  }
+
+  async listImportBatches(createdBy: string | null, limit: number) {
+    let q = this.batches().orderBy('created_at', 'desc').limit(limit);
+    if (createdBy) q = q.where('created_by', '=', createdBy);
+    return (await q.execute()).map(toBatch);
+  }
+
+  async untouchedImported(batchId: string) {
+    return (await this.db.selectFrom('assets').select('id').where('import_batch_id', '=', batchId).where('version', '=', 1).execute()).map((r) => r.id);
+  }
+
+  async markImportUndone(id: string) {
+    await this.db.updateTable('import_batches').set({ undone_at: sql`now()` }).where('id', '=', id).execute();
+  }
 
   async listViews(ownerId: string): Promise<SavedView[]> {
     const rows = await this.db.selectFrom('saved_views').selectAll().where('owner_id', '=', ownerId).orderBy('created_at').execute();

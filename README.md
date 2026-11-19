@@ -177,6 +177,18 @@ Where to change it: a unit's **Access** tab (its managers), **Share** on a catal
 - **Item IDs.** Every item gets a readable ID from its template's prefix: `LIC-42`, `SIM-7`, `HW-118`. IDs are shown everywhere, searchable (typing `lic-42` jumps straight to it), exported, and never reused. The prefix is editable per template; existing items were numbered in creation order by the migration.
 - **Lists and multiple links.** A *List* field holds several short values, each checked against a format (MAC address, IPv4, hostname, email or your own pattern); pasting a column adds them all. A *Linked asset* field can link several items (the machines that use a license).
 
+## Importing spreadsheets
+
+**Import** (on All assets, any template, a catalog, or ⌘K → *Import a spreadsheet*) brings in what people already track elsewhere:
+
+1. **Table.** Drop a CSV / TSV / semicolon file or a Markdown file, or paste cells copied from Excel or Google Sheets. Delimiters are detected; a Markdown file with several tables lets you pick one (named after the heading above it).
+2. **Where it goes.** The template whose fields best match the columns is suggested (or, for template managers, *New template from these columns* with field types guessed from the values). One team for every row, or a column that names the team (matched by name or path, `R&D / Platform`, with a picker for the rest). Optionally a team variant (*Kind*) and a catalog. *Add every row as new*, or *update items that already exist*, recognised by name, ID (`LIC-42`) or a field such as serial number.
+3. **Columns.** Every column is matched to a field, Name, ID, Owner, Team or Status by its header (with common synonyms: Supplier → Vendor, Expires → Renewal date, # of licenses → Seats), each with a live "412 ok · 3 won’t fit" check. Dates are read day-first, month-first or ISO (detected from the values), numbers with currency symbols and either decimal mark, yes/no, option labels (unknown values can be mapped), people by email, username or name, linked items by ID or name, and lists split on `;` `,` or new lines. Columns the template lacks can become the team's own fields in one click (a team variant).
+4. **Check.** A full dry run: the real import, rolled back, so the counts (new / updated / unchanged / problems) and every problem — by row and field — are exactly what will happen. Import the good rows and download the problem rows as CSV to fix.
+5. **Done.** Items get IDs, reminders, search and history like hand-made ones. *Undo import* removes the items it added that nobody has changed since (Import → *Your recent imports*).
+
+Imports run 500 rows per request (up to 20,000 per file), each row in its own savepoint, with the same permissions as adding items by hand.
+
 ## Catalogs, conversations and renewal checks
 
 - **Catalogs.** Managers of a unit create catalogs on the unit page (Catalogs tab) or under Catalogs. A catalog holds assets of its unit and every team beneath it; an asset is in at most one catalog (chosen in the asset form). Moving items into or out of a catalog needs *Edit items* on the catalog, because it changes who can see them.

@@ -123,7 +123,7 @@ export function AssetExplorer({
   title,
 }: {
   initial?: SavedQuery;
-  fixed?: { assetTypeId?: string; unitId?: string; catalogId?: string };
+  fixed?: { assetTypeId?: string; unitId?: string; catalogId?: string; importBatchId?: string };
   view?: SavedView;
   empty?: React.ReactNode;
   /** Names the CSV export ("Software licenses 2026-11-19.csv"). */
@@ -157,6 +157,7 @@ export function AssetExplorer({
     unitId: query.unitId,
     includeSubunits: query.includeSubunits,
     catalogId: fixed.catalogId,
+    importBatchId: fixed.importBatchId,
     variantId: query.variantId,
     status: query.status,
     q: search || undefined,

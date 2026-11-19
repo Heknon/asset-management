@@ -62,6 +62,7 @@ export interface RegistryDB extends OutboxTable {
     catalog_id: string | null;
     variant_id: string | null;
     ref_no: number;
+    import_batch_id: string | null;
     /** Non-restricted values: searchable and visible to every viewer. */
     attributes: Json<Attributes>;
     /** Restricted values (secrets, sensitive fields): only returned to `manage`. */
@@ -165,6 +166,17 @@ export interface RegistryDB extends OutboxTable {
     created_at: Timestamp;
     edited_at: Timestamp | null;
     deleted: Generated<boolean>;
+  };
+  import_batches: {
+    id: Generated<string>;
+    asset_type_id: string;
+    file_name: string;
+    created_by: string;
+    created_by_name: string;
+    created_count: Generated<number>;
+    updated_count: Generated<number>;
+    created_at: Timestamp;
+    undone_at: Timestamp | null;
   };
   saved_views: {
     id: Generated<string>;
@@ -451,6 +463,25 @@ export const migrations: Record<string, Migration> = {
       await db.schema.createIndex('assets_variant').on('assets').column('variant_id').execute();
       // Search text now includes the item ID: rebuild it in the background.
       await sql`update assets set search_text = ''`.execute(db);
+    },
+  },
+  '0008_imports': {
+    async up(db) {
+      await db.schema
+        .createTable('import_batches')
+        .addColumn('id', 'uuid', (c) => c.primaryKey().defaultTo(sql`gen_random_uuid()`))
+        .addColumn('asset_type_id', 'uuid', (c) => c.notNull())
+        .addColumn('file_name', 'text', (c) => c.notNull())
+        .addColumn('created_by', 'uuid', (c) => c.notNull())
+        .addColumn('created_by_name', 'text', (c) => c.notNull())
+        .addColumn('created_count', 'integer', (c) => c.notNull().defaultTo(0))
+        .addColumn('updated_count', 'integer', (c) => c.notNull().defaultTo(0))
+        .addColumn('created_at', 'timestamptz', (c) => c.notNull().defaultTo(sql`now()`))
+        .addColumn('undone_at', 'timestamptz')
+        .execute();
+      await db.schema.createIndex('import_batches_creator').on('import_batches').columns(['created_by', 'created_at']).execute();
+      await sql`alter table assets add column import_batch_id uuid references import_batches(id)`.execute(db);
+      await db.schema.createIndex('assets_import_batch').on('assets').column('import_batch_id').execute();
     },
   },
 };

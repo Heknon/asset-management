@@ -53,6 +53,10 @@ export class DirectoryService {
   listGroups() {
     return this.store.listGroups();
   }
+  resolvePeople(values: string[]) {
+    return this.store.resolvePeople(values);
+  }
+
   async createGroup(input: { name: string; externalId: string | null }) {
     const g = await this.store.createGroup(input);
     await this.store.publishGroupChanged([g.id]);

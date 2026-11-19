@@ -8,6 +8,7 @@ import {
   Building2,
   CalendarDays,
   ChevronDown,
+  FileUp,
   FolderOpen,
   Inbox,
   KeyRound,
@@ -272,6 +273,7 @@ function CommandPalette({ open, onOpenChange, isAdmin }: { open: boolean; onOpen
     { label: 'All assets', icon: <Shapes />, run: () => void navigate({ to: '/assets' }) },
     { label: 'Calendar', icon: <CalendarDays />, run: () => void navigate({ to: '/calendar' }) },
     { label: 'Catalogs', icon: <FolderOpen />, run: () => void navigate({ to: '/catalogs' }) },
+    { label: 'Import a spreadsheet', icon: <FileUp />, run: () => void navigate({ to: '/import' }) },
     { label: 'Profile & notifications', icon: <User />, run: () => void navigate({ to: '/profile' }) },
     ...(isAdmin
       ? [

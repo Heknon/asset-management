@@ -5,6 +5,7 @@ import { AssetService } from './application/asset-service.js';
 import { CatalogService } from './application/catalog-service.js';
 import { CommentService } from './application/comment-service.js';
 import { ExportService } from './application/export-service.js';
+import { ImportService } from './application/import-service.js';
 import { TypeService } from './application/type-service.js';
 import { VariantService } from './application/variant-service.js';
 import { RequestService } from './application/request-service.js';
@@ -23,7 +24,8 @@ main(() =>
     name: 'registry',
     config: registryConfig,
     migrations,
-    bodyLimit: 2 * 1_048_576,
+    // Import chunks (500 rows) are the largest requests.
+    bodyLimit: 4 * 1_048_576,
     async register({ config, database, app, bus, logger }) {
       // Typo-tolerant search needs pg_trgm; without it, prefix and substring search still work.
       const fuzzy = !!(await sql<{ ok: number }>`select 1 as ok from pg_extension where extname = 'pg_trgm'`.execute(database.db)).rows.length;
@@ -41,6 +43,7 @@ main(() =>
           catalogs: new CatalogService(store, access),
           comments,
           exports: new ExportService(store, assets, access),
+          imports: new ImportService(store, assets),
           requests,
           search: new SearchService(store, assets, requests),
         },

@@ -1,7 +1,7 @@
 import type { SavedView } from '@am/core';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useNavigate, useParams, useSearch } from '@tanstack/react-router';
-import { Bookmark, MoreHorizontal, Pencil, Pin, PinOff, Plus, Shapes, Trash2 } from 'lucide-react';
+import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
+import { Bookmark, FileUp, MoreHorizontal, Pencil, Pin, PinOff, Plus, Shapes, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { AssetExplorer } from '@/components/asset-explorer';
@@ -24,7 +24,7 @@ export function useCanCreate(assetTypeId: string | undefined) {
 }
 
 export function AssetsPage() {
-  const { type: typeId, q } = useSearch({ strict: false }) as { type?: string; q?: string };
+  const { type: typeId, q, import: importId } = useSearch({ strict: false }) as { type?: string; q?: string; import?: string };
   const lookups = useLookups();
   const type = typeId ? lookups.typeById.get(typeId) : undefined;
   const [creating, setCreating] = useState(false);
@@ -37,15 +37,29 @@ export function AssetsPage() {
         description={type?.description ?? 'Everything you can see, across every type and team.'}
         icon={type ? <TypeIcon icon={type.icon} color={type.color} size={36} /> : undefined}
         actions={
-          canCreate && (
-            <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setCreating(true)}>
-              New {type!.name.toLowerCase()}
-            </Button>
-          )
+          <>
+            <Link to="/import" search={{ type: typeId }}>
+              <Button icon={<FileUp className="size-4" />}>Import</Button>
+            </Link>
+            {canCreate && (
+              <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setCreating(true)}>
+                New {type!.name.toLowerCase()}
+              </Button>
+            )}
+          </>
         }
-      />
+      >
+        {importId && (
+          <p className="mt-2 flex items-center gap-2 text-xs text-muted">
+            Showing the items one import added.
+            <Link to="/assets" search={{ type: typeId }} className="text-accent-fg hover:underline">
+              Show everything
+            </Link>
+          </p>
+        )}
+      </PageHeader>
       <AssetExplorer
-        fixed={typeId ? { assetTypeId: typeId } : {}}
+        fixed={{ ...(typeId && { assetTypeId: typeId }), ...(importId && { importBatchId: importId }) }}
         initial={q ? { q } : undefined}
         empty={
           <EmptyState

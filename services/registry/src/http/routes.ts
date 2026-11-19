@@ -3,6 +3,7 @@ import {
   assetExportSchema,
   assetQuerySchema,
   catalogInputSchema,
+  importRequestSchema,
   typeVariantInputSchema,
   catalogQuerySchema,
   catalogShareInputSchema,
@@ -28,6 +29,7 @@ import type { AssetService } from '../application/asset-service.js';
 import type { CatalogService } from '../application/catalog-service.js';
 import type { CommentService } from '../application/comment-service.js';
 import type { ExportService } from '../application/export-service.js';
+import type { ImportService } from '../application/import-service.js';
 import type { TypeService } from '../application/type-service.js';
 import type { VariantService } from '../application/variant-service.js';
 import type { RequestService } from '../application/request-service.js';
@@ -45,6 +47,7 @@ export interface Services {
   catalogs: CatalogService;
   comments: CommentService;
   exports: ExportService;
+  imports: ImportService;
   requests: RequestService;
   search: SearchService;
 }
@@ -54,7 +57,7 @@ export interface Features {
   csvExport: boolean;
 }
 
-export function registerRoutes(app: FastifyInstance, { types, variants, assets, catalogs, comments, exports, requests, search }: Services, features: Features): void {
+export function registerRoutes(app: FastifyInstance, { types, variants, assets, catalogs, comments, exports, imports, requests, search }: Services, features: Features): void {
   app.get(`${PREFIX}/features`, async (req) => {
     requirePrincipal(req);
     return features;
@@ -169,6 +172,11 @@ export function registerRoutes(app: FastifyInstance, { types, variants, assets, 
   app.get(`${PREFIX}/assets/:id/activity`, async (req) => assets.activity(requirePrincipal(req), parse(idParam, req.params).id));
   app.get(`${PREFIX}/assets/:id/access`, async (req) => assets.access(requirePrincipal(req), parse(idParam, req.params).id));
   app.get(`${PREFIX}/assets/:id/request`, async (req) => (await requests.forAsset(requirePrincipal(req), parse(idParam, req.params).id)) ?? {});
+
+  // ─── Imports ─────────────────────────────────────────────────────────────
+  app.post(`${PREFIX}/imports`, async (req) => imports.run(requirePrincipal(req), parse(importRequestSchema, req.body)));
+  app.get(`${PREFIX}/imports`, async (req) => imports.list(requirePrincipal(req)));
+  app.delete(`${PREFIX}/imports/:id`, async (req) => imports.undo(requirePrincipal(req), parse(idParam, req.params).id));
 
   // ─── Conversations ───────────────────────────────────────────────────────
   app.get(`${PREFIX}/assets/:id/comments`, async (req) => comments.list(requirePrincipal(req), parse(idParam, req.params).id));

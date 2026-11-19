@@ -84,6 +84,7 @@ export interface IdentityStore {
   updateGrant(id: string, permissions: Permission[]): Promise<GrantRecord>;
   deleteGrant(id: string): Promise<void>;
   searchSubjects(q: string, kinds: SubjectKind[], limit?: number): Promise<Subject[]>;
+  resolvePeople(values: string[]): Promise<Record<string, UserSummary | null>>;
   effectiveGrants(userId: string): Promise<Grant[]>;
 
   createSession(userId: string, tokenHash: string, expiresAt: Date, userAgent: string | null): Promise<Session>;

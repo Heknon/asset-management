@@ -2,7 +2,7 @@ import { type AssetType } from '@am/core';
 import { accessLabel } from '@/components/access';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
-import { FolderOpen, MoreHorizontal, Pencil, Plus, Share2, Trash2, Users } from 'lucide-react';
+import { FileUp, FolderOpen, MoreHorizontal, Pencil, Plus, Share2, Trash2, Users } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { AssetExplorer } from '@/components/asset-explorer';
@@ -136,6 +136,11 @@ export function CatalogPage() {
               {canManage ? 'Share' : 'Who has access'}
               {c.shares.length > 0 && <span className="ml-1 text-muted">{c.shares.length}</span>}
             </Button>
+            {canAdd && (
+              <Link to="/import" search={{ unit: c.unitId, catalog: c.id }}>
+                <Button icon={<FileUp className="size-3.5" />}>Import</Button>
+              </Link>
+            )}
             {canAdd && (
               <Menu trigger={<Button variant="primary" icon={<Plus className="size-3.5" />}>Add item</Button>}>
                 {types

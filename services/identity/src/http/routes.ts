@@ -2,6 +2,7 @@ import {
   AppError,
   accessUpdateSchema,
   grantInputSchema,
+  peopleResolveSchema,
   subjectSearchSchema,
   groupInputSchema,
   pageQuerySchema,
@@ -147,6 +148,12 @@ export function registerRoutes(app: FastifyInstance, o: RouteOptions): void {
     const q = parse(z.object({ q: z.string().max(100).optional(), ids: z.string().optional() }), req.query);
     const ids = q.ids?.split(',').filter((id) => z.string().uuid().safeParse(id).success);
     return o.directory.userSummaries(q.q, ids);
+  });
+
+  /** Import: match cells ("dana@corp.com", "dcohen", "Dana Cohen") to people; ambiguous names stay unmatched. */
+  app.post(`${PREFIX}/people/resolve`, async (req) => {
+    requirePrincipal(req);
+    return o.directory.resolvePeople(parse(peopleResolveSchema, req.body).values);
   });
 
   // The org chart is visible to everyone signed in (names only; access is enforced per asset).

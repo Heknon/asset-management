@@ -305,6 +305,8 @@ export const assetQuerySchema = pageQuerySchema.extend({
   ownerId: uuid.optional(),
   catalogId: uuid.optional(),
   variantId: uuid.optional(),
+  /** Items created by one import. */
+  importBatchId: uuid.optional(),
   q: z.string().max(200).optional(),
   filters: jsonParam(z.array(assetFilterSchema).max(20)).default([]),
   sort: z.string().max(60).default('updatedAt'),
