@@ -1,11 +1,17 @@
-import { addDuration, atLeast, effectiveLevel, type Obligation } from '@am/core';
+import { addDuration, type Obligation } from '@am/core';
+import { useMyOrg } from '@/lib/org';
 import { CheckCircle2, Inbox } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { DateKindBadge } from '@/components/badges';
 import { ObligationList } from '@/components/obligations';
 import { Card, EmptyState, PageHeader, Skeleton, Stat } from '@/components/ui/display';
 import { Segmented, Select } from '@/components/ui/form';
-import { useDateKinds, useMe, useObligations, useSummary } from '@/lib/queries';
+import { useDateKinds, useMe, useObligations, useRequestCounts, useRequests, useSummary } from '@/lib/queries';
+import { useNewRequest } from '@/components/request-form';
+import { RequestStatusBadge } from '@/components/badges';
+import { Button } from '@/components/ui/button';
+import { Link } from '@tanstack/react-router';
+import { ArrowRight, Plus, ShoppingCart } from 'lucide-react';
 import { formatMoney, todayIso } from '@/lib/utils';
 
 const groupsOf = (items: Obligation[], today: string) => {
@@ -24,11 +30,11 @@ export function UpcomingPage() {
   const [scope, setScope] = useState<'all' | 'mine'>('all');
   const [kind, setKind] = useState('');
   const kinds = useDateKinds();
-  const summary = useSummary();
+  const summary = useSummary({ mine: scope === 'mine' });
   const today = todayIso();
   const obligations = useObligations({ state: 'active', to: addDuration(today, { amount: 1, unit: 'year' }), mine: scope === 'mine', dateKindId: kind || undefined, limit: 500 });
   const groups = useMemo(() => groupsOf(obligations.data?.items ?? [], today), [obligations.data, today]);
-  const canEdit = (o: Obligation) => atLeast(effectiveLevel(me, { purchaseClassId: o.purchaseClassId, assetTypeId: o.assetTypeId }), 'edit');
+  const canEdit = useCanEditObligation();
   const spend = summary.data?.spend[0];
   const hour = new Date().getHours();
 
@@ -61,6 +67,8 @@ export function UpcomingPage() {
           <Stat label="Renewing in 90 days" value={spend ? formatMoney(spend.next90, spend.currency, true) : '–'} hint={spend ? `${formatMoney(spend.next30, spend.currency, true)} in the next 30 days` : 'Recurring spend'} />
         </div>
 
+        <RequestsStrip />
+
         {obligations.isLoading ? (
           <Card className="space-y-3">
             {Array.from({ length: 4 }, (_, i) => (
@@ -91,5 +99,62 @@ export function UpcomingPage() {
         )}
       </div>
     </>
+  );
+}
+
+/** Edit rights on an obligation follow its asset's team and type. */
+function useCanEditObligation() {
+  const { canEditIn } = useMyOrg();
+  return (o: Obligation) => canEditIn(o.unitId, o.assetTypeId);
+}
+
+/** Handlers see what waits for them; everyone sees where their own requests stand. */
+function RequestsStrip() {
+  const counts = useRequestCounts();
+  const handles = (counts.data?.handle ?? 0) > 0;
+  const mine = useRequests({ scope: 'mine', status: 'open', limit: 3 });
+  const newRequest = useNewRequest();
+  if (!counts.data) return null;
+  return (
+    <div className="grid gap-3 md:grid-cols-2">
+      {handles && (
+        <Link to="/requests" className="block">
+          <Card className="flex h-full items-center gap-3 border-accent/30 bg-accent-soft/40 transition-colors hover:border-accent/60">
+            <span className="flex size-9 items-center justify-center rounded-lg bg-accent text-white">
+              <ShoppingCart className="size-4" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[13px] font-semibold">
+                {counts.data.handle} open {counts.data.handle === 1 ? 'request' : 'requests'} to handle
+              </span>
+              <span className="block text-xs text-muted">{counts.data.unassigned ? `${counts.data.unassigned} not picked up yet` : 'All picked up'}</span>
+            </span>
+            <ArrowRight className="size-4 text-muted" />
+          </Card>
+        </Link>
+      )}
+      <Card className={handles ? '' : 'md:col-span-2'}>
+        <div className="mb-2 flex items-center justify-between">
+          <span className="text-[13px] font-semibold">Your requests</span>
+          <Button size="xs" variant="ghost" icon={<Plus className="size-3" />} onClick={newRequest}>
+            Request something
+          </Button>
+        </div>
+        {mine.data?.items.length ? (
+          <ul className="space-y-1.5">
+            {mine.data.items.map((r) => (
+              <li key={r.id}>
+                <Link to="/requests/$requestId" params={{ requestId: r.id }} className="flex items-center gap-2 text-[13px] hover:underline">
+                  <span className="min-w-0 flex-1 truncate">{r.title}</span>
+                  <RequestStatusBadge status={r.status} />
+                </Link>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-xs text-muted">Need software, hardware or a service? Ask here and follow it to delivery.</p>
+        )}
+      </Card>
+    </div>
   );
 }

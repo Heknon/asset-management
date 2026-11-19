@@ -32,6 +32,8 @@ export const identityConfig = {
   LDAP_GROUP_BASE_DN: z.string().optional(),
   LDAP_GROUP_FILTER: z.string().default('(|(member={dn})(uniqueMember={dn}))'),
   LDAP_ADMIN_GROUPS: envList,
+  /** User attributes that place people in units, matched as `attribute=value`, e.g. department,division. */
+  LDAP_UNIT_ATTRIBUTES: envList,
 
   /** ADFS (or any OpenID Connect provider). ADFS: https://adfs.example.com/adfs */
   OIDC_ENABLED: envBool(false),
@@ -46,4 +48,6 @@ export const identityConfig = {
   OIDC_EMAIL_CLAIM: z.string().default('email'),
   OIDC_GROUPS_CLAIM: z.string().default('group'),
   OIDC_ADMIN_GROUPS: envList,
+  /** ID-token claims that place people in units, matched as `claim=value`, e.g. department. */
+  OIDC_UNIT_CLAIMS: envList,
 };

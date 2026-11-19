@@ -1,4 +1,6 @@
+import { parseOrgImport } from '@am/core';
 import { describe, expect, it } from 'vitest';
+import { assertValidParent, planImport, unitKey } from './domain/org.js';
 import { normalizeUsername } from './domain/model.js';
 import { safeReturnTo } from './http/routes.js';
 import { ScryptHasher } from './infrastructure/crypto.js';
@@ -36,5 +38,32 @@ describe('identity', () => {
     expect(await h.verify('correct horse battery staple', hash)).toBe(true);
     expect(await h.verify('wrong', hash)).toBe(false);
     expect(await h.verify('x', 'garbage')).toBe(false);
+  });
+});
+
+describe('organization tree', () => {
+  const wix = { id: 'w', name: 'Wix', path: ['w'], directoryMembers: [], directoryManagers: [], archived: false };
+  const rnd = { id: 'r', name: 'R&D', path: ['w', 'r'], directoryMembers: ['CN=rnd'], directoryManagers: [], archived: false };
+
+  it('refuses to move a unit under itself or its descendants', () => {
+    expect(() => assertValidParent('w', rnd)).toThrow(/inside itself/);
+    expect(() => assertValidParent('r', rnd)).toThrow(/inside itself/);
+    expect(() => assertValidParent('x', rnd)).not.toThrow();
+  });
+
+  it('plans imports parents-first, reusing existing units and merging links', () => {
+    const { rows } = parseOrgImport('Wix / R&D / Editor / Platform | department=Platform\nwix / r&d | CN=rnd-all');
+    const steps = planImport(rows, [wix, rnd], ['Company', 'Division', 'Department', 'Team']);
+    expect(steps.map((s) => [s.path.join('/'), s.existingId, s.kind, s.members])).toEqual([
+      ['Wix', 'w', 'Company', []],
+      ['Wix/R&D', 'r', 'Division', ['CN=rnd', 'CN=rnd-all']],
+      ['Wix/R&D/Editor', null, 'Department', []],
+      ['Wix/R&D/Editor/Platform', null, 'Team', ['department=Platform']],
+    ]);
+  });
+
+  it('derives unique keys from paths', () => {
+    expect(unitKey(['Wix', 'R&D', 'Editor'], new Set())).toBe('wix__r_d__editor');
+    expect(unitKey(['Wix'], new Set(['wix']))).toBe('wix_2');
   });
 });

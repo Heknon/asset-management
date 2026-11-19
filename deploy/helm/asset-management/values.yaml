@@ -57,11 +57,14 @@ services:
       LDAP_BIND_DN: CN=svc-assets,OU=Service Accounts,DC=corp,DC=example,DC=com
       LDAP_USER_BASE_DN: OU=Users,DC=corp,DC=example,DC=com
       LDAP_ADMIN_GROUPS: CN=Asset Admins,OU=Groups,DC=corp,DC=example,DC=com
+      # User attributes that place people in org units, matched as attribute=value on a unit's directory links.
+      LDAP_UNIT_ATTRIBUTES: department
       OIDC_ENABLED: "false"
       OIDC_LABEL: Sign in with ADFS
       OIDC_ISSUER: https://adfs.example.com/adfs
       OIDC_CLIENT_ID: asset-management
       OIDC_ADMIN_GROUPS: Asset Admins
+      OIDC_UNIT_CLAIMS: department
     secretKeys: [DATABASE_URL, AUTH_SIGNING_KEY, COOKIE_SECRET, LOCAL_ADMIN_PASSWORD, LDAP_BIND_PASSWORD, LDAP_CA_CERT, OIDC_CLIENT_SECRET]
     resources:
       requests: { cpu: 50m, memory: 128Mi }
@@ -94,6 +97,8 @@ services:
       MAIL_FROM: Asset Management <assets@example.com>
       REMINDER_TIMEZONE: UTC
       DISPATCH_CRON: "*/15 * * * *"
+      # Shared mailboxes told about every new request.
+      REQUEST_INBOX_EMAILS: procurement@example.com
     secretKeys: [DATABASE_URL, SMTP_URL]
     resources:
       requests: { cpu: 50m, memory: 128Mi }

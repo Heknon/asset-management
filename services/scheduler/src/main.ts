@@ -1,7 +1,8 @@
-import { main, runService } from '@am/platform';
+import { envList, main, runService } from '@am/platform';
 import { z } from 'zod';
 import { ObligationService } from './application/obligation-service.js';
 import { ReminderDispatcher } from './application/reminder-dispatcher.js';
+import { RequestNotifier } from './application/request-notifier.js';
 import { todayIn } from './domain/obligation.js';
 import { PgSchedulerStore } from './infrastructure/pg-scheduler-store.js';
 import { migrations, type SchedulerDB } from './infrastructure/schema.js';
@@ -16,6 +17,8 @@ const schedulerConfig = {
   REMINDER_TIMEZONE: z.string().default('UTC'),
   /** Cron for reminder runs (pg-boss guarantees one run per tick across replicas). */
   DISPATCH_CRON: z.string().default('*/15 * * * *'),
+  /** Shared mailboxes told about every new request, e.g. procurement@corp.com. */
+  REQUEST_INBOX_EMAILS: envList,
 };
 
 const DISPATCH_QUEUE = 'scheduler.dispatch';
@@ -41,6 +44,9 @@ main(() =>
       await bus.subscribe('scheduler', 'asset.changed', (e) => obligations.onAssetChanged(e));
       await bus.subscribe('scheduler', 'asset.deleted', (e) => obligations.onAssetDeleted(e.assetId));
       await bus.subscribe('scheduler', 'user.changed', (e) => obligations.onUserChanged(e));
+      await bus.subscribe('scheduler', 'unit.changed', (e) => obligations.onUnitChanged(e));
+      const notifier = new RequestNotifier(store, mailer, logger, appUrl, config.REQUEST_INBOX_EMAILS);
+      await bus.subscribe('scheduler', 'request.changed', (e) => notifier.onRequestChanged(e));
 
       await bus.schedule(DISPATCH_QUEUE, config.DISPATCH_CRON, async () => {
         const result = await dispatcher.run();

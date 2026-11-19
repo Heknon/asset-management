@@ -19,7 +19,9 @@ export interface AssetState {
   name: string;
   status: string;
   ownerId: string | null;
-  purchaseClassId: string;
+  unitId: string;
+  /** The unit's ancestor chain (root first, ending with the unit); drives inherited access. */
+  unitPath: string[];
   values: Attributes;
   reminderOverrides: Record<string, Duration[]>;
   version: number;
@@ -27,7 +29,9 @@ export interface AssetState {
   updatedAt: Date;
 }
 
-export type AssetDraft = Omit<AssetState, 'id' | 'version' | 'createdAt' | 'updatedAt'>;
+export type AssetDraft = Omit<AssetState, 'id' | 'version' | 'createdAt' | 'updatedAt' | 'unitPath'>;
+
+export const scopeOf = (a: Pick<AssetState, 'unitPath' | 'assetTypeId'>) => ({ unitPath: a.unitPath, assetTypeId: a.assetTypeId });
 
 /** Validates attribute values against the type, or throws a field-addressed validation error. */
 export function validatedValues(type: AssetType, raw: Record<string, unknown>): Attributes {
@@ -68,7 +72,7 @@ const MASK = '••••••';
 export function diff(type: Pick<AssetType, 'fields'>, before: Partial<AssetDraft> | null, after: AssetDraft): Record<string, { from: unknown; to: unknown }> {
   const changes: Record<string, { from: unknown; to: unknown }> = {};
   const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
-  for (const key of ['name', 'status', 'ownerId', 'purchaseClassId'] as const) {
+  for (const key of ['name', 'status', 'ownerId', 'unitId'] as const) {
     if (!same(before?.[key], after[key])) changes[key] = { from: before?.[key] ?? null, to: after[key] };
   }
   for (const f of type.fields) {
@@ -93,7 +97,7 @@ export function assetChangedEvent(
     name: asset.name,
     assetTypeId: type.id,
     assetTypeName: type.name,
-    purchaseClassId: asset.purchaseClassId,
+    unitId: asset.unitId,
     ownerId: asset.ownerId,
     status: asset.status,
     active: type.statuses.find((s) => s.value === asset.status)?.active ?? true,

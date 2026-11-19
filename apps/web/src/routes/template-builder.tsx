@@ -51,7 +51,7 @@ import { ColorPicker, IconPicker, AssetTypeSelect } from '@/components/pickers';
 import { TypeIcon } from '@/components/type-icon';
 import { Button } from '@/components/ui/button';
 import { Badge, Card, EmptyState, PageHeader, Spinner } from '@/components/ui/display';
-import { Checkbox, Field, Input, Segmented, Select, Switch } from '@/components/ui/form';
+import { Checkbox, Field, Input, Segmented, Select, Switch, TagInput } from '@/components/ui/form';
 import { Menu, MenuItem, Popover, Sheet } from '@/components/ui/overlay';
 import { api, ApiError } from '@/lib/api';
 import { keys, useAssetType, useDateKinds } from '@/lib/queries';
@@ -507,7 +507,6 @@ function DateMeaning({ field, fields, kinds, onChange }: { field: Extract<FieldD
   const numbers = fields.filter((f) => f.kind === 'number');
   const users = fields.filter((f) => f.kind === 'user');
   const set = (patch: Partial<DateTracking>) => onChange({ ...t!, ...patch });
-  const [emailDraft, setEmailDraft] = useState('');
 
   return (
     <div className="space-y-4 rounded-xl border border-border p-3">
@@ -517,7 +516,7 @@ function DateMeaning({ field, fields, kinds, onChange }: { field: Extract<FieldD
       </div>
       <Select
         value={t?.dateKindId ?? ''}
-        onChange={(e) => onChange(e.target.value ? { dateKindId: e.target.value, notify: t?.notify ?? { owner: true, userFields: [], emails: [] }, derive: t?.derive, recurrence: t?.recurrence, reminders: t?.reminders } : undefined)}
+        onChange={(e) => onChange(e.target.value ? { dateKindId: e.target.value, notify: t?.notify ?? { owner: true, userFields: [], emails: [], unitManagers: 'fallback' }, derive: t?.derive, recurrence: t?.recurrence, reminders: t?.reminders } : undefined)}
       >
         <option value="">Just a date (not tracked)</option>
         {kinds
@@ -635,31 +634,20 @@ function DateMeaning({ field, fields, kinds, onChange }: { field: Extract<FieldD
                         label={`Person in “${u.label}”`}
                       />
                     ))}
-                    <div className="flex flex-wrap gap-1">
-                      {t.notify.emails.map((e) => (
-                        <Badge key={e}>
-                          {e}
-                          <button type="button" aria-label={`Remove ${e}`} onClick={() => set({ notify: { ...t.notify, emails: t.notify.emails.filter((x) => x !== e) } })}>
-                            ×
-                          </button>
-                        </Badge>
-                      ))}
-                    </div>
-                    <form
-                      className="flex gap-1.5"
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailDraft)) {
-                          set({ notify: { ...t.notify, emails: [...new Set([...t.notify.emails, emailDraft.toLowerCase()])] } });
-                          setEmailDraft('');
-                        }
-                      }}
+                    <TagInput
+                      value={t.notify.emails}
+                      onChange={(emails) => set({ notify: { ...t.notify, emails: emails.map((e) => e.toLowerCase()) } })}
+                      validate={(v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)}
+                      placeholder="Also email, e.g. procurement@corp.com"
+                    />
+                    <Select
+                      value={t.notify.unitManagers}
+                      onChange={(e) => set({ notify: { ...t.notify, unitManagers: e.target.value as 'never' | 'fallback' | 'always' } })}
                     >
-                      <Input placeholder="Also email, e.g. procurement@corp.com" value={emailDraft} onChange={(e) => setEmailDraft(e.target.value)} />
-                      <Button type="submit" size="md">
-                        Add
-                      </Button>
-                    </form>
+                      <option value="fallback">Team managers — only if nobody else would be told</option>
+                      <option value="always">Team managers — always</option>
+                      <option value="never">Team managers — never</option>
+                    </Select>
                   </div>
                 )}
               </Field>

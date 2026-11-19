@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { AppError, addDuration, type IsoDate, type ObligationQuery, type Scope, type TrackedDate } from '@am/core';
-import { scopeFilter } from '@am/platform';
+import { inSubtree, scopeFilter } from '@am/platform';
 import { sql, type Kysely, type Selectable } from 'kysely';
 import type { ObligationWithAsset, SchedulerStore, UserRef } from '../application/ports.js';
 import type { AssetRef, ObligationRecord } from '../domain/obligation.js';
@@ -9,7 +9,7 @@ import type { SchedulerDB } from './schema.js';
 const json = (v: unknown) => JSON.stringify(v);
 const ACTIVE = ['open', 'snoozed'] as const;
 
-type Row = Selectable<SchedulerDB['obligations']> & Selectable<SchedulerDB['assets_ref']>;
+type Row = Selectable<SchedulerDB['obligations']> & Selectable<SchedulerDB['assets_ref']> & { unit_path: string[] | null };
 
 const toObligation = (r: Row): ObligationRecord => ({
   id: r.id,
@@ -34,7 +34,8 @@ const toAsset = (r: Row): AssetRef => ({
   name: r.name,
   assetTypeId: r.asset_type_id,
   assetTypeName: r.asset_type_name,
-  purchaseClassId: r.purchase_class_id,
+  unitId: r.unit_id,
+  unitPath: r.unit_path ?? [r.unit_id],
   ownerId: r.owner_id,
   active: r.active,
   spend: r.spend,
@@ -60,7 +61,12 @@ export class PgSchedulerStore implements SchedulerStore {
   }
 
   private joined() {
-    return this.db.selectFrom('obligations').innerJoin('assets_ref', 'assets_ref.asset_id', 'obligations.asset_id').selectAll(['obligations', 'assets_ref']);
+    return this.db
+      .selectFrom('obligations')
+      .innerJoin('assets_ref', 'assets_ref.asset_id', 'obligations.asset_id')
+      .leftJoin('units_ref', 'units_ref.id', 'assets_ref.unit_id')
+      .selectAll(['obligations', 'assets_ref'])
+      .select(sql<string[] | null>`units_ref.path`.as('unit_path'));
   }
 
   // ─── Projection ──────────────────────────────────────────────────────────
@@ -70,7 +76,7 @@ export class PgSchedulerStore implements SchedulerStore {
       name: ref.name,
       asset_type_id: ref.assetTypeId,
       asset_type_name: ref.assetTypeName,
-      purchase_class_id: ref.purchaseClassId,
+      unit_id: ref.unitId,
       owner_id: ref.ownerId,
       active: ref.active,
       spend: json(ref.spend),
@@ -93,7 +99,7 @@ export class PgSchedulerStore implements SchedulerStore {
 
   async activeObligations(assetId: string, opts: { forUpdate?: boolean } = {}) {
     let q = this.joined().where('obligations.asset_id', '=', assetId).where('obligations.state', 'in', ACTIVE);
-    if (opts.forUpdate) q = q.forUpdate();
+    if (opts.forUpdate) q = q.forUpdate('obligations');
     return (await q.execute()).map((r) => toObligation(r as Row));
   }
 
@@ -162,8 +168,10 @@ export class PgSchedulerStore implements SchedulerStore {
     let base = this.db
       .selectFrom('obligations')
       .innerJoin('assets_ref', 'assets_ref.asset_id', 'obligations.asset_id')
+      .leftJoin('units_ref', 'units_ref.id', 'assets_ref.unit_id')
       .where('assets_ref.deleted', '=', false)
-      .where((eb) => scopeFilter(eb, scopes, 'assets_ref.purchase_class_id', 'assets_ref.asset_type_id'));
+      .where(scopeFilter(scopes, 'units_ref.path', 'assets_ref.asset_type_id'));
+    if (q.unitId) base = base.where(inSubtree(q.unitId, 'units_ref.path'));
     if (q.state === 'active') base = base.where('obligations.state', 'in', ACTIVE);
     else if (q.state === 'all') base = base.where('obligations.state', '!=', 'superseded');
     else base = base.where('obligations.state', '=', q.state);
@@ -177,6 +185,7 @@ export class PgSchedulerStore implements SchedulerStore {
     const total = Number((await base.select((eb) => eb.fn.countAll<number>().as('n')).executeTakeFirstOrThrow()).n);
     const rows = await base
       .selectAll(['obligations', 'assets_ref'])
+      .select(sql<string[] | null>`units_ref.path`.as('unit_path'))
       .orderBy('obligations.due_date', q.state === 'done' || q.state === 'dismissed' ? 'desc' : 'asc')
       .orderBy('obligations.id')
       .limit(q.limit)
@@ -185,34 +194,102 @@ export class PgSchedulerStore implements SchedulerStore {
     return { items: rows.map((r) => toPair(r as Row)), total };
   }
 
-  async summary(scopes: Scope[], today: IsoDate) {
-    const rows = await this.db
+  /** Active obligations of active assets due within a year, in scope. */
+  private async upcomingRows(scopes: Scope[], today: IsoDate, filter: { unitId?: string; userId?: string }) {
+    let q = this.db
       .selectFrom('obligations')
       .innerJoin('assets_ref', 'assets_ref.asset_id', 'obligations.asset_id')
-      .select(['obligations.asset_id', 'obligations.due_date', 'obligations.recurring', 'assets_ref.spend'])
+      .leftJoin('units_ref', 'units_ref.id', 'assets_ref.unit_id')
+      .select(['obligations.asset_id', 'obligations.due_date', 'obligations.recurring', 'assets_ref.spend', 'assets_ref.unit_id', sql<string[] | null>`units_ref.path`.as('unit_path')])
       .where('assets_ref.deleted', '=', false)
       .where('assets_ref.active', '=', true)
       .where('obligations.state', 'in', ACTIVE)
-      .where('obligations.due_date', '<=', addDuration(today, { amount: 90, unit: 'day' }))
-      .where((eb) => scopeFilter(eb, scopes, 'assets_ref.purchase_class_id', 'assets_ref.asset_type_id'))
-      .execute();
+      .where('obligations.due_date', '<=', addDuration(today, { amount: 365, unit: 'day' }))
+      .where(scopeFilter(scopes, 'units_ref.path', 'assets_ref.asset_type_id'));
+    if (filter.unitId) q = q.where(inSubtree(filter.unitId, 'units_ref.path'));
+    if (filter.userId) q = q.where((eb) => eb.or([eb('assets_ref.owner_id', '=', filter.userId!), eb(sql`obligations.notify->'userIds'`, '@>', sql`${json([filter.userId])}::jsonb`)]));
+    return q.execute();
+  }
+
+  async summary(scopes: Scope[], today: IsoDate, filter: { unitId?: string; userId?: string } = {}) {
+    const rows = await this.upcomingRows(scopes, today, filter);
     const week = addDuration(today, { amount: 7, unit: 'day' });
     const month = addDuration(today, { amount: 30, unit: 'day' });
-    const spend = new Map<string, { next30: Map<string, number>; next90: Map<string, number> }>();
+    const quarter = addDuration(today, { amount: 90, unit: 'day' });
+    const spend = new Map<string, { next30: Map<string, number>; next90: Map<string, number>; next365: Map<string, number> }>();
     for (const r of rows) {
       if (!r.recurring || !r.spend || r.due_date < today) continue;
-      const s = spend.get(r.spend.currency) ?? { next30: new Map(), next90: new Map() };
-      s.next90.set(r.asset_id, r.spend.amount); // per asset, so two dates on one asset are not double counted
+      const s = spend.get(r.spend.currency) ?? { next30: new Map(), next90: new Map(), next365: new Map() };
+      // Per asset, so two dates on one asset (renewal + notice) are not double counted.
+      s.next365.set(r.asset_id, r.spend.amount);
+      if (r.due_date <= quarter) s.next90.set(r.asset_id, r.spend.amount);
       if (r.due_date <= month) s.next30.set(r.asset_id, r.spend.amount);
       spend.set(r.spend.currency, s);
     }
-    const sum = (m: Map<string, number>) => Math.round([...m.values()].reduce((a, b) => a + b, 0) * 100) / 100;
     return {
       overdue: rows.filter((r) => r.due_date < today).length,
       dueThisWeek: rows.filter((r) => r.due_date >= today && r.due_date <= week).length,
       dueThisMonth: rows.filter((r) => r.due_date >= today && r.due_date <= month).length,
-      spend: [...spend.entries()].map(([currency, s]) => ({ currency, next30: sum(s.next30), next90: sum(s.next90) })),
+      spend: [...spend.entries()].map(([currency, s]) => ({ currency, next30: sumOf(s.next30), next90: sumOf(s.next90), next365: sumOf(s.next365) })),
     };
+  }
+
+  /** What renews beneath each direct child of a unit (and on the unit itself). */
+  async rollup(scopes: Scope[], today: IsoDate, unitId: string) {
+    const rows = await this.upcomingRows(scopes, today, { unitId });
+    const quarter = addDuration(today, { amount: 90, unit: 'day' });
+    const acc = new Map<string, { open: number; overdue: number; renewing: Set<string>; spend: Map<string, Map<string, number>> }>();
+    for (const r of rows) {
+      const path = r.unit_path ?? [r.unit_id];
+      const i = path.indexOf(unitId);
+      const child = path[i + 1] ?? unitId;
+      const a = acc.get(child) ?? { open: 0, overdue: 0, renewing: new Set(), spend: new Map() };
+      a.open++;
+      if (r.due_date < today) a.overdue++;
+      if (r.recurring && r.due_date >= today && r.due_date <= quarter) a.renewing.add(r.asset_id);
+      if (r.recurring && r.spend && r.due_date >= today) {
+        const m = a.spend.get(r.spend.currency) ?? new Map();
+        m.set(r.asset_id, r.spend.amount);
+        a.spend.set(r.spend.currency, m);
+      }
+      acc.set(child, a);
+    }
+    return [...acc.entries()].map(([id, a]) => ({
+      unitId: id,
+      openItems: a.open,
+      overdue: a.overdue,
+      renewingNext90: a.renewing.size,
+      spendNext365: [...a.spend.entries()].map(([currency, m]) => ({ currency, amount: sumOf(m) })),
+    }));
+  }
+
+  // ─── Units ───────────────────────────────────────────────────────────────
+
+  async upsertUnit(u: { id: string; name: string; parentId: string | null; path: string[]; archived: boolean; managerIds: string[] }) {
+    const values = { name: u.name, parent_id: u.parentId, path: u.path, archived: u.archived, manager_ids: u.managerIds };
+    await this.db
+      .insertInto('units_ref')
+      .values({ id: u.id, ...values })
+      .onConflict((oc) => oc.column('id').doUpdateSet(values))
+      .execute();
+  }
+
+  async unitPaths(ids: string[]) {
+    if (!ids.length) return new Map<string, string[]>();
+    const rows = await this.db.selectFrom('units_ref').select(['id', 'path']).where('id', 'in', ids).execute();
+    return new Map(rows.map((r) => [r.id, r.path]));
+  }
+
+  /** Managers of the nearest unit up the tree (starting at the unit itself) that has any. */
+  async nearestManagers(unitPath: string[]) {
+    if (!unitPath.length) return [];
+    const rows = await this.db.selectFrom('units_ref').select(['id', 'manager_ids']).where('id', 'in', unitPath).execute();
+    const byId = new Map(rows.map((r) => [r.id, r.manager_ids]));
+    for (const id of [...unitPath].reverse()) {
+      const m = byId.get(id);
+      if (m?.length) return m;
+    }
+    return [];
   }
 
   // ─── Reminders & invites ─────────────────────────────────────────────────
@@ -317,3 +394,5 @@ export class PgSchedulerStore implements SchedulerStore {
     return r ? toUser(r) : null;
   }
 }
+
+const sumOf = (m: Map<string, number>) => Math.round([...m.values()].reduce((a, b) => a + b, 0) * 100) / 100;

@@ -8,7 +8,7 @@ import { api, ApiError } from '@/lib/api';
 import { useInvalidateAssets, useLookups } from '@/lib/queries';
 import { cn, formatDate, formatMoney, todayIso } from '@/lib/utils';
 import { DateKindBadge, DueBadge } from './badges';
-import { PersonName } from './pickers';
+import { PersonName, UnitPath } from './pickers';
 import { TypeIcon } from './type-icon';
 import { Button } from './ui/button';
 import { Input } from './ui/form';
@@ -81,7 +81,7 @@ function SnoozeDialog({ obligation, onClose, onSnooze }: { obligation: Obligatio
 /** Obligations as a list; used on the home screen and inside an asset. */
 export function ObligationList({ items, showAsset = true, canEdit }: { items: Obligation[]; showAsset?: boolean; canEdit: (o: Obligation) => boolean }) {
   const actions = useObligationActions();
-  const { typeById, classById } = useLookups();
+  const { typeById } = useLookups();
   const [snoozing, setSnoozing] = useState<Obligation | null>(null);
 
   return (
@@ -115,10 +115,10 @@ export function ObligationList({ items, showAsset = true, canEdit }: { items: Ob
                       <span className="tabular-nums">{formatMoney(o.spend.amount, o.spend.currency, true)}</span>
                     </>
                   )}
-                  {showAsset && classById.get(o.purchaseClassId) && (
+                  {showAsset && (
                     <>
                       <span className="text-subtle">·</span>
-                      <span className="truncate">{classById.get(o.purchaseClassId)!.name}</span>
+                      <UnitPath id={o.unitId} leafOnly />
                     </>
                   )}
                   {showAsset && o.ownerId && (

@@ -1,4 +1,4 @@
-import { AppError, consolidateGrants, type AuthSource, type Grant, type GrantInput, type GrantRecord, type Group, type Page, type PurchaseClass, type PurchaseClassInput, type User, type UserSummary } from '@am/core';
+import { AppError, consolidateGrants, type AuthSource, type Grant, type GrantInput, type GrantRecord, type Group, type OrgUnit, type OrgUnitInput, type Page, type UnitPerson, type UnitRole, type User, type UserSummary } from '@am/core';
 import { enqueue } from '@am/platform';
 import { sql, type Kysely, type Selectable } from 'kysely';
 import type { IdentityStore } from '../application/ports.js';
@@ -21,13 +21,23 @@ const toUser = (r: UserRow): UserRecord => ({
   lastLoginAt: r.last_login_at,
 });
 
-const toPurchaseClass = (r: Selectable<IdentityDB['purchase_classes']>): PurchaseClass => ({
+type UnitRow = Selectable<IdentityDB['org_units']> & { members?: number | string | null; managers?: number | string | null };
+
+const toUnit = (r: UnitRow): OrgUnit => ({
   id: r.id,
   key: r.key,
   name: r.name,
+  kind: r.kind,
   description: r.description,
+  parentId: r.parent_id,
+  path: r.path,
   color: r.color,
+  memberAccess: r.member_access,
+  directoryMembers: r.directory_members,
+  directoryManagers: r.directory_managers,
   archived: r.archived,
+  memberCount: Number(r.members ?? 0),
+  managerCount: Number(r.managers ?? 0),
 });
 
 const isUniqueViolation = (e: unknown) => (e as { code?: string }).code === '23505';
@@ -74,7 +84,7 @@ export class PgIdentityStore implements IdentityStore {
           display_name: identity.displayName,
           email: identity.email,
           external_id: identity.externalId,
-          ...(identity.source === 'local' ? {} : { directory_admin: identity.directoryAdmin }),
+          ...(identity.source === 'local' ? {} : { directory_admin: identity.directoryAdmin, directory_tags: identity.tags }),
           updated_at: sql`now()`,
         })
         .where('id', '=', existing.id)
@@ -92,6 +102,7 @@ export class PgIdentityStore implements IdentityStore {
         external_id: identity.externalId,
         password_hash: null,
         directory_admin: identity.directoryAdmin,
+        directory_tags: identity.tags,
         preferences: JSON.stringify(defaultPreferences),
         last_login_at: null,
       })
@@ -274,25 +285,191 @@ export class PgIdentityStore implements IdentityStore {
     return rows.map((r) => ({ id: r.id, username: r.username, displayName: r.display_name, email: r.email }));
   }
 
-  // ─── Purchase classes ────────────────────────────────────────────────────
+  // ─── Organization units ──────────────────────────────────────────────────
 
-  async listPurchaseClasses() {
-    return (await this.db.selectFrom('purchase_classes').selectAll().orderBy('name').execute()).map(toPurchaseClass);
+  private unitsQuery() {
+    const counts = this.db
+      .selectFrom('unit_people')
+      .innerJoin('users', 'users.id', 'unit_people.user_id')
+      .where('users.active', '=', true)
+      .select((eb) => [
+        'unit_people.unit_id',
+        sql<number>`count(distinct unit_people.user_id) filter (where unit_people.role = 'member')`.as('members'),
+        sql<number>`count(distinct unit_people.user_id) filter (where unit_people.role = 'manager')`.as('managers'),
+      ])
+      .groupBy('unit_people.unit_id')
+      .as('c');
+    return this.db.selectFrom('org_units').leftJoin(counts, 'c.unit_id', 'org_units.id').selectAll('org_units').select(['c.members', 'c.managers']);
   }
 
-  async createPurchaseClass(input: PurchaseClassInput) {
+  async listUnits(includeArchived: boolean) {
+    let q = this.unitsQuery().orderBy(sql`array_length(org_units.path, 1)`).orderBy(sql`lower(org_units.name)`);
+    if (!includeArchived) q = q.where('org_units.archived', '=', false);
+    return (await q.execute()).map((r) => toUnit(r as UnitRow));
+  }
+
+  async getUnit(id: string) {
+    const r = await this.unitsQuery().where('org_units.id', '=', id).executeTakeFirst();
+    return r ? toUnit(r as UnitRow) : null;
+  }
+
+  async unitKeys() {
+    return new Set((await this.db.selectFrom('org_units').select('key').execute()).map((r) => r.key));
+  }
+
+  async createUnit(input: OrgUnitInput, parentPath: string[]) {
+    const id = globalThis.crypto.randomUUID();
     try {
-      return toPurchaseClass(await this.db.insertInto('purchase_classes').values(input).returningAll().executeTakeFirstOrThrow());
+      await this.db
+        .insertInto('org_units')
+        .values({
+          id,
+          key: input.key,
+          name: input.name,
+          kind: input.kind,
+          description: input.description,
+          parent_id: input.parentId,
+          path: [...parentPath, id],
+          color: input.color,
+          member_access: input.memberAccess,
+          directory_members: input.directoryMembers,
+          directory_managers: input.directoryManagers,
+          archived: input.archived,
+        })
+        .execute();
     } catch (e) {
-      if (isUniqueViolation(e)) throw AppError.conflict(`Purchase class "${input.key}" already exists`);
+      if (isUniqueViolation(e)) throw AppError.conflict(`A unit with key "${input.key}" already exists`);
       throw e;
     }
+    return (await this.getUnit(id))!;
   }
 
-  async updatePurchaseClass(id: string, input: PurchaseClassInput) {
-    const r = await this.db.updateTable('purchase_classes').set(input).where('id', '=', id).returningAll().executeTakeFirst();
-    if (!r) throw AppError.notFound('Purchase class');
-    return toPurchaseClass(r);
+  /** Updates a unit; when it moves, the whole subtree's paths are rewritten. Returns ids whose path changed. */
+  async updateUnit(id: string, input: OrgUnitInput, newPath: string[]): Promise<string[]> {
+    const current = await this.db.selectFrom('org_units').select('path').where('id', '=', id).executeTakeFirst();
+    if (!current) throw AppError.notFound('Unit');
+    await this.db
+      .updateTable('org_units')
+      .set({
+        name: input.name,
+        kind: input.kind,
+        description: input.description,
+        parent_id: input.parentId,
+        color: input.color,
+        member_access: input.memberAccess,
+        directory_members: input.directoryMembers,
+        directory_managers: input.directoryManagers,
+        archived: input.archived,
+      })
+      .where('id', '=', id)
+      .execute();
+    if (current.path.join() === newPath.join()) return [];
+    const moved = await this.db
+      .updateTable('org_units')
+      .set({ path: sql`${sql.val(newPath)}::uuid[] || path[(array_position(path, ${id}::uuid) + 1):]` })
+      .where(sql<boolean>`${id}::uuid = any(path)`)
+      .returning('id')
+      .execute();
+    return moved.map((r) => r.id);
+  }
+
+  async descendantIds(id: string) {
+    return (await this.db.selectFrom('org_units').select('id').where(sql<boolean>`${id}::uuid = any(path)`).execute()).map((r) => r.id);
+  }
+
+  async unitPeople(unitId: string): Promise<UnitPerson[]> {
+    const rows = await this.db
+      .selectFrom('unit_people')
+      .innerJoin('users', 'users.id', 'unit_people.user_id')
+      .select(['users.id', 'users.username', 'users.display_name', 'users.email', 'unit_people.role', 'unit_people.source'])
+      .where('unit_people.unit_id', '=', unitId)
+      .where('users.active', '=', true)
+      .orderBy('unit_people.role', 'desc')
+      .orderBy('users.display_name')
+      .execute();
+    // A person linked both manually and through the directory is listed once, as "directory".
+    const seen = new Map<string, UnitPerson>();
+    for (const r of rows) {
+      const key = `${r.id}|${r.role}`;
+      const prev = seen.get(key);
+      if (!prev || r.source === 'directory') seen.set(key, { id: r.id, username: r.username, displayName: r.display_name, email: r.email, role: r.role, source: r.source });
+    }
+    return [...seen.values()];
+  }
+
+  async setManualPeople(unitId: string, members: string[], managers: string[]) {
+    await this.db.deleteFrom('unit_people').where('unit_id', '=', unitId).where('source', '=', 'manual').execute();
+    const rows = [
+      ...[...new Set(members)].map((user_id) => ({ unit_id: unitId, user_id, role: 'member' as const, source: 'manual' as const })),
+      ...[...new Set(managers)].map((user_id) => ({ unit_id: unitId, user_id, role: 'manager' as const, source: 'manual' as const })),
+    ];
+    if (rows.length) await this.db.insertInto('unit_people').values(rows).execute();
+  }
+
+  /** Directory tags of everyone known: their groups' external ids and attribute tags, lower-cased. */
+  private tagsSql(userFilter = sql`true`) {
+    return sql`(
+      select m.user_id, lower(g.external_id) as tag from group_members m join groups g on g.id = m.group_id
+        where g.external_id is not null and ${userFilter}
+      union
+      select u.id as user_id, lower(t) as tag from users u, unnest(u.directory_tags) t where ${userFilter}
+    )`;
+  }
+
+  /** Recomputes directory-derived memberships of one unit (after its links change). */
+  async syncUnitDirectory(unitId: string) {
+    await this.db.deleteFrom('unit_people').where('unit_id', '=', unitId).where('source', '=', 'directory').execute();
+    await sql`
+      insert into unit_people (unit_id, user_id, role, source)
+      select distinct u.id, t.user_id, r.role, 'directory'
+      from org_units u
+      cross join lateral (values ('member', u.directory_members), ('manager', u.directory_managers)) as r(role, links)
+      join ${this.tagsSql()} t on t.tag = any (select lower(x) from unnest(r.links) x)
+      where u.id = ${unitId} and not u.archived
+      on conflict do nothing`.execute(this.db);
+  }
+
+  /** Recomputes one person's directory-derived memberships (at sign-in). Returns units whose managers changed. */
+  async syncUserDirectory(userId: string): Promise<string[]> {
+    const before = await this.db.selectFrom('unit_people').select('unit_id').where('user_id', '=', userId).where('role', '=', 'manager').execute();
+    await this.db.deleteFrom('unit_people').where('user_id', '=', userId).where('source', '=', 'directory').execute();
+    await sql`
+      insert into unit_people (unit_id, user_id, role, source)
+      select distinct u.id, ${userId}::uuid, r.role, 'directory'
+      from org_units u
+      cross join lateral (values ('member', u.directory_members), ('manager', u.directory_managers)) as r(role, links)
+      join ${this.tagsSql(sql`user_id = ${userId}::uuid`)} t on t.tag = any (select lower(x) from unnest(r.links) x)
+      where not u.archived
+      on conflict do nothing`.execute(this.db);
+    const after = await this.db.selectFrom('unit_people').select('unit_id').where('user_id', '=', userId).where('role', '=', 'manager').execute();
+    const a = new Set(before.map((r) => r.unit_id));
+    const b = new Set(after.map((r) => r.unit_id));
+    return [...new Set([...a, ...b])].filter((id) => a.has(id) !== b.has(id));
+  }
+
+  async userUnits(userId: string): Promise<Array<{ unitId: string; role: UnitRole }>> {
+    const rows = await this.db
+      .selectFrom('unit_people')
+      .innerJoin('org_units', 'org_units.id', 'unit_people.unit_id')
+      .select(['unit_people.unit_id', 'unit_people.role'])
+      .distinct()
+      .where('unit_people.user_id', '=', userId)
+      .where('org_units.archived', '=', false)
+      .execute();
+    return rows.map((r) => ({ unitId: r.unit_id, role: r.role }));
+  }
+
+  async unitManagerIds(unitId: string) {
+    const rows = await this.db
+      .selectFrom('unit_people')
+      .innerJoin('users', 'users.id', 'unit_people.user_id')
+      .select('unit_people.user_id')
+      .distinct()
+      .where('unit_people.unit_id', '=', unitId)
+      .where('unit_people.role', '=', 'manager')
+      .where('users.active', '=', true)
+      .execute();
+    return rows.map((r) => r.user_id);
   }
 
   // ─── Grants ──────────────────────────────────────────────────────────────
@@ -302,7 +479,7 @@ export class PgIdentityStore implements IdentityStore {
       .selectFrom('grants')
       .leftJoin('users', (j) => j.onRef('users.id', '=', 'grants.principal_id').on('grants.principal_type', '=', 'user'))
       .leftJoin('groups', (j) => j.onRef('groups.id', '=', 'grants.principal_id').on('grants.principal_type', '=', 'group'))
-      .select(['grants.id', 'grants.principal_type', 'grants.principal_id', 'grants.purchase_class_id', 'grants.asset_type_id', 'grants.level', 'users.display_name', 'groups.name as group_name'])
+      .select(['grants.id', 'grants.principal_type', 'grants.principal_id', 'grants.unit_id', 'grants.asset_type_id', 'grants.level', 'users.display_name', 'groups.name as group_name'])
       .orderBy('grants.created_at');
     if (filter.principalType) q = q.where('grants.principal_type', '=', filter.principalType);
     if (filter.principalId) q = q.where('grants.principal_id', '=', filter.principalId);
@@ -312,7 +489,7 @@ export class PgIdentityStore implements IdentityStore {
       principalType: r.principal_type,
       principalId: r.principal_id,
       principalName: r.display_name ?? r.group_name ?? 'Unknown',
-      purchaseClassId: r.purchase_class_id,
+      unitId: r.unit_id,
       assetTypeId: r.asset_type_id,
       level: r.level,
     }));
@@ -325,7 +502,7 @@ export class PgIdentityStore implements IdentityStore {
     try {
       const r = await this.db
         .insertInto('grants')
-        .values({ principal_type: input.principalType, principal_id: input.principalId, purchase_class_id: input.purchaseClassId, asset_type_id: input.assetTypeId, level: input.level })
+        .values({ principal_type: input.principalType, principal_id: input.principalId, unit_id: input.unitId, asset_type_id: input.assetTypeId, level: input.level })
         .returning('id')
         .executeTakeFirstOrThrow();
       return (await this.listGrants()).find((g) => g.id === r.id)!;
@@ -339,12 +516,16 @@ export class PgIdentityStore implements IdentityStore {
     await this.db.deleteFrom('grants').where('id', '=', id).execute();
   }
 
-  /** Direct grants plus grants of every group the user belongs to, collapsed to the highest level per scope. */
+  /**
+   * Everything a person may do: explicit grants to them or their groups, plus
+   * unit membership (the unit's member access) and management (manage), each
+   * applying to the unit's subtree. Collapsed to the highest level per scope.
+   */
   async effectiveGrants(userId: string): Promise<Grant[]> {
     const groupIds = this.db.selectFrom('group_members').select('group_id').where('user_id', '=', userId);
-    const rows = await this.db
+    const explicit = await this.db
       .selectFrom('grants')
-      .select(['purchase_class_id', 'asset_type_id', 'level'])
+      .select(['unit_id', 'asset_type_id', 'level'])
       .where((eb) =>
         eb.or([
           eb.and([eb('principal_type', '=', 'user'), eb('principal_id', '=', userId)]),
@@ -352,7 +533,17 @@ export class PgIdentityStore implements IdentityStore {
         ]),
       )
       .execute();
-    return consolidateGrants(rows.map((r) => ({ purchaseClassId: r.purchase_class_id, assetTypeId: r.asset_type_id, level: r.level })));
+    const roles = await this.db
+      .selectFrom('unit_people')
+      .innerJoin('org_units', 'org_units.id', 'unit_people.unit_id')
+      .select(['unit_people.unit_id', 'unit_people.role', 'org_units.member_access'])
+      .where('unit_people.user_id', '=', userId)
+      .where('org_units.archived', '=', false)
+      .execute();
+    const fromUnits: Grant[] = roles.flatMap((r): Grant[] =>
+      r.role === 'manager' ? [{ unitId: r.unit_id, assetTypeId: null, level: 'manage' }] : r.member_access === 'none' ? [] : [{ unitId: r.unit_id, assetTypeId: null, level: r.member_access }],
+    );
+    return consolidateGrants([...explicit.map((r) => ({ unitId: r.unit_id, assetTypeId: r.asset_type_id, level: r.level })), ...fromUnits]);
   }
 
   // ─── Sessions ────────────────────────────────────────────────────────────
@@ -400,8 +591,21 @@ export class PgIdentityStore implements IdentityStore {
     });
   }
 
-  publishPurchaseClassChanged(pc: PurchaseClass) {
-    return enqueue(this.db, 'purchase-class.changed', { purchaseClassId: pc.id, key: pc.key, name: pc.name, archived: pc.archived });
+  async publishUnitChanged(unitIds: string[]) {
+    for (const id of new Set(unitIds)) {
+      const u = await this.getUnit(id);
+      if (!u) continue;
+      await enqueue(this.db, 'unit.changed', {
+        unitId: u.id,
+        key: u.key,
+        name: u.name,
+        kind: u.kind,
+        parentId: u.parentId,
+        path: u.path,
+        archived: u.archived,
+        managerIds: await this.unitManagerIds(u.id),
+      });
+    }
   }
 }
 

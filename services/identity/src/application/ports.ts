@@ -7,8 +7,10 @@ import type {
   Group,
   Page,
   Preferences,
-  PurchaseClass,
-  PurchaseClassInput,
+  OrgUnit,
+  OrgUnitInput,
+  UnitPerson,
+  UnitRole,
   User,
   UserSummary,
 } from '@am/core';
@@ -59,9 +61,19 @@ export interface IdentityStore {
   setGroupMembers(groupId: string, userIds: string[]): Promise<void>;
   listGroupMembers(groupId: string): Promise<UserSummary[]>;
 
-  listPurchaseClasses(): Promise<PurchaseClass[]>;
-  createPurchaseClass(input: PurchaseClassInput): Promise<PurchaseClass>;
-  updatePurchaseClass(id: string, input: PurchaseClassInput): Promise<PurchaseClass>;
+  listUnits(includeArchived: boolean): Promise<OrgUnit[]>;
+  getUnit(id: string): Promise<OrgUnit | null>;
+  unitKeys(): Promise<Set<string>>;
+  createUnit(input: OrgUnitInput, parentPath: string[]): Promise<OrgUnit>;
+  /** Returns ids of units whose ancestor path changed (the unit and its subtree, when moved). */
+  updateUnit(id: string, input: OrgUnitInput, newPath: string[]): Promise<string[]>;
+  descendantIds(id: string): Promise<string[]>;
+  unitPeople(unitId: string): Promise<UnitPerson[]>;
+  setManualPeople(unitId: string, members: string[], managers: string[]): Promise<void>;
+  syncUnitDirectory(unitId: string): Promise<void>;
+  /** Returns units whose set of managers changed. */
+  syncUserDirectory(userId: string): Promise<string[]>;
+  userUnits(userId: string): Promise<Array<{ unitId: string; role: UnitRole }>>;
 
   listGrants(filter?: { principalType?: 'user' | 'group'; principalId?: string }): Promise<GrantRecord[]>;
   createGrant(input: GrantInput): Promise<GrantRecord>;
@@ -75,7 +87,7 @@ export interface IdentityStore {
   revokeUserSessions(userId: string): Promise<void>;
 
   publishUserChanged(user: UserRecord): Promise<void>;
-  publishPurchaseClassChanged(pc: PurchaseClass): Promise<void>;
+  publishUnitChanged(unitIds: string[]): Promise<void>;
 }
 
 export interface PasswordHasher {
@@ -84,7 +96,7 @@ export interface PasswordHasher {
 }
 
 export interface TokenIssuer {
-  issueAccessToken(claims: { userId: string; username: string; displayName: string; email: string | null; isAdmin: boolean; grants: Grant[] }): Promise<string>;
+  issueAccessToken(claims: { userId: string; username: string; displayName: string; email: string | null; isAdmin: boolean; grants: Grant[]; units: Array<{ unitId: string; role: UnitRole }> }): Promise<string>;
   jwks(): Promise<{ keys: unknown[] }>;
 }
 

@@ -1,5 +1,5 @@
-import { Check } from 'lucide-react';
-import { forwardRef, useId, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react';
+import { Check, X } from 'lucide-react';
+import { forwardRef, useId, useState, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react';
 import { cn } from '@/lib/utils';
 
 const control =
@@ -95,6 +95,43 @@ export function Segmented<T extends string>({ value, onChange, options, classNam
           {o.label}
         </button>
       ))}
+    </div>
+  );
+}
+
+/** Free-text values as removable chips (emails, directory group DNs, …). Enter or comma adds. */
+export function TagInput({ value, onChange, placeholder, validate, id }: { value: string[]; onChange: (v: string[]) => void; placeholder?: string; validate?: (v: string) => boolean; id?: string }) {
+  const [draft, setDraft] = useState('');
+  const add = () => {
+    const v = draft.trim().replace(/,$/, '');
+    if (!v || (validate && !validate(v))) return;
+    if (!value.some((x) => x.toLowerCase() === v.toLowerCase())) onChange([...value, v]);
+    setDraft('');
+  };
+  return (
+    <div className="flex min-h-8 flex-wrap items-center gap-1 rounded-lg border border-border bg-surface px-1.5 py-1 focus-within:border-accent focus-within:ring-3 focus-within:ring-[var(--ring)]">
+      {value.map((v) => (
+        <span key={v} className="inline-flex max-w-full items-center gap-1 rounded-md bg-surface-2 py-0.5 pr-1 pl-2 font-mono text-[11px]">
+          <span className="truncate">{v}</span>
+          <button type="button" aria-label={`Remove ${v}`} className="rounded p-0.5 text-subtle hover:bg-surface-3 hover:text-fg" onClick={() => onChange(value.filter((x) => x !== v))}>
+            <X className="size-3" />
+          </button>
+        </span>
+      ))}
+      <input
+        id={id}
+        className="h-6 min-w-40 flex-1 bg-transparent px-1 text-[13px] outline-none placeholder:text-subtle"
+        placeholder={value.length ? '' : placeholder}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={add}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ',') {
+            e.preventDefault();
+            add();
+          } else if (e.key === 'Backspace' && !draft && value.length) onChange(value.slice(0, -1));
+        }}
+      />
     </div>
   );
 }

@@ -21,7 +21,7 @@ export class LocalPasswordProvider implements PasswordProvider {
     // Always run a verification so response timing does not reveal whether the account exists.
     const ok = await this.hasher.verify(password, hash ?? DUMMY_HASH);
     if (!user || !hash || !ok || !user.active) return null;
-    return { source: 'local', externalId: user.username, username: user.username, displayName: user.displayName, email: user.email, groups: [], directoryAdmin: false };
+    return { source: 'local', externalId: user.username, username: user.username, displayName: user.displayName, email: user.email, groups: [], tags: [], directoryAdmin: false };
   }
 }
 
@@ -45,6 +45,8 @@ export interface LdapSettings {
   groupBaseDn?: string;
   groupFilter: string;
   adminGroups: string[];
+  /** User attributes that place people in units, e.g. department, division. */
+  unitAttributes: string[];
 }
 
 /** RFC 4515 filter value escaping — prevents LDAP injection through the username. */
@@ -94,7 +96,7 @@ export class LdapPasswordProvider implements PasswordProvider {
       const { searchEntries } = await service.search(this.s.userBaseDn, {
         scope: 'sub',
         filter: this.s.userFilter.replaceAll('{username}', escapeLdapFilter(login)),
-        attributes: ['dn', this.s.usernameAttribute, this.s.displayNameAttribute, this.s.emailAttribute, this.s.membershipAttribute],
+        attributes: ['dn', this.s.usernameAttribute, this.s.displayNameAttribute, this.s.emailAttribute, this.s.membershipAttribute, ...this.s.unitAttributes],
         sizeLimit: 2,
       });
       if (searchEntries.length !== 1) return null;
@@ -128,6 +130,7 @@ export class LdapPasswordProvider implements PasswordProvider {
         displayName: first(entry[this.s.displayNameAttribute]) ?? login,
         email: first(entry[this.s.emailAttribute])?.toLowerCase() ?? null,
         groups,
+        tags: attributeTags(this.s.unitAttributes, (a) => all(entry![a])),
         directoryAdmin: groups.some((g) => adminSet.has(g.toLowerCase())),
       };
     } catch (err) {
@@ -152,6 +155,8 @@ export interface OidcSettings {
   emailClaim: string;
   groupsClaim: string;
   adminGroups: string[];
+  /** ID token claims that place people in units, e.g. department. */
+  unitClaims: string[];
 }
 
 export class OidcRedirectProvider implements RedirectProvider {
@@ -218,7 +223,16 @@ export class OidcRedirectProvider implements RedirectProvider {
       displayName: read(this.s.displayNameClaim) ?? read('name') ?? username,
       email: (read(this.s.emailClaim) ?? read('upn'))?.toLowerCase() ?? null,
       groups,
+      tags: attributeTags(this.s.unitClaims, (c) => {
+        const v = (claims as Record<string, unknown>)[c];
+        return Array.isArray(v) ? v.map(String) : typeof v === 'string' ? [v] : [];
+      }),
       directoryAdmin: groups.some((g) => adminSet.has(g.toLowerCase())),
     };
   }
+}
+
+/** `department` + ["Platform"] → ["department=Platform"]: matched against unit directory links. */
+export function attributeTags(names: string[], read: (name: string) => string[]): string[] {
+  return names.flatMap((n) => read(n).filter(Boolean).map((v) => `${n}=${v}`));
 }

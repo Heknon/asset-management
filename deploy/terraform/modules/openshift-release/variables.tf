@@ -65,6 +65,12 @@ variable "mail_from" {
   default = "Asset Management <assets@example.com>"
 }
 
+variable "request_inbox_emails" {
+  description = "Shared mailboxes told about every new request (e.g. procurement@corp.com)."
+  type        = list(string)
+  default     = []
+}
+
 variable "reminder_timezone" {
   type    = string
   default = "UTC"
@@ -98,15 +104,16 @@ variable "s3" {
 
 variable "ldap" {
   type = object({
-    enabled       = bool
-    url           = optional(string, "")
-    start_tls     = optional(bool, false)
-    ca_cert       = optional(string)
-    bind_dn       = optional(string, "")
-    bind_password = optional(string)
-    user_base_dn  = optional(string, "")
-    user_filter   = optional(string, "(&(objectClass=person)(|(sAMAccountName={username})(userPrincipalName={username})))")
-    admin_groups  = optional(list(string), [])
+    enabled         = bool
+    url             = optional(string, "")
+    start_tls       = optional(bool, false)
+    ca_cert         = optional(string)
+    bind_dn         = optional(string, "")
+    bind_password   = optional(string)
+    user_base_dn    = optional(string, "")
+    user_filter     = optional(string, "(&(objectClass=person)(|(sAMAccountName={username})(userPrincipalName={username})))")
+    admin_groups    = optional(list(string), [])
+    unit_attributes = optional(list(string), ["department"])
   })
   default   = { enabled = false }
   sensitive = true
@@ -115,12 +122,13 @@ variable "ldap" {
 variable "oidc" {
   description = "ADFS (OpenID Connect). Register <public_url>/api/identity/auth/oidc/callback as the redirect URI."
   type = object({
-    enabled       = bool
+    enabled         = bool
     issuer        = optional(string, "")
     client_id     = optional(string, "")
     client_secret = optional(string)
     groups_claim  = optional(string, "group")
-    admin_groups  = optional(list(string), [])
+    admin_groups    = optional(list(string), [])
+    unit_claims   = optional(list(string), ["department"])
   })
   default   = { enabled = false }
   sensitive = true

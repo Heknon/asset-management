@@ -42,6 +42,11 @@ export const notifyRuleSchema = z.object({
   userFields: z.array(fieldKeySchema).default([]),
   /** Extra addresses such as a shared procurement mailbox. */
   emails: z.array(z.string().email()).default([]),
+  /**
+   * Managers of the asset's unit (nearest unit up the tree that has managers):
+   * `fallback` = only when nobody else would be notified (e.g. the owner left).
+   */
+  unitManagers: z.enum(['never', 'fallback', 'always']).default('fallback'),
 });
 export type NotifyRule = z.infer<typeof notifyRuleSchema>;
 

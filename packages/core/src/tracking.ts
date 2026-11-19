@@ -16,7 +16,7 @@ export interface TrackedDate {
   recurrence: Duration | null;
   /** Offsets before `date` at which reminders fire. */
   reminders: Duration[];
-  notify: { owner: boolean; userIds: string[]; emails: string[] };
+  notify: { owner: boolean; userIds: string[]; emails: string[]; unitManagers: 'never' | 'fallback' | 'always' };
 }
 
 type KindLookup = ReadonlyMap<string, DateKind>;
@@ -64,7 +64,7 @@ export function resolveTrackedDates(
       dateKind: { id: kind.id, key: kind.key, name: kind.name, color: kind.color, behavior: kind.behavior, actionLabel: kind.actionLabel },
       recurrence: recurrenceFor(field, kind, values),
       reminders: kind.behavior === 'informational' ? [] : (reminderOverrides[field.key] ?? tracking.reminders ?? kind.defaultReminders),
-      notify: { owner: tracking.notify.owner, userIds: [...new Set(userIds)], emails: tracking.notify.emails },
+      notify: { owner: tracking.notify.owner, userIds: [...new Set(userIds)], emails: tracking.notify.emails, unitManagers: tracking.notify.unitManagers },
     });
   }
   return out.sort((a, b) => a.date.localeCompare(b.date));

@@ -87,3 +87,46 @@ export function inviteMessage(item: DigestItem, cancelled: boolean): Message {
     : `${item.label} for ${item.assetName} (${item.assetTypeName}) is on ${item.dueDate}.\n\n${item.url}`;
   return { subject, text, html: `<p>${esc(text).replace(/\n/g, '<br>')}</p>` };
 }
+
+export interface RequestNotice {
+  number: string;
+  title: string;
+  status: string;
+  actorName: string;
+  note: string | null;
+  kind: 'created' | 'status' | 'comment' | 'assigned' | 'fulfilled';
+  url: string;
+}
+
+const statusWords: Record<string, string> = {
+  submitted: 'submitted',
+  in_review: 'in review',
+  approved: 'approved',
+  ordered: 'ordered',
+  fulfilled: 'fulfilled',
+  rejected: 'declined',
+  cancelled: 'cancelled',
+};
+
+/** Short, human emails for request updates. */
+export function requestMessage(n: RequestNotice, recipientName: string): Message {
+  const headline = {
+    created: `New request ${n.number}: ${n.title}`,
+    status: `${n.number} is ${statusWords[n.status] ?? n.status}: ${n.title}`,
+    comment: `${n.actorName} commented on ${n.number}: ${n.title}`,
+    assigned: `${n.number} was assigned: ${n.title}`,
+    fulfilled: `${n.number} is fulfilled: ${n.title}`,
+  }[n.kind];
+  const body = n.kind === 'created' ? `${n.actorName} asked for “${n.title}”.` : n.kind === 'comment' ? `${n.actorName} wrote:` : `${n.actorName} updated the request.`;
+  const text = [`Hi ${recipientName},`, '', body, ...(n.note ? ['', n.note] : []), '', n.url].join('\n');
+  const html = `<!doctype html><html><body style="margin:0;background:#f6f7f9;font-family:-apple-system,Segoe UI,Inter,Helvetica,Arial,sans-serif">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:32px 16px"><tr><td align="center">
+  <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;background:#fff;border-radius:12px;padding:28px 32px;border:1px solid #eceef2">
+    <tr><td style="font-size:12px;color:#64748b;font-weight:600;letter-spacing:.04em;text-transform:uppercase">${esc(n.number)}</td></tr>
+    <tr><td style="font-size:17px;font-weight:600;color:#0f172a;padding:4px 0 12px">${esc(n.title)}</td></tr>
+    <tr><td style="font-size:14px;color:#334155;line-height:1.55">Hi ${esc(recipientName)},<br>${esc(body)}</td></tr>
+    ${n.note ? `<tr><td style="padding-top:12px"><div style="border-left:3px solid #e2e8f0;padding:4px 12px;color:#334155;font-size:14px;white-space:pre-wrap">${esc(n.note)}</div></td></tr>` : ''}
+    <tr><td style="padding-top:20px"><a href="${esc(n.url)}" style="display:inline-block;background:#4f46e5;color:#fff;font-size:14px;font-weight:600;padding:10px 16px;border-radius:8px;text-decoration:none">Open request</a></td></tr>
+  </table></td></tr></table></body></html>`;
+  return { subject: headline, text, html };
+}

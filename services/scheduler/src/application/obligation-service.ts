@@ -9,6 +9,8 @@ import {
   type ObligationSummary,
   type Page,
   type Principal,
+  type UnitChanged,
+  type UnitRollup,
   type UserChanged,
 } from '@am/core';
 import { authorize } from '@am/platform';
@@ -32,7 +34,8 @@ export class ObligationService {
         name: e.name,
         assetTypeId: e.assetTypeId,
         assetTypeName: e.assetTypeName,
-        purchaseClassId: e.purchaseClassId,
+        unitId: e.unitId,
+        unitPath: [],
         ownerId: e.ownerId,
         active: e.active,
         spend: e.spend,
@@ -74,8 +77,17 @@ export class ObligationService {
     return { items: items.map((i) => present(i.obligation, i.asset, today)), total, limit: q.limit, offset: q.offset };
   }
 
-  async summary(principal: Principal): Promise<ObligationSummary> {
-    return this.store.summary(scopesFor(principal, 'view'), this.clock.today());
+  async summary(principal: Principal, q: { unitId?: string; mine: boolean }): Promise<ObligationSummary> {
+    return this.store.summary(scopesFor(principal, 'view'), this.clock.today(), { unitId: q.unitId, userId: q.mine ? principal.userId : undefined });
+  }
+
+  /** Division/department view: what renews beneath each child unit. */
+  async rollup(principal: Principal, unitId: string): Promise<UnitRollup[]> {
+    return this.store.rollup(scopesFor(principal, 'view'), this.clock.today(), unitId);
+  }
+
+  async onUnitChanged(e: UnitChanged): Promise<void> {
+    await this.store.upsertUnit({ id: e.unitId, name: e.name, parentId: e.parentId, path: e.path, archived: e.archived, managerIds: e.managerIds });
   }
 
   // ─── Commands ────────────────────────────────────────────────────────────
@@ -88,7 +100,7 @@ export class ObligationService {
   async act(principal: Principal, id: string, action: ObligationAction): Promise<Obligation> {
     const found = await this.store.getObligation(id);
     if (!found) throw AppError.notFound('Obligation');
-    authorize(principal, 'edit', { purchaseClassId: found.asset.purchaseClassId, assetTypeId: found.asset.assetTypeId });
+    authorize(principal, 'edit', { unitPath: found.asset.unitPath, assetTypeId: found.asset.assetTypeId });
     const o = found.obligation;
     const today = this.clock.today();
 

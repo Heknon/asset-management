@@ -2,6 +2,7 @@ import { createTokenVerifier, main, runService } from '@am/platform';
 import { importJWK, type CryptoKey } from 'jose';
 import { AuthService } from './application/auth-service.js';
 import { DirectoryService } from './application/directory-service.js';
+import { OrgService } from './application/org-service.js';
 import type { PasswordProvider } from './application/ports.js';
 import { identityConfig } from './config.js';
 import { normalizeUsername } from './domain/model.js';
@@ -58,6 +59,7 @@ main(() =>
               groupBaseDn: config.LDAP_GROUP_BASE_DN,
               groupFilter: config.LDAP_GROUP_FILTER,
               adminGroups: config.LDAP_ADMIN_GROUPS,
+              unitAttributes: config.LDAP_UNIT_ATTRIBUTES,
             },
             logger,
           ),
@@ -77,6 +79,7 @@ main(() =>
             emailClaim: config.OIDC_EMAIL_CLAIM,
             groupsClaim: config.OIDC_GROUPS_CLAIM,
             adminGroups: config.OIDC_ADMIN_GROUPS,
+            unitClaims: config.OIDC_UNIT_CLAIMS,
           })
         : null;
 
@@ -85,7 +88,8 @@ main(() =>
       const auth = new AuthService(store, issuer, passwordProviders, oidc, config.SESSION_TTL_HOURS * 3_600_000);
       registerRoutes(app, {
         auth,
-        directory: new DirectoryService(store),
+        directory: new DirectoryService(store, hasher),
+        org: new OrgService(store),
         jwks: () => issuer.jwks(),
         publicUrl: config.PUBLIC_URL.replace(/\/$/, ''),
         secureCookies: config.COOKIE_SECURE,

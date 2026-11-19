@@ -5,7 +5,10 @@ import {
   pageQuerySchema,
   passwordLoginSchema,
   preferencesSchema,
-  purchaseClassInputSchema,
+  orgImportSchema,
+  orgUnitInputSchema,
+  unitPeopleSchema,
+  localUserCreateSchema,
   userUpdateSchema,
 } from '@am/core';
 import { ACCESS_COOKIE, parse, REFRESH_COOKIE, requireAdmin, requirePrincipal } from '@am/platform';
@@ -13,6 +16,7 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import type { AuthService, IssuedSession } from '../application/auth-service.js';
 import type { DirectoryService } from '../application/directory-service.js';
+import type { OrgService } from '../application/org-service.js';
 import type { RedirectState } from '../application/ports.js';
 
 const OIDC_STATE_COOKIE = 'am_oidc';
@@ -22,6 +26,7 @@ const idParam = z.object({ id: z.string().uuid() });
 export interface RouteOptions {
   auth: AuthService;
   directory: DirectoryService;
+  org: OrgService;
   jwks: () => Promise<unknown>;
   publicUrl: string;
   secureCookies: boolean;
@@ -140,9 +145,23 @@ export function registerRoutes(app: FastifyInstance, o: RouteOptions): void {
     return o.directory.userSummaries(q.q, ids);
   });
 
-  app.get(`${PREFIX}/purchase-classes`, async (req) => {
+  // The org chart is visible to everyone signed in (names only; access is enforced per asset).
+  app.get(`${PREFIX}/units`, async (req) => {
+    const p = requirePrincipal(req);
+    const { archived } = parse(z.object({ archived: z.enum(['true', 'false']).default('false') }), req.query);
+    return o.org.list(archived === 'true' && p.isAdmin);
+  });
+  app.get(`${PREFIX}/units/:id`, async (req) => {
     requirePrincipal(req);
-    return o.directory.listPurchaseClasses();
+    return o.org.get(parse(idParam, req.params).id);
+  });
+  app.get(`${PREFIX}/units/:id/people`, async (req) => {
+    requirePrincipal(req);
+    return o.org.people(parse(idParam, req.params).id);
+  });
+  app.put(`${PREFIX}/units/:id/people`, async (req) => {
+    const p = parse(unitPeopleSchema, req.body);
+    return o.org.setPeople(requirePrincipal(req), parse(idParam, req.params).id, p.members, p.managers);
   });
 
   // ─── Administration ──────────────────────────────────────────────────────
@@ -153,6 +172,10 @@ export function registerRoutes(app: FastifyInstance, o: RouteOptions): void {
     return o.directory.listUsers(q);
   });
 
+  app.post(`${PREFIX}/users`, async (req) => {
+    requireAdmin(req);
+    return o.directory.createLocalUser(parse(localUserCreateSchema, req.body));
+  });
   app.patch(`${PREFIX}/users/:id`, async (req) => {
     const actor = requireAdmin(req);
     const { id } = parse(idParam, req.params);
@@ -187,13 +210,21 @@ export function registerRoutes(app: FastifyInstance, o: RouteOptions): void {
     return reply.status(204).send();
   });
 
-  app.post(`${PREFIX}/purchase-classes`, async (req) => {
+  app.post(`${PREFIX}/units`, async (req) => {
     requireAdmin(req);
-    return o.directory.createPurchaseClass(parse(purchaseClassInputSchema, req.body));
+    return o.org.create(parse(orgUnitInputSchema, req.body));
   });
-  app.put(`${PREFIX}/purchase-classes/:id`, async (req) => {
+  app.put(`${PREFIX}/units/:id`, async (req) => {
     requireAdmin(req);
-    return o.directory.updatePurchaseClass(parse(idParam, req.params).id, parse(purchaseClassInputSchema, req.body));
+    return o.org.update(parse(idParam, req.params).id, parse(orgUnitInputSchema, req.body));
+  });
+  app.post(`${PREFIX}/units/republish`, async (req) => {
+    requireAdmin(req);
+    return { units: await o.org.republishAll() };
+  });
+  app.post(`${PREFIX}/units/import`, async (req) => {
+    requireAdmin(req);
+    return o.org.import(parse(orgImportSchema, req.body));
   });
 
   app.get(`${PREFIX}/grants`, async (req) => {

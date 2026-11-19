@@ -123,7 +123,9 @@ export interface AssetRef {
   name: string;
   assetTypeId: string;
   assetTypeName: string;
-  purchaseClassId: string;
+  unitId: string;
+  /** Ancestor ids, root first, ending with the unit (from the units projection). */
+  unitPath: string[];
   ownerId: string | null;
   active: boolean;
   spend: { amount: number; currency: string } | null;
@@ -136,7 +138,7 @@ export function present(o: ObligationRecord, asset: AssetRef, today: IsoDate): O
     assetName: asset.name,
     assetTypeId: asset.assetTypeId,
     assetTypeName: asset.assetTypeName,
-    purchaseClassId: asset.purchaseClassId,
+    unitId: asset.unitId,
     ownerId: asset.ownerId,
     fieldKey: o.fieldKey,
     label: o.label,

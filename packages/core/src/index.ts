@@ -10,3 +10,4 @@ export * from './api.js';
 export * from './events.js';
 export * from './templates.js';
 export * from './files.js';
+export * from './search.js';

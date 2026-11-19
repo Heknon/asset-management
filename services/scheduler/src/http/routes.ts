@@ -1,4 +1,4 @@
-import { obligationActionSchema, obligationQuerySchema } from '@am/core';
+import { obligationActionSchema, obligationQuerySchema, summaryQuerySchema } from '@am/core';
 import { parse, requireAdmin, requirePrincipal } from '@am/platform';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -9,7 +9,8 @@ const PREFIX = '/api/scheduler';
 
 export function registerRoutes(app: FastifyInstance, obligations: ObligationService, dispatcher: ReminderDispatcher): void {
   app.get(`${PREFIX}/obligations`, async (req) => obligations.list(requirePrincipal(req), parse(obligationQuerySchema, req.query)));
-  app.get(`${PREFIX}/summary`, async (req) => obligations.summary(requirePrincipal(req)));
+  app.get(`${PREFIX}/summary`, async (req) => obligations.summary(requirePrincipal(req), parse(summaryQuerySchema, req.query)));
+  app.get(`${PREFIX}/units/:id/rollup`, async (req) => obligations.rollup(requirePrincipal(req), parse(z.object({ id: z.string().uuid() }), req.params).id));
   app.post(`${PREFIX}/obligations/:id/actions`, async (req) => {
     const { id } = parse(z.object({ id: z.string().uuid() }), req.params);
     return obligations.act(requirePrincipal(req), id, parse(obligationActionSchema, req.body));

@@ -11,12 +11,21 @@ export interface SchedulerDB extends OutboxTable {
     name: string;
     asset_type_id: string;
     asset_type_name: string;
-    purchase_class_id: string;
+    unit_id: string;
     owner_id: string | null;
     active: boolean;
     deleted: Generated<boolean>;
     spend: Json<{ amount: number; currency: string } | null>;
     version: number;
+  };
+  units_ref: {
+    id: string;
+    name: string;
+    parent_id: string | null;
+    path: ColumnType<string[], string[], string[]>;
+    archived: boolean;
+    /** People who manage this unit; reminders fall back to the nearest unit that has some. */
+    manager_ids: ColumnType<string[], string[], string[]>;
   };
   users_ref: {
     id: string;
@@ -138,6 +147,21 @@ export const migrations: Record<string, Migration> = {
         .addColumn('sent_at', 'timestamptz', (c) => c.notNull().defaultTo(sql`now()`))
         .addPrimaryKeyConstraint('invites_pk', ['obligation_id', 'recipient'])
         .execute();
+    },
+  },
+  '0003_units': {
+    async up(db) {
+      await sql`alter table assets_ref rename column purchase_class_id to unit_id`.execute(db);
+      await db.schema
+        .createTable('units_ref')
+        .addColumn('id', 'uuid', (c) => c.primaryKey())
+        .addColumn('name', 'text', (c) => c.notNull())
+        .addColumn('parent_id', 'uuid')
+        .addColumn('path', sql`uuid[]`, (c) => c.notNull())
+        .addColumn('archived', 'boolean', (c) => c.notNull())
+        .addColumn('manager_ids', sql`uuid[]`, (c) => c.notNull().defaultTo(sql`'{}'`))
+        .execute();
+      await sql`create index units_ref_path on units_ref using gin (path)`.execute(db);
     },
   },
 };

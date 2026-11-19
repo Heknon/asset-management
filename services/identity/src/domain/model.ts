@@ -10,6 +10,8 @@ export interface ExternalIdentity {
   email: string | null;
   /** Provider group identifiers (LDAP DNs / ADFS group claim values). */
   groups: string[];
+  /** Directory attributes used to place people in units, as `attribute=value` (e.g. `department=Platform`). */
+  tags: string[];
   /** Provider says this person is an administrator (member of a configured admin group). */
   directoryAdmin: boolean;
 }

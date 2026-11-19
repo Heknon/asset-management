@@ -34,21 +34,34 @@ export class ReminderDispatcher {
     return { reminders, invites };
   }
 
+  /**
+   * Who hears about an obligation: the owner, named people and extra emails;
+   * plus the nearest unit managers — always, or as a fallback when nobody
+   * else would be told (no owner, or the owner has left).
+   */
   private async recipientsFor(items: Array<{ obligation: ObligationRecord; asset: AssetRef }>): Promise<(o: ObligationRecord, a: AssetRef) => Recipient[]> {
+    const managersByAsset = new Map<string, string[]>();
     const ids = new Set<string>();
     for (const { obligation: o, asset } of items) {
       if (o.notify.owner && asset.ownerId) ids.add(asset.ownerId);
       o.notify.userIds.forEach((id) => ids.add(id));
+      if (o.notify.unitManagers !== 'never' && !managersByAsset.has(asset.assetId)) {
+        const managers = await this.store.nearestManagers(asset.unitPath);
+        managersByAsset.set(asset.assetId, managers);
+        managers.forEach((id) => ids.add(id));
+      }
     }
     const users = await this.store.users([...ids]);
     const fromUser = (u: UserRef | undefined): Recipient[] =>
       u?.active && u.email ? [{ email: u.email, name: u.displayName, wantsEmail: u.emailReminders, wantsInvites: u.outlookInvites }] : [];
     return (o, a) => {
-      const list = [
+      const direct = [
         ...(o.notify.owner && a.ownerId ? fromUser(users.get(a.ownerId)) : []),
         ...o.notify.userIds.flatMap((id) => fromUser(users.get(id))),
         ...o.notify.emails.map((email) => ({ email, name: email.split('@')[0]!, wantsEmail: true, wantsInvites: true })),
       ];
+      const managers = (managersByAsset.get(a.assetId) ?? []).flatMap((id) => fromUser(users.get(id)));
+      const list = o.notify.unitManagers === 'always' || (o.notify.unitManagers === 'fallback' && !direct.length) ? [...direct, ...managers] : direct;
       return [...new Map(list.map((r) => [r.email.toLowerCase(), r])).values()];
     };
   }

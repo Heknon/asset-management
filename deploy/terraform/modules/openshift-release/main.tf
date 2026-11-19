@@ -81,18 +81,20 @@ resource "helm_release" "app" {
               OIDC_ENABLED         = tostring(var.oidc.enabled)
             },
             var.ldap.enabled ? {
-              LDAP_URL          = var.ldap.url
-              LDAP_STARTTLS     = tostring(var.ldap.start_tls)
-              LDAP_BIND_DN      = var.ldap.bind_dn
-              LDAP_USER_BASE_DN = var.ldap.user_base_dn
-              LDAP_USER_FILTER  = var.ldap.user_filter
-              LDAP_ADMIN_GROUPS = join(",", var.ldap.admin_groups)
+              LDAP_URL             = var.ldap.url
+              LDAP_STARTTLS        = tostring(var.ldap.start_tls)
+              LDAP_BIND_DN         = var.ldap.bind_dn
+              LDAP_USER_BASE_DN    = var.ldap.user_base_dn
+              LDAP_USER_FILTER     = var.ldap.user_filter
+              LDAP_ADMIN_GROUPS    = join(",", var.ldap.admin_groups)
+              LDAP_UNIT_ATTRIBUTES = join(",", var.ldap.unit_attributes)
             } : {},
             var.oidc.enabled ? {
               OIDC_ISSUER       = var.oidc.issuer
               OIDC_CLIENT_ID    = var.oidc.client_id
               OIDC_GROUPS_CLAIM = var.oidc.groups_claim
               OIDC_ADMIN_GROUPS = join(",", var.oidc.admin_groups)
+              OIDC_UNIT_CLAIMS  = join(",", var.oidc.unit_claims)
             } : {},
           )
         }
@@ -107,7 +109,7 @@ resource "helm_release" "app" {
           }
         }
         scheduler = {
-          env = { MAIL_FROM = var.mail_from, REMINDER_TIMEZONE = var.reminder_timezone }
+          env = { MAIL_FROM = var.mail_from, REMINDER_TIMEZONE = var.reminder_timezone, REQUEST_INBOX_EMAILS = join(",", var.request_inbox_emails) }
         }
       }
       web = { s3Origin = var.s3.browser_origin }

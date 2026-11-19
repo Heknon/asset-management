@@ -60,8 +60,10 @@ export async function request<T>(method: string, path: string, body?: unknown, r
 }
 
 export const api = {
-  get: <T>(path: string, params?: Record<string, string | number | boolean | undefined | null>) => {
-    const qs = params ? new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== '').map(([k, v]) => [k, String(v)])).toString() : '';
+  /** Scalars become plain parameters; arrays/objects (e.g. filters) are sent as JSON. Empty values are omitted. */
+  get: <T>(path: string, params?: object) => {
+    const entries = Object.entries(params ?? {}).filter(([, v]) => v !== undefined && v !== null && v !== '' && !(Array.isArray(v) && !v.length));
+    const qs = new URLSearchParams(entries.map(([k, v]) => [k, typeof v === 'object' ? JSON.stringify(v) : String(v)])).toString();
     return request<T>('GET', qs ? `${path}?${qs}` : path);
   },
   post: <T>(path: string, body?: unknown) => request<T>('POST', path, body),

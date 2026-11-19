@@ -1,4 +1,4 @@
-import type { AccessLevel, AssetType, Obligation, Urgency } from '@am/core';
+import { requestStatusMeta, type AccessLevel, type AssetType, type Obligation, type RequestStatus, type Urgency } from '@am/core';
 import { Badge } from './ui/display';
 import { relativeDays } from '@/lib/utils';
 
@@ -23,4 +23,9 @@ export function DueBadge({ obligation }: { obligation: Pick<Obligation, 'urgency
 export function AccessBadge({ level }: { level: AccessLevel }) {
   const label = { none: 'No access', view: 'Viewer', edit: 'Editor', manage: 'Manager' }[level];
   return <Badge tone={level === 'manage' ? 'accent' : 'neutral'}>{label}</Badge>;
+}
+
+export function RequestStatusBadge({ status }: { status: RequestStatus }) {
+  const m = requestStatusMeta[status];
+  return <Badge tone={m.tone}>{m.label}</Badge>;
 }

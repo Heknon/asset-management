@@ -18,6 +18,8 @@ export interface IdentityDB extends OutboxTable {
     directory_admin: Generated<boolean>;
     active: Generated<boolean>;
     preferences: ColumnType<Preferences, string, string>;
+    /** Directory attribute values used for unit membership, e.g. `department=platform`. */
+    directory_tags: ColumnType<string[], string[] | undefined, string[]>;
     last_login_at: Date | null;
     created_at: Timestamp;
     updated_at: Timestamp;
@@ -30,20 +32,33 @@ export interface IdentityDB extends OutboxTable {
     created_at: Timestamp;
   };
   group_members: { group_id: string; user_id: string };
-  purchase_classes: {
+  org_units: {
     id: Generated<string>;
     key: string;
     name: string;
+    kind: string;
     description: string | null;
+    parent_id: string | null;
+    /** Ancestor ids, root first, including the unit itself. */
+    path: ColumnType<string[], string[] | undefined, string[]>;
     color: string;
+    member_access: 'none' | 'view' | 'edit';
+    directory_members: ColumnType<string[], string[] | undefined, string[]>;
+    directory_managers: ColumnType<string[], string[] | undefined, string[]>;
     archived: Generated<boolean>;
     created_at: Timestamp;
+  };
+  unit_people: {
+    unit_id: string;
+    user_id: string;
+    role: 'member' | 'manager';
+    source: 'manual' | 'directory';
   };
   grants: {
     id: Generated<string>;
     principal_type: 'user' | 'group';
     principal_id: string;
-    purchase_class_id: string | null;
+    unit_id: string | null;
     asset_type_id: string | null;
     level: 'view' | 'edit' | 'manage';
     created_at: Timestamp;
@@ -138,6 +153,34 @@ export const migrations: Record<string, Migration> = {
         .addColumn('revoked_at', 'timestamptz')
         .execute();
       await db.schema.createIndex('sessions_user').on('sessions').column('user_id').execute();
+    },
+  },
+  '0003_org_units': {
+    async up(db) {
+      // Purchase classes become organization units: a tree with directory-synced people.
+      await sql`alter table purchase_classes rename to org_units`.execute(db);
+      await sql`alter table org_units
+        add column kind text not null default 'Team',
+        add column parent_id uuid references org_units(id),
+        add column path uuid[] not null default '{}',
+        add column member_access text not null default 'view' check (member_access in ('none','view','edit')),
+        add column directory_members text[] not null default '{}',
+        add column directory_managers text[] not null default '{}'`.execute(db);
+      await sql`update org_units set path = array[id]`.execute(db);
+      await sql`create index org_units_parent on org_units (parent_id)`.execute(db);
+      await sql`create index org_units_path on org_units using gin (path)`.execute(db);
+      await sql`create index org_units_name on org_units (lower(name))`.execute(db);
+      await sql`alter table grants rename column purchase_class_id to unit_id`.execute(db);
+      await sql`alter table users add column directory_tags text[] not null default '{}'`.execute(db);
+      await db.schema
+        .createTable('unit_people')
+        .addColumn('unit_id', 'uuid', (c) => c.notNull().references('org_units.id').onDelete('cascade'))
+        .addColumn('user_id', 'uuid', (c) => c.notNull().references('users.id').onDelete('cascade'))
+        .addColumn('role', 'text', (c) => c.notNull().check(sql`role in ('member','manager')`))
+        .addColumn('source', 'text', (c) => c.notNull().check(sql`source in ('manual','directory')`))
+        .addPrimaryKeyConstraint('unit_people_pk', ['unit_id', 'user_id', 'role', 'source'])
+        .execute();
+      await db.schema.createIndex('unit_people_user').on('unit_people').column('user_id').execute();
     },
   },
 };

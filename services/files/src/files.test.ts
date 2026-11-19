@@ -5,7 +5,7 @@ import type { AssetAccess, FileStore, ObjectStorage } from './application/ports.
 import { contentDisposition, type StoredFile } from './domain/file.js';
 
 const ASSET = '11111111-1111-4111-8111-111111111111';
-const principal = (userId: string): Principal => ({ userId, username: userId, displayName: userId, email: null, isAdmin: false, grants: [] });
+const principal = (userId: string): Principal => ({ userId, username: userId, displayName: userId, email: null, isAdmin: false, grants: [], units: [] });
 
 function setup(level: AccessLevel = 'edit') {
   const rows = new Map<string, StoredFile>();
@@ -40,7 +40,7 @@ function setup(level: AccessLevel = 'edit') {
     },
     delete: async (keys) => keys.forEach((k) => objects.delete(k)),
   };
-  const access: AssetAccess = { check: async (_t, id): Promise<AccessCheck | null> => (id === ASSET && level !== 'none' ? { assetId: id, assetTypeId: 't', purchaseClassId: 'p', level } : null) };
+  const access: AssetAccess = { check: async (_t, id): Promise<AccessCheck | null> => (id === ASSET && level !== 'none' ? { assetId: id, assetTypeId: 't', unitId: 'p', level } : null) };
   return { service: new FileService(store, storage, access, 10_000), objects, rows };
 }
 

@@ -1,14 +1,29 @@
-import { assetCreateSchema, assetQuerySchema, assetTypeInputSchema, assetUpdateSchema, dateKindInputSchema, fieldKeySchema } from '@am/core';
+import {
+  assetCreateSchema,
+  assetQuerySchema,
+  assetTypeInputSchema,
+  assetUpdateSchema,
+  dateKindInputSchema,
+  fieldKeySchema,
+  requestActionSchema,
+  requestCreateSchema,
+  requestQuerySchema,
+  requestUpdateSchema,
+  savedViewInputSchema,
+  searchQuerySchema,
+} from '@am/core';
 import { parse, requireAdmin, requirePrincipal } from '@am/platform';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { AssetService } from '../application/asset-service.js';
 import type { CatalogService } from '../application/catalog-service.js';
+import type { RequestService } from '../application/request-service.js';
+import type { SearchService } from '../application/search-service.js';
 
 const PREFIX = '/api/registry';
 const idParam = z.object({ id: z.string().uuid() });
 
-export function registerRoutes(app: FastifyInstance, catalog: CatalogService, assets: AssetService): void {
+export function registerRoutes(app: FastifyInstance, catalog: CatalogService, assets: AssetService, requests: RequestService, search: SearchService): void {
   // ─── Date kinds ──────────────────────────────────────────────────────────
   app.get(`${PREFIX}/date-kinds`, async (req) => {
     requirePrincipal(req);
@@ -77,4 +92,27 @@ export function registerRoutes(app: FastifyInstance, catalog: CatalogService, as
   });
   app.get(`${PREFIX}/assets/:id/activity`, async (req) => assets.activity(requirePrincipal(req), parse(idParam, req.params).id));
   app.get(`${PREFIX}/assets/:id/access`, async (req) => assets.access(requirePrincipal(req), parse(idParam, req.params).id));
+  app.get(`${PREFIX}/assets/:id/request`, async (req) => (await requests.forAsset(requirePrincipal(req), parse(idParam, req.params).id)) ?? {});
+
+  // ─── Requests ────────────────────────────────────────────────────────────
+  app.get(`${PREFIX}/requests`, async (req) => requests.list(requirePrincipal(req), parse(requestQuerySchema, req.query)));
+  app.get(`${PREFIX}/requests/counts`, async (req) => requests.counts(requirePrincipal(req)));
+  app.post(`${PREFIX}/requests`, async (req, reply) => reply.status(201).send(await requests.create(requirePrincipal(req), parse(requestCreateSchema, req.body))));
+  app.get(`${PREFIX}/requests/:id`, async (req) => requests.get(requirePrincipal(req), parse(idParam, req.params).id));
+  app.patch(`${PREFIX}/requests/:id`, async (req) => requests.update(requirePrincipal(req), parse(idParam, req.params).id, parse(requestUpdateSchema, req.body)));
+  app.get(`${PREFIX}/requests/:id/events`, async (req) => requests.events(requirePrincipal(req), parse(idParam, req.params).id));
+  app.post(`${PREFIX}/requests/:id/actions`, async (req) => requests.act(requirePrincipal(req), parse(idParam, req.params).id, parse(requestActionSchema, req.body)));
+
+  // ─── Search & saved views ────────────────────────────────────────────────
+  app.get(`${PREFIX}/search`, async (req) => {
+    const q = parse(searchQuerySchema, req.query);
+    return search.search(requirePrincipal(req), q.q, q.limit);
+  });
+  app.get(`${PREFIX}/views`, async (req) => search.views(requirePrincipal(req)));
+  app.post(`${PREFIX}/views`, async (req) => search.createView(requirePrincipal(req), parse(savedViewInputSchema, req.body)));
+  app.put(`${PREFIX}/views/:id`, async (req) => search.updateView(requirePrincipal(req), parse(idParam, req.params).id, parse(savedViewInputSchema, req.body)));
+  app.delete(`${PREFIX}/views/:id`, async (req, reply) => {
+    await search.deleteView(requirePrincipal(req), parse(idParam, req.params).id);
+    return reply.status(204).send();
+  });
 }

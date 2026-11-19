@@ -13,7 +13,15 @@ import type {
   ObligationQuery,
   ObligationSummary,
   Page,
-  PurchaseClass,
+  OrgUnit,
+  PurchaseRequest,
+  RequestCounts,
+  RequestEvent,
+  RequestQuery,
+  SavedView,
+  SearchHit,
+  UnitPerson,
+  UnitRollup,
   User,
   UserSummary,
 } from '@am/core';
@@ -29,7 +37,17 @@ export const keys = {
   assetType: (id: string) => ['asset-types', id] as const,
   dateKinds: ['date-kinds'] as const,
   templates: ['templates'] as const,
-  purchaseClasses: ['purchase-classes'] as const,
+  units: ['units'] as const,
+  unitPeople: (id: string) => ['units', id, 'people'] as const,
+  rollup: (id: string) => ['obligations', 'rollup', id] as const,
+  requests: ['requests'] as const,
+  requestList: (q: Partial<RequestQuery>) => ['requests', 'list', q] as const,
+  request: (id: string) => ['requests', id] as const,
+  requestEvents: (id: string) => ['requests', id, 'events'] as const,
+  requestCounts: ['requests', 'counts'] as const,
+  assetRequest: (assetId: string) => ['requests', 'asset', assetId] as const,
+  views: ['views'] as const,
+  search: (q: string) => ['search', q] as const,
   people: (key: string) => ['people', key] as const,
   assets: ['assets'] as const,
   assetList: (q: Partial<AssetQuery>) => ['assets', 'list', q] as const,
@@ -38,7 +56,7 @@ export const keys = {
   files: (assetId: string) => ['files', assetId] as const,
   obligations: ['obligations'] as const,
   obligationList: (q: Partial<ObligationQuery>) => ['obligations', 'list', q] as const,
-  summary: ['obligations', 'summary'] as const,
+  summary: (q: { unitId?: string; mine?: boolean } = {}) => ['obligations', 'summary', q] as const,
   users: (q: string) => ['users', q] as const,
   groups: ['groups'] as const,
   groupMembers: (id: string) => ['groups', id, 'members'] as const,
@@ -53,8 +71,21 @@ export const useAssetTypes = () => useQuery({ queryKey: keys.assetTypes, queryFn
 export const useAssetType = (id: string | undefined) =>
   useQuery({ queryKey: keys.assetType(id ?? ''), queryFn: () => api.get<AssetType>(`/api/registry/asset-types/${id}`), enabled: !!id });
 export const useDateKinds = () => useQuery({ queryKey: keys.dateKinds, queryFn: () => api.get<DateKind[]>('/api/registry/date-kinds'), staleTime: 60_000 });
-export const usePurchaseClasses = () =>
-  useQuery({ queryKey: keys.purchaseClasses, queryFn: () => api.get<PurchaseClass[]>('/api/identity/purchase-classes'), staleTime: 60_000 });
+export const useUnits = () => useQuery({ queryKey: keys.units, queryFn: () => api.get<OrgUnit[]>('/api/identity/units'), staleTime: 60_000 });
+export const useUnitPeople = (id: string | null) =>
+  useQuery({ queryKey: keys.unitPeople(id ?? ''), queryFn: () => api.get<UnitPerson[]>(`/api/identity/units/${id}/people`), enabled: !!id });
+export const useRollup = (id: string) => useQuery({ queryKey: keys.rollup(id), queryFn: () => api.get<UnitRollup[]>(`/api/scheduler/units/${id}/rollup`) });
+
+export const useRequests = (q: Partial<RequestQuery>) =>
+  useQuery({ queryKey: keys.requestList(q), queryFn: () => api.get<Page<PurchaseRequest>>('/api/registry/requests', q), placeholderData: keepPreviousData });
+export const useRequest = (id: string) => useQuery({ queryKey: keys.request(id), queryFn: () => api.get<PurchaseRequest>(`/api/registry/requests/${id}`) });
+export const useRequestEvents = (id: string) => useQuery({ queryKey: keys.requestEvents(id), queryFn: () => api.get<RequestEvent[]>(`/api/registry/requests/${id}/events`) });
+export const useRequestCounts = () => useQuery({ queryKey: keys.requestCounts, queryFn: () => api.get<RequestCounts>('/api/registry/requests/counts'), refetchInterval: 60_000 });
+export const useAssetRequest = (assetId: string) =>
+  useQuery({ queryKey: keys.assetRequest(assetId), queryFn: async () => ((r) => ('id' in r ? r : null))(await api.get<PurchaseRequest | Record<string, never>>(`/api/registry/assets/${assetId}/request`)) });
+export const useViews = () => useQuery({ queryKey: keys.views, queryFn: () => api.get<SavedView[]>('/api/registry/views'), staleTime: 60_000 });
+export const useSearch = (q: string, limit = 8) =>
+  useQuery({ queryKey: [...keys.search(q), limit], queryFn: () => api.get<SearchHit[]>('/api/registry/search', { q, limit }), enabled: q.trim().length > 0, placeholderData: keepPreviousData });
 
 export const useAssets = (q: Partial<AssetQuery>) =>
   useQuery({ queryKey: keys.assetList(q), queryFn: () => api.get<Page<Asset>>('/api/registry/assets', q), placeholderData: keepPreviousData });
@@ -64,7 +95,8 @@ export const useFiles = (assetId: string) => useQuery({ queryKey: keys.files(ass
 
 export const useObligations = (q: Partial<ObligationQuery>) =>
   useQuery({ queryKey: keys.obligationList(q), queryFn: () => api.get<Page<Obligation>>('/api/scheduler/obligations', q), placeholderData: keepPreviousData });
-export const useSummary = () => useQuery({ queryKey: keys.summary, queryFn: () => api.get<ObligationSummary>('/api/scheduler/summary') });
+export const useSummary = (q: { unitId?: string; mine?: boolean } = {}) =>
+  useQuery({ queryKey: keys.summary(q), queryFn: () => api.get<ObligationSummary>('/api/scheduler/summary', q) });
 
 /** Resolves user ids to people; results are cached per id set. */
 export function usePeople(ids: Array<string | null | undefined>) {
@@ -85,19 +117,22 @@ export const usePeopleSearch = (q: string) =>
 export function useLookups() {
   const types = useAssetTypes();
   const kinds = useDateKinds();
-  const classes = usePurchaseClasses();
-  return useMemo(
-    () => ({
-      ready: !!types.data && !!kinds.data && !!classes.data,
+  const units = useUnits();
+  return useMemo(() => {
+    const unitById = new Map((units.data ?? []).map((u) => [u.id, u]));
+    return {
+      ready: !!types.data && !!kinds.data && !!units.data,
       types: types.data ?? [],
       typeById: new Map((types.data ?? []).map((t) => [t.id, t])),
       kinds: kinds.data ?? [],
       kindById: new Map((kinds.data ?? []).map((k) => [k.id, k])),
-      classes: classes.data ?? [],
-      classById: new Map((classes.data ?? []).map((c) => [c.id, c])),
-    }),
-    [types.data, kinds.data, classes.data],
-  );
+      units: units.data ?? [],
+      unitById,
+      /** "Wix › R&D › Editor" */
+      unitPathNames: (id: string | null | undefined) => (id ? (unitById.get(id)?.path ?? []).map((p) => unitById.get(p)?.name ?? '…') : []),
+      childrenOf: (id: string | null) => (units.data ?? []).filter((u) => u.parentId === id),
+    };
+  }, [types.data, kinds.data, units.data]);
 }
 
 export const useUsers = (q: string) => useQuery({ queryKey: keys.users(q), queryFn: () => api.get<Page<User>>('/api/identity/users', { q, limit: 200 }), placeholderData: keepPreviousData });
@@ -112,6 +147,7 @@ export function useInvalidateAssets() {
   return (assetId?: string) => {
     void qc.invalidateQueries({ queryKey: keys.assets });
     if (assetId) void qc.invalidateQueries({ queryKey: keys.asset(assetId) });
+    void qc.invalidateQueries({ queryKey: keys.requests });
     // The scheduler updates asynchronously from events; refetch shortly after.
     setTimeout(() => void qc.invalidateQueries({ queryKey: keys.obligations }), 1500);
   };

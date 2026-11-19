@@ -1,102 +1,40 @@
-import { atLeast, effectiveLevel, type Asset, type AssetType, type FieldDefinition } from '@am/core';
-import { useNavigate, useSearch } from '@tanstack/react-router';
-import type { ColumnDef } from '@tanstack/react-table';
-import { Plus, Search, Shapes } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import type { SavedView } from '@am/core';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useNavigate, useParams, useSearch } from '@tanstack/react-router';
+import { Bookmark, MoreHorizontal, Pencil, Pin, PinOff, Plus, Shapes, Trash2 } from 'lucide-react';
+import { useState } from 'react';
+import { toast } from 'sonner';
+import { AssetExplorer } from '@/components/asset-explorer';
 import { AssetFormSheet } from '@/components/asset-form';
-import { AttributeValue } from '@/components/attribute';
-import { StatusBadge } from '@/components/badges';
-import { PersonName, PurchaseClassSelect } from '@/components/pickers';
 import { TypeIcon } from '@/components/type-icon';
 import { Button } from '@/components/ui/button';
-import { DataTable, type SortState } from '@/components/ui/data-table';
-import { Badge, EmptyState, PageHeader } from '@/components/ui/display';
-import { Input, Select } from '@/components/ui/form';
-import { useAssets, useLookups, useMe } from '@/lib/queries';
-import { formatDateTime } from '@/lib/utils';
+import { EmptyState, IconTile, PageHeader, Spinner } from '@/components/ui/display';
+import { Input } from '@/components/ui/form';
+import { Dialog, Menu, MenuItem } from '@/components/ui/overlay';
+import { api } from '@/lib/api';
+import { useMyOrg } from '@/lib/org';
+import { keys, useLookups, useViews } from '@/lib/queries';
 
-const PAGE = 50;
-
-function useDebounced<T>(value: T, ms = 250) {
-  const [v, setV] = useState(value);
-  useEffect(() => {
-    const t = setTimeout(() => setV(value), ms);
-    return () => clearTimeout(t);
-  }, [value, ms]);
-  return v;
-}
-
-/** Columns come from the type's fields, so every template gets a tailored table. */
-function columnsFor(type: AssetType | undefined, lookups: ReturnType<typeof useLookups>): Array<ColumnDef<Asset, unknown> & { meta?: { sortKey?: string; align?: 'right' } }> {
-  const fieldCols = (type?.fields ?? [])
-    .filter((f) => f.showInTable)
-    .slice(0, 6)
-    .map((f: FieldDefinition) => ({
-      id: f.key,
-      header: f.label,
-      meta: { sortKey: `attributes.${f.key}`, align: f.kind === 'currency' || f.kind === 'number' ? ('right' as const) : undefined },
-      cell: ({ row }: { row: { original: Asset } }) => <AttributeValue field={f} value={row.original.attributes[f.key]} compact />,
-    }));
-  return [
-    {
-      id: 'name',
-      header: 'Name',
-      meta: { sortKey: 'name' },
-      cell: ({ row }) => {
-        const t = lookups.typeById.get(row.original.assetTypeId);
-        return (
-          <span className="flex items-center gap-2.5 font-medium">
-            {!type && t && <TypeIcon icon={t.icon} color={t.color} size={22} />}
-            <span className="max-w-72 truncate">{row.original.name}</span>
-          </span>
-        );
-      },
-    },
-    ...(type ? [] : [{ id: 'type', header: 'Type', cell: ({ row }: { row: { original: Asset } }) => <span className="text-muted">{lookups.typeById.get(row.original.assetTypeId)?.name}</span> }]),
-    { id: 'status', header: 'Status', meta: { sortKey: 'status' }, cell: ({ row }) => <StatusBadge type={lookups.typeById.get(row.original.assetTypeId)} status={row.original.status} /> },
-    ...fieldCols,
-    {
-      id: 'class',
-      header: 'Purchased for',
-      cell: ({ row }) => {
-        const c = lookups.classById.get(row.original.purchaseClassId);
-        return c ? <Badge color={c.color}>{c.name}</Badge> : null;
-      },
-    },
-    { id: 'owner', header: 'Owner', cell: ({ row }) => <PersonName id={row.original.ownerId} /> },
-    { id: 'updated', header: 'Updated', meta: { sortKey: 'updatedAt' }, cell: ({ row }) => <span className="text-muted">{formatDateTime(row.original.updatedAt)}</span> },
-  ];
+/** Create button for a type, shown only where the person can add assets. */
+export function useCanCreate(assetTypeId: string | undefined) {
+  const { me, canEditIn } = useMyOrg();
+  const { units, typeById } = useLookups();
+  const type = assetTypeId ? typeById.get(assetTypeId) : undefined;
+  return !!type && !type.archived && (!!me?.isAdmin || units.some((u) => canEditIn(u.id, type.id)));
 }
 
 export function AssetsPage() {
-  const { type: typeId } = useSearch({ strict: false }) as { type?: string };
+  const { type: typeId, q } = useSearch({ strict: false }) as { type?: string; q?: string };
   const lookups = useLookups();
-  const me = useMe().data!;
-  const navigate = useNavigate();
   const type = typeId ? lookups.typeById.get(typeId) : undefined;
-  const [q, setQ] = useState('');
-  const [classId, setClassId] = useState<string | null>(null);
-  const [status, setStatus] = useState('');
-  const [sort, setSort] = useState<SortState>({ sort: 'updatedAt', order: 'desc' });
-  const [offset, setOffset] = useState(0);
   const [creating, setCreating] = useState(false);
-  const search = useDebounced(q);
-
-  useEffect(() => {
-    setOffset(0);
-    setStatus('');
-    setSort({ sort: 'updatedAt', order: 'desc' });
-  }, [typeId]);
-
-  const assets = useAssets({ assetTypeId: typeId, q: search || undefined, purchaseClassId: classId ?? undefined, status: status || undefined, sort: sort.sort, order: sort.order, limit: PAGE, offset });
-  const columns = useMemo(() => columnsFor(type, lookups), [type, lookups]);
-  const canCreate = !!type && !type.archived && (me.isAdmin || lookups.classes.some((c) => atLeast(effectiveLevel(me, { purchaseClassId: c.id, assetTypeId: type.id }), 'edit')));
+  const canCreate = useCanCreate(typeId);
 
   return (
     <>
       <PageHeader
         title={type?.name ?? 'All assets'}
-        description={type?.description ?? 'Everything you have access to, across every type.'}
+        description={type?.description ?? 'Everything you can see, across every type and team.'}
         icon={type ? <TypeIcon icon={type.icon} color={type.color} size={36} /> : undefined}
         actions={
           canCreate && (
@@ -105,47 +43,88 @@ export function AssetsPage() {
             </Button>
           )
         }
-      >
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative w-72">
-            <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-subtle" />
-            <Input className="pl-8" placeholder="Search name or fields…" value={q} onChange={(e) => (setQ(e.target.value), setOffset(0))} />
-          </div>
-          <div className="w-48">
-            <PurchaseClassSelect includeAll value={classId} onChange={(v) => (setClassId(v), setOffset(0))} />
-          </div>
-          {type && (
-            <Select className="w-36" value={status} onChange={(e) => (setStatus(e.target.value), setOffset(0))}>
-              <option value="">Any status</option>
-              {type.statuses.map((s) => (
-                <option key={s.value} value={s.value}>
-                  {s.label}
-                </option>
-              ))}
-            </Select>
-          )}
-          <span className="ml-auto text-xs text-subtle">{assets.data ? `${assets.data.total} ${assets.data.total === 1 ? 'asset' : 'assets'}` : ''}</span>
-        </div>
-      </PageHeader>
-      <DataTable
-        columns={columns}
-        data={assets.data?.items ?? []}
-        loading={assets.isLoading}
-        rowKey={(a) => a.id}
-        onRowClick={(a) => void navigate({ to: '/assets/$assetId', params: { assetId: a.id } })}
-        sort={sort}
-        onSortChange={(s) => (setSort(s), setOffset(0))}
-        page={assets.data ? { offset, limit: PAGE, total: assets.data.total, onChange: setOffset } : undefined}
+      />
+      <AssetExplorer
+        fixed={typeId ? { assetTypeId: typeId } : {}}
+        initial={q ? { q } : undefined}
         empty={
           <EmptyState
             icon={<Shapes />}
-            title={q || classId || status ? 'No matching assets' : 'No assets yet'}
-            description={q || classId || status ? 'Try a different search or filter.' : type ? `Create the first ${type.name.toLowerCase()} to start tracking it.` : 'Pick an asset type in the sidebar to add one.'}
-            action={canCreate && !q ? <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setCreating(true)}>New {type!.name.toLowerCase()}</Button> : undefined}
+            title="No assets yet"
+            description={type ? `Create the first ${type.name.toLowerCase()} to start tracking it.` : 'Pick an asset type in the sidebar to add one.'}
+            action={canCreate ? <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setCreating(true)}>New {type!.name.toLowerCase()}</Button> : undefined}
           />
         }
       />
       {type && <AssetFormSheet open={creating} onOpenChange={setCreating} type={type} />}
+    </>
+  );
+}
+
+export function SavedViewPage() {
+  const { viewId } = useParams({ strict: false }) as { viewId: string };
+  const views = useViews();
+  const view = views.data?.find((v) => v.id === viewId);
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  const [renaming, setRenaming] = useState(false);
+  const [name, setName] = useState('');
+  const save = useMutation({
+    mutationFn: (v: SavedView) => api.put(`/api/registry/views/${v.id}`, { name: v.name, query: v.query, pinned: v.pinned }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.views }),
+  });
+  const remove = useMutation({
+    mutationFn: () => api.delete(`/api/registry/views/${viewId}`),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: keys.views });
+      toast.success('View deleted');
+      void navigate({ to: '/assets' });
+    },
+  });
+
+  if (views.isLoading) return <div className="flex h-full items-center justify-center"><Spinner /></div>;
+  if (!view) return <EmptyState title="View not found" description="It may have been deleted." />;
+
+  return (
+    <>
+      <PageHeader
+        title={view.name}
+        description="Saved view"
+        icon={
+          <IconTile color="#6366f1" size={36}>
+            <Bookmark />
+          </IconTile>
+        }
+        actions={
+          <Menu trigger={<Button size="icon" aria-label="View options" icon={<MoreHorizontal className="size-4" />} />}>
+            <MenuItem icon={view.pinned ? <PinOff /> : <Pin />} onSelect={() => save.mutate({ ...view, pinned: !view.pinned })}>
+              {view.pinned ? 'Unpin from sidebar' : 'Pin to sidebar'}
+            </MenuItem>
+            <MenuItem icon={<Pencil />} onSelect={() => (setName(view.name), setRenaming(true))}>
+              Rename…
+            </MenuItem>
+            <MenuItem danger icon={<Trash2 />} onSelect={() => remove.mutate()}>
+              Delete view
+            </MenuItem>
+          </Menu>
+        }
+      />
+      <AssetExplorer initial={view.query} view={view} />
+      <Dialog
+        open={renaming}
+        onOpenChange={setRenaming}
+        title="Rename view"
+        footer={
+          <>
+            <Button onClick={() => setRenaming(false)}>Cancel</Button>
+            <Button variant="primary" disabled={!name.trim()} onClick={() => (save.mutate({ ...view, name: name.trim() }), setRenaming(false))}>
+              Save
+            </Button>
+          </>
+        }
+      >
+        <Input autoFocus value={name} onChange={(e) => setName(e.target.value)} />
+      </Dialog>
     </>
   );
 }

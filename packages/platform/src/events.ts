@@ -38,6 +38,22 @@ export async function enqueue<DB extends OutboxTable, E extends EventName>(db: K
 
 export type EventHandler<E extends EventName> = (payload: EventMap[E]) => Promise<void>;
 
+/**
+ * Queue setup takes table locks; when every replica of every service starts at
+ * once (fresh install, cluster restart) these can deadlock. Retry with jitter.
+ */
+async function withDeadlockRetry<T>(fn: () => Promise<T>, attempts = 8): Promise<T> {
+  for (let i = 1; ; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const code = (err as { code?: string }).code;
+      if (i >= attempts || (code !== '40P01' && code !== '40001' && code !== '23505')) throw err;
+      await new Promise((r) => setTimeout(r, 100 * i + Math.random() * 400));
+    }
+  }
+}
+
 export class EventBus {
   constructor(
     private readonly boss: PgBoss,
@@ -51,8 +67,8 @@ export class EventBus {
   /** Each consumer gets its own durable queue subscribed to the event (fan-out). */
   async subscribe<E extends EventName>(consumer: string, event: E, handler: EventHandler<E>): Promise<void> {
     const queue = `${consumer}.${event}`;
-    await this.boss.createQueue(queue, { name: queue, retryLimit: 10, retryBackoff: true, retryDelay: 5 });
-    await this.boss.subscribe(event, queue);
+    await withDeadlockRetry(() => this.boss.createQueue(queue, { name: queue, retryLimit: 10, retryBackoff: true, retryDelay: 5 }));
+    await withDeadlockRetry(() => this.boss.subscribe(event, queue));
     await this.boss.work<EventMap[E]>(queue, { batchSize: 25, pollingIntervalSeconds: 1 }, async (jobs) => {
       for (const job of jobs) {
         try {
@@ -67,8 +83,8 @@ export class EventBus {
 
   /** Cron job that runs once per tick across all replicas (pg-boss singleton queue). */
   async schedule(queue: string, cron: string, handler: () => Promise<void>): Promise<void> {
-    await this.boss.createQueue(queue, { name: queue, policy: 'singleton', retryLimit: 0 });
-    await this.boss.schedule(queue, cron, {}, { tz: 'UTC' });
+    await withDeadlockRetry(() => this.boss.createQueue(queue, { name: queue, policy: 'singleton', retryLimit: 0 }));
+    await withDeadlockRetry(() => this.boss.schedule(queue, cron, {}, { tz: 'UTC' }));
     await this.boss.work(queue, async () => handler());
   }
 }

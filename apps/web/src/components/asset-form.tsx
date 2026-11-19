@@ -1,4 +1,4 @@
-import { atLeast, computeDerivedDates, effectiveLevel, isRestricted, type Asset, type AssetType, type Attributes, type Duration, type FieldDefinition } from '@am/core';
+import { atLeast, computeDerivedDates, effectiveLevel, isRestricted, type Asset, type AssetType, type Attributes, type Duration, type FieldDefinition, type PurchaseRequest } from '@am/core';
 import { useMutation } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { Lock, Sparkles } from 'lucide-react';
@@ -9,7 +9,8 @@ import { useInvalidateAssets, useLookups, useMe } from '@/lib/queries';
 import { formatDate, formatDurations } from '@/lib/utils';
 import { AttributeInput } from './attribute';
 import { DurationListEditor } from './duration-editor';
-import { PersonPicker, PurchaseClassSelect } from './pickers';
+import { PersonPicker, UnitPicker } from './pickers';
+import { useMyOrg } from '@/lib/org';
 import { Button } from './ui/button';
 import { Field, Input, Select, Switch } from './ui/form';
 import { Sheet } from './ui/overlay';
@@ -18,39 +19,44 @@ interface Draft {
   name: string;
   status: string;
   ownerId: string | null;
-  purchaseClassId: string | null;
+  unitId: string | null;
   attributes: Record<string, unknown>;
   reminderOverrides: Record<string, Duration[]>;
 }
 
-const fromAsset = (type: AssetType, a: Asset | null, me: string | undefined, defaultClass: string | null): Draft => ({
-  name: a?.name ?? '',
+const fromAsset = (type: AssetType, a: Asset | null, me: string | undefined, defaultUnit: string | null, request?: PurchaseRequest | null): Draft => ({
+  name: a?.name ?? request?.title ?? '',
   status: a?.status ?? type.statuses[0]!.value,
-  ownerId: a?.ownerId ?? me ?? null,
-  purchaseClassId: a?.purchaseClassId ?? defaultClass,
+  ownerId: a?.ownerId ?? request?.requesterId ?? me ?? null,
+  unitId: a?.unitId ?? request?.unitId ?? defaultUnit,
   attributes: { ...(a?.attributes ?? {}) },
   reminderOverrides: { ...(a?.reminderOverrides ?? {}) },
 });
 
-/** Create and edit share this form; it is generated entirely from the asset type. */
-export function AssetFormSheet({ open, onOpenChange, type, asset }: { open: boolean; onOpenChange: (o: boolean) => void; type: AssetType; asset?: Asset | null }) {
+/**
+ * Create and edit share this form; it is generated entirely from the asset
+ * type. With `request`, it fulfils that request (pre-filled, and closes it on save).
+ */
+export function AssetFormSheet({ open, onOpenChange, type, asset, request }: { open: boolean; onOpenChange: (o: boolean) => void; type: AssetType; asset?: Asset | null; request?: PurchaseRequest | null }) {
   const me = useMe().data;
-  const { classes, kindById } = useLookups();
+  const { kindById, unitById } = useLookups();
+  const { mine, canEditIn } = useMyOrg();
   const navigate = useNavigate();
   const invalidate = useInvalidateAssets();
-  const editableClasses = classes.filter((c) => !c.archived && me && atLeast(effectiveLevel(me, { purchaseClassId: c.id, assetTypeId: type.id }), 'edit'));
-  const [draft, setDraft] = useState<Draft>(() => fromAsset(type, asset ?? null, me?.userId, editableClasses[0]?.id ?? null));
+  const defaultUnit = mine.find((m) => canEditIn(m.unit.id, type.id))?.unit.id ?? null;
+  const [draft, setDraft] = useState<Draft>(() => fromAsset(type, asset ?? null, me?.userId, defaultUnit, request));
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (open) {
-      setDraft(fromAsset(type, asset ?? null, me?.userId, editableClasses.length === 1 ? editableClasses[0]!.id : null));
+      setDraft(fromAsset(type, asset ?? null, me?.userId, defaultUnit, request));
       setErrors({});
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, asset?.id, type.id]);
+  }, [open, asset?.id, type.id, request?.id]);
 
-  const level = me && draft.purchaseClassId ? effectiveLevel(me, { purchaseClassId: draft.purchaseClassId, assetTypeId: type.id }) : 'none';
+  const unit = draft.unitId ? unitById.get(draft.unitId) : undefined;
+  const level = me && unit ? effectiveLevel(me, { unitPath: unit.path, assetTypeId: type.id }) : 'none';
   const canRestricted = atLeast(level, 'manage');
   const derived = useMemo(() => computeDerivedDates(type.fields, draft.attributes as Attributes), [type.fields, draft.attributes]);
 
@@ -66,11 +72,13 @@ export function AssetFormSheet({ open, onOpenChange, type, asset }: { open: bool
   const save = useMutation({
     mutationFn: () => {
       const attributes = Object.fromEntries(Object.entries(draft.attributes).filter(([k]) => canRestricted || !isRestricted(type.fields.find((f) => f.key === k)!)));
-      const body = { name: draft.name, status: draft.status, ownerId: draft.ownerId, purchaseClassId: draft.purchaseClassId, attributes, reminderOverrides: draft.reminderOverrides };
-      return asset ? api.patch<Asset>(`/api/registry/assets/${asset.id}`, body) : api.post<Asset>('/api/registry/assets', { ...body, assetTypeId: type.id });
+      const body = { name: draft.name, status: draft.status, ownerId: draft.ownerId, unitId: draft.unitId, attributes, reminderOverrides: draft.reminderOverrides };
+      return asset
+        ? api.patch<Asset>(`/api/registry/assets/${asset.id}`, body)
+        : api.post<Asset>('/api/registry/assets', { ...body, assetTypeId: type.id, ...(request && { requestId: request.id }) });
     },
     onSuccess: (saved) => {
-      toast.success(asset ? 'Saved' : `${type.name} created`);
+      toast.success(asset ? 'Saved' : request ? `${request.number} fulfilled` : `${type.name} created`);
       invalidate(saved.id);
       onOpenChange(false);
       if (!asset) void navigate({ to: '/assets/$assetId', params: { assetId: saved.id } });
@@ -93,13 +101,13 @@ export function AssetFormSheet({ open, onOpenChange, type, asset }: { open: bool
     <Sheet
       open={open}
       onOpenChange={onOpenChange}
-      title={asset ? `Edit ${asset.name}` : `New ${type.name.toLowerCase()}`}
-      description={type.description}
+      title={asset ? `Edit ${asset.name}` : request ? `Fulfil ${request.number}` : `New ${type.name.toLowerCase()}`}
+      description={request ? `Creates the ${type.name.toLowerCase()} and closes “${request.title}”.` : type.description}
       footer={
         <>
           <Button onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button variant="primary" type="submit" form="asset-form" loading={save.isPending} disabled={!draft.name || !draft.purchaseClassId}>
-            {asset ? 'Save changes' : 'Create'}
+          <Button variant="primary" type="submit" form="asset-form" loading={save.isPending} disabled={!draft.name || !draft.unitId}>
+            {asset ? 'Save changes' : request ? 'Create & fulfil' : 'Create'}
           </Button>
         </>
       }
@@ -109,8 +117,8 @@ export function AssetFormSheet({ open, onOpenChange, type, asset }: { open: bool
           <Field label="Name" required className="col-span-2">
             {(id) => <Input id={id} autoFocus value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder={`e.g. ${type.name} for …`} />}
           </Field>
-          <Field label="Purchased for" required hint="Purchase class — controls who can see this asset">
-            {(id) => <PurchaseClassSelect id={id} value={draft.purchaseClassId} onChange={(v) => setDraft({ ...draft, purchaseClassId: v })} />}
+          <Field label="Team" required hint="Who it's for. Its people can see it; access follows the org chart.">
+            {(id) => <UnitPicker id={id} value={draft.unitId} onChange={(v) => setDraft({ ...draft, unitId: v })} filter={(u) => canEditIn(u.id, type.id)} />}
           </Field>
           <Field label="Status">
             {(id) => (

@@ -1,4 +1,4 @@
-import type { IsoDate, ObligationQuery, Scope, TrackedDate } from '@am/core';
+import type { IsoDate, ObligationQuery, ObligationSummary, Scope, TrackedDate, UnitRollup } from '@am/core';
 import type { AssetRef, ObligationRecord } from '../domain/obligation.js';
 
 export interface UserRef {
@@ -30,7 +30,12 @@ export interface SchedulerStore {
   getObligation(id: string): Promise<ObligationWithAsset | null>;
 
   query(q: ObligationQuery, scopes: Scope[], userId: string): Promise<{ items: ObligationWithAsset[]; total: number }>;
-  summary(scopes: Scope[], today: IsoDate): Promise<{ overdue: number; dueThisWeek: number; dueThisMonth: number; spend: Array<{ currency: string; next30: number; next90: number }> }>;
+  summary(scopes: Scope[], today: IsoDate, filter?: { unitId?: string; userId?: string }): Promise<ObligationSummary>;
+  rollup(scopes: Scope[], today: IsoDate, unitId: string): Promise<UnitRollup[]>;
+  upsertUnit(u: { id: string; name: string; parentId: string | null; path: string[]; archived: boolean; managerIds: string[] }): Promise<void>;
+  /** Managers of the nearest unit, walking up from the given unit. */
+  nearestManagers(unitPath: string[]): Promise<string[]>;
+  unitPaths(ids: string[]): Promise<Map<string, string[]>>;
 
   /** Active obligations of active assets that may need a reminder today. */
   remindable(today: IsoDate): Promise<ObligationWithAsset[]>;

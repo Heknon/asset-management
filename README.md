@@ -5,7 +5,9 @@ A generic system for everything an organisation buys and has to keep track of �
 - **Templates, not hard-coded types.** An asset type is a template of fields (text, number, currency, date, select, person, secret, linked asset, …). "Software license" and "SIM line" are just starter templates.
 - **Dates have meaning.** Any date field can be tagged with a *date kind* — Renewal, Notice deadline, Expiry, Payment due, Warranty end, or one you define. The kind decides behaviour (one-off, recurring, informational), default reminders and the action verb ("Renew", "Pay"). Dates can be *derived* ("cancellation deadline = renewal date − notice period") and *recur* by a fixed interval or by another field ("term in months").
 - **Reminders that people act on.** One digest email per person, Outlook calendar invites that move or cancel when the date changes, and a personal calendar feed. "Renew" rolls the date forward and closes the occurrence, including derived dates.
-- **Access by purchase class.** Each asset is "purchased for" a purchase class (department, client, project). Users or LDAP/ADFS groups get *view*, *edit* or *manage* per purchase class × asset type. Restricted fields (license keys, PINs) are visible to managers only and never searchable.
+- **Built for a whole company.** An organization tree (company → divisions → departments → teams → squads) drives everything. Membership comes from LDAP/ADFS groups or attributes like `department`. Members see their team's assets, managers manage everything beneath their unit, and division heads get rolled-up spend and renewals per sub-unit. Restricted fields (license keys, PINs) are visible to managers only and never searchable.
+- **Requests.** Anyone can ask for something for their team, or for any unit above it ("my department needs…", "the whole company needs…"). Procurement triages, approves, orders and fulfils; fulfilling creates the asset and links it back. Everyone involved is emailed at each step.
+- **Search that forgives.** One box searches every non-restricted field of every asset you can see, plus requests, teams and people. Words can match partially, anywhere in the text, or with small typos. Results show which field matched. Filters work on any field in plain language ("Renewal date is in the next 90 days", "Seats is at least 40"). Any search can be saved as a pinned view.
 - **Documents in S3** with presigned upload/download URLs and in-app preview (PDF, images, text, video, audio).
 - **Sign-in** with LDAP / Active Directory, ADFS (OpenID Connect), and a break-glass local admin.
 
@@ -32,13 +34,13 @@ Browser ───────► web (nginx: SPA + /api/* reverse proxy, CSP)
 
 | Service | Owns | Talks to |
 |---|---|---|
-| **identity** | People, groups, purchase classes, grants, sessions; issues ES256 access tokens (JWKS) | LDAP/AD, ADFS |
-| **registry** | Asset types (versioned templates), date kinds, assets, activity log | — |
+| **identity** | People, groups, the organization tree and who belongs to each unit, grants, sessions; issues ES256 access tokens (JWKS) | LDAP/AD, ADFS |
+| **registry** | Asset types (versioned templates), date kinds, assets, activity log, requests, search index, saved views | — |
 | **files** | Document metadata; presigned S3 POST/GET | S3, registry (access check) |
-| **scheduler** | Obligations (occurrences of tracked dates), reminder deliveries, invites, calendar feeds | SMTP |
+| **scheduler** | Obligations (occurrences of tracked dates), reminders, Outlook invites, calendar feeds, request emails, per-unit rollups | SMTP |
 | **web** | React SPA served by nginx, which proxies `/api/<service>/` | all |
 
-**Boundaries.** Each service owns one Postgres schema; its connection's `search_path` is pinned to it, so it cannot read another service's tables. Services integrate through events written to a **transactional outbox** and relayed via **pg-boss** (`asset.changed`, `asset.deleted`, `user.changed`, `purchase-class.changed`); consumers keep small local projections and are idempotent (at-least-once delivery). The only synchronous call is files → registry to authorise document access, because the registry owns asset authorisation. Every service verifies the caller's token locally against identity's JWKS.
+**Boundaries.** Each service owns one Postgres schema; its connection's `search_path` is pinned to it, so it cannot read another service's tables. Services integrate through events written to a **transactional outbox** and relayed via **pg-boss** (`asset.changed`, `asset.deleted`, `user.changed`, `unit.changed`, `request.changed`); consumers keep small local projections and are idempotent (at-least-once delivery). The only synchronous call is files → registry to authorise document access, because the registry owns asset authorisation. Every service verifies the caller's token locally against identity's JWKS.
 
 **Layers** (every service):
 
@@ -67,8 +69,10 @@ src/
 | **Date kind** | Renewal (recurring, 90/60/30/7 days, "Renew") | Admin-managed catalogue. Behaviour: `milestone` · `recurring` · `informational`. |
 | **Tracked date** | Renewal date → Renewal, repeats every `term_months` | Per field: kind, optional derivation, recurrence, reminders, recipients (owner, person fields, extra emails). Per asset: reminder overrides. |
 | **Status** | Active / Trial / Cancelled | Inactive statuses pause all reminders. |
-| **Purchase class** | Engineering, Client: Acme | Every asset belongs to one; the primary access boundary. |
-| **Grant** | Group "Procurement" → manage on Engineering × all types | Users or directory groups; highest matching grant wins. |
+| **Organization unit** | Wix › R&D › Editor › Platform | A tree with free level names. Every asset and request belongs to one unit. Units link to directory groups or attributes. |
+| **Membership** | Platform members (from `CN=platform`); R&D managers | Members get the unit's member access (view by default). Managers get manage on the whole subtree, and receive reminders when an owner is missing. |
+| **Grant** | Dana → manage the whole company; Finance → view it | For roles that cut across the tree. Grants go to users or directory groups and apply to a unit's subtree; the highest matching level wins. |
+| **Request** | REQ-1042 "10 Miro seats" for Platform | Submitted → In review → Approved → Ordered → Fulfilled (or Declined/Cancelled). Handlers are people with edit on the unit. |
 | **Obligation** | "Renew GitHub Enterprise by Dec 30" | One active occurrence per asset × date field; done / snoozed / dismissed. |
 
 ## Local development
@@ -83,7 +87,15 @@ pnpm dev                              # services on :4001-4004, web on http://lo
 node scripts/seed-demo.mjs            # optional demo data
 ```
 
-Sign in as `admin` / `admin-change-me` (local break-glass account from `.env`). Emails and Outlook invites are captured by Mailpit at http://localhost:8025. To try LDAP sign-in, set `LDAP_ENABLED=true` and the `LDAP_*` values shown in `docker-compose.yml` (users `alice`/`bob`, password `password`).
+Sign in as `admin` / `admin-change-me` (local break-glass account from `.env`). The seed builds a company of about 150 units, 60 people and 400 assets. Try it as different people (password `password-1234`):
+
+| Account | Persona | What to look at |
+|---|---|---|
+| `dana.cohen` | Procurement lead (manages the whole company) | Requests → To handle; approve, order and fulfil a request |
+| `tom.levi` | Platform team member | Request something; My requests; the team's assets |
+| `rachel.amar` | R&D division head | My teams → R&D: rollups by department, renewals |
+| `noa.mizrahi` | Finance (views company-wide) | Spend on the home screen; saved views |
+ Emails and Outlook invites are captured by Mailpit at http://localhost:8025. To try LDAP sign-in, set `LDAP_ENABLED=true` and the `LDAP_*` values shown in `docker-compose.yml` (users `alice`/`bob`, password `password`).
 
 ```bash
 pnpm typecheck && pnpm test           # strict TypeScript across all packages + unit tests
@@ -121,6 +133,13 @@ docker compose --profile app up -d    # the production images, on http://localho
    ```
 
 The chart works with OpenShift's `restricted-v2` SCC (no fixed UIDs, read-only root filesystem, all capabilities dropped). It ships a TLS edge Route, NetworkPolicies (only the router reaches web, only release pods reach the backends), PodDisruptionBudgets, optional HPAs, and startup/readiness/liveness probes. Each service receives only the secret keys it needs.
+
+## Organization and access at scale
+
+- **Import the org chart** (Organization → Import): paste one line per unit, `Wix / R&D / Editor / Platform | member links | manager links`. Missing parents are created; re-imports update links and never duplicate units.
+- **Link units to the directory.** A unit's member and manager links are LDAP group DNs, ADFS group names, or attribute values such as `department=Platform` (set `LDAP_UNIT_ATTRIBUTES` / `OIDC_UNIT_CLAIMS`). People are placed at every sign-in. Team leads can add people outside the directory by hand.
+- **Reorganise freely.** Moving a unit moves its subtree: access, rollups, search and reminders follow immediately.
+- **Nobody falls through the cracks.** If an asset's owner leaves, its reminders go to the nearest unit managers up the tree. Per date, a template can send them *never*, *only as a fallback*, or *always*.
 
 ## Identity providers
 

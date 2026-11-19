@@ -9,13 +9,14 @@ import { AttributeValue } from '@/components/attribute';
 import { AccessBadge, StatusBadge } from '@/components/badges';
 import { Documents } from '@/components/documents';
 import { ObligationList } from '@/components/obligations';
-import { PersonName } from '@/components/pickers';
+import { PersonName, UnitPath } from '@/components/pickers';
+import { RequestStatusBadge } from '@/components/badges';
 import { TypeIcon } from '@/components/type-icon';
 import { Button } from '@/components/ui/button';
 import { Badge, Card, EmptyState, PageHeader, SectionTitle, Spinner } from '@/components/ui/display';
 import { ConfirmDialog, Menu, MenuItem } from '@/components/ui/overlay';
 import { api, ApiError } from '@/lib/api';
-import { useActivity, useAsset, useInvalidateAssets, useLookups, useMe, useObligations } from '@/lib/queries';
+import { useActivity, useAsset, useAssetRequest, useInvalidateAssets, useLookups, useMe, useObligations } from '@/lib/queries';
 import { formatDateTime } from '@/lib/utils';
 
 export function AssetDetailPage() {
@@ -50,7 +51,6 @@ export function AssetDetailPage() {
 
   const a = asset.data;
   const canEdit = atLeast(a.access, 'edit');
-  const pc = lookups.classById.get(a.purchaseClassId);
 
   return (
     <>
@@ -64,7 +64,9 @@ export function AssetDetailPage() {
               {type.name}
             </Link>
             <StatusBadge type={type} status={a.status} />
-            {pc && <Badge color={pc.color}>{pc.name}</Badge>}
+            <Link to="/units/$unitId" params={{ unitId: a.unitId }} className="hover:text-fg">
+              <UnitPath id={a.unitId} />
+            </Link>
             <AccessBadge level={a.access} />
           </span>
         }
@@ -91,6 +93,7 @@ export function AssetDetailPage() {
           <Documents assetId={a.id} canEdit={canEdit} canManage={atLeast(a.access, 'manage')} currentUserId={me.userId} />
         </div>
         <div className="space-y-6">
+          <OriginRequest assetId={a.id} />
           <KeyDates assetId={a.id} canEdit={canEdit} />
           <Activity assetId={a.id} type={type} />
         </div>
@@ -184,13 +187,31 @@ function KeyDates({ assetId, canEdit }: { assetId: string; canEdit: boolean }) {
   );
 }
 
+/** Where this asset came from, when it was bought through a request. */
+function OriginRequest({ assetId }: { assetId: string }) {
+  const r = useAssetRequest(assetId);
+  if (!r.data) return null;
+  return (
+    <Link to="/requests/$requestId" params={{ requestId: r.data.id }} className="block">
+      <Card className="flex items-center gap-3 transition-colors hover:border-border-strong">
+        <div className="min-w-0 flex-1">
+          <p className="text-xs text-muted">Bought for request {r.data.number}</p>
+          <p className="truncate text-[13px] font-medium">{r.data.title}</p>
+          <p className="text-xs text-subtle">Requested by {r.data.requesterName}</p>
+        </div>
+        <RequestStatusBadge status={r.data.status} />
+      </Card>
+    </Link>
+  );
+}
+
 const actionLabels: Record<ActivityEntry['action'], string> = { created: 'created this asset', updated: 'updated', deleted: 'deleted', advanced: 'rolled a date forward' };
 
 function Activity({ assetId, type }: { assetId: string; type: AssetType }) {
   const activity = useActivity(assetId);
   const label = (key: string) => {
     if (key.startsWith('attributes.')) return type.fields.find((f) => f.key === key.slice(11))?.label ?? key.slice(11);
-    return { name: 'Name', status: 'Status', ownerId: 'Owner', purchaseClassId: 'Purchase class', reminderOverrides: 'Reminders' }[key] ?? key;
+    return { name: 'Name', status: 'Status', ownerId: 'Owner', unitId: 'Team', reminderOverrides: 'Reminders', request: 'Request' }[key] ?? key;
   };
   return (
     <Card>

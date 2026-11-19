@@ -7,10 +7,14 @@ import { Spinner } from './components/ui/display';
 import { api, ApiError, sessionEvents } from './lib/api';
 import { keys, useLookups, useMe } from './lib/queries';
 import { AssetDetailPage } from './routes/asset-detail';
-import { AssetsPage } from './routes/assets';
+import { AssetsPage, SavedViewPage } from './routes/assets';
 import { CalendarPage } from './routes/calendar';
 import { LoginPage } from './routes/login';
-import { AccessPage, DateKindsPage, PeoplePage, ProfilePage, PurchaseClassesPage } from './routes/settings';
+import { OrganizationPage } from './routes/organization';
+import { RequestDetailPage, RequestsPage } from './routes/requests';
+import { SearchPage } from './routes/search';
+import { AccessPage, DateKindsPage, PeoplePage, ProfilePage } from './routes/settings';
+import { UnitPage } from './routes/unit';
 import { TemplateBuilderPage } from './routes/template-builder';
 import { TemplatesPage } from './routes/templates';
 import { UpcomingPage } from './routes/upcoming';
@@ -82,13 +86,18 @@ const routeTree = root.addChildren([
   app.addChildren([
     createRoute({ getParentRoute: () => app, path: '/', component: UpcomingPage }),
     createRoute({ getParentRoute: () => app, path: '/calendar', component: CalendarPage }),
-    createRoute({ getParentRoute: () => app, path: '/assets', component: AssetsPage, validateSearch: (s: Record<string, unknown>) => ({ type: optionalString(s.type) }) }),
+    createRoute({ getParentRoute: () => app, path: '/assets', component: AssetsPage, validateSearch: (s: Record<string, unknown>) => ({ type: optionalString(s.type), q: optionalString(s.q) }) }),
+    createRoute({ getParentRoute: () => app, path: '/search', component: SearchPage, validateSearch: (s: Record<string, unknown>) => ({ q: optionalString(s.q) }) }),
+    createRoute({ getParentRoute: () => app, path: '/requests', component: RequestsPage }),
+    createRoute({ getParentRoute: () => app, path: '/requests/$requestId', component: RequestDetailPage }),
+    createRoute({ getParentRoute: () => app, path: '/units/$unitId', component: UnitPage }),
+    createRoute({ getParentRoute: () => app, path: '/views/$viewId', component: SavedViewPage }),
     createRoute({ getParentRoute: () => app, path: '/assets/$assetId', component: AssetDetailPage }),
     createRoute({ getParentRoute: () => app, path: '/profile', component: ProfilePage }),
     createRoute({ getParentRoute: () => app, path: '/templates', component: admin(TemplatesPage) }),
     createRoute({ getParentRoute: () => app, path: '/templates/$typeId', component: admin(TemplateBuilderPage) }),
     createRoute({ getParentRoute: () => app, path: '/settings/date-kinds', component: admin(DateKindsPage) }),
-    createRoute({ getParentRoute: () => app, path: '/settings/purchase-classes', component: admin(PurchaseClassesPage) }),
+    createRoute({ getParentRoute: () => app, path: '/settings/organization', component: admin(OrganizationPage) }),
     createRoute({ getParentRoute: () => app, path: '/settings/people', component: admin(PeoplePage) }),
     createRoute({ getParentRoute: () => app, path: '/settings/access', component: admin(AccessPage) }),
   ]),

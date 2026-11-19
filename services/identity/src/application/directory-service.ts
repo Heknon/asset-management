@@ -1,9 +1,23 @@
-import { AppError, type GrantInput, type Preferences, type PurchaseClassInput } from '@am/core';
-import type { IdentityStore } from './ports.js';
+import { AppError, type GrantInput, type LocalUserCreate, type Preferences } from '@am/core';
+import { normalizeUsername } from '../domain/model.js';
+import type { IdentityStore, PasswordHasher } from './ports.js';
 
-/** Administration of people, groups, purchase classes and grants. */
+/** Administration of people, groups and explicit grants. */
 export class DirectoryService {
-  constructor(private readonly store: IdentityStore) {}
+  constructor(
+    private readonly store: IdentityStore,
+    private readonly hasher: PasswordHasher,
+  ) {}
+
+  async createLocalUser(input: LocalUserCreate) {
+    const username = normalizeUsername(input.username);
+    if (await this.store.findUserByUsername(username, 'local')) throw AppError.conflict(`A local account "${username}" already exists`);
+    return this.store.transaction(async (tx) => {
+      const user = await tx.createLocalUser({ username, displayName: input.displayName, email: input.email, passwordHash: await this.hasher.hash(input.password), isAdmin: input.isAdmin });
+      await tx.publishUserChanged(user);
+      return { id: user.id, username: user.username, displayName: user.displayName, email: user.email };
+    });
+  }
 
   listUsers(query: { q?: string; ids?: string[]; limit: number; offset: number }) {
     return this.store.listUsers(query);
@@ -53,26 +67,6 @@ export class DirectoryService {
   }
   setGroupMembers(id: string, userIds: string[]) {
     return this.store.setGroupMembers(id, userIds);
-  }
-
-  listPurchaseClasses() {
-    return this.store.listPurchaseClasses();
-  }
-
-  createPurchaseClass(input: PurchaseClassInput) {
-    return this.store.transaction(async (tx) => {
-      const pc = await tx.createPurchaseClass(input);
-      await tx.publishPurchaseClassChanged(pc);
-      return pc;
-    });
-  }
-
-  updatePurchaseClass(id: string, input: PurchaseClassInput) {
-    return this.store.transaction(async (tx) => {
-      const pc = await tx.updatePurchaseClass(id, input);
-      await tx.publishPurchaseClassChanged(pc);
-      return pc;
-    });
   }
 
   listGrants(filter?: { principalType?: 'user' | 'group'; principalId?: string }) {

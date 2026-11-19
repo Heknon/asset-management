@@ -1,7 +1,7 @@
 import type { AssetChanged, TrackedDate } from '@am/core';
 import { describe, expect, it } from 'vitest';
 import { feed, invite } from './calendar.js';
-import { reminderDigest } from './messages.js';
+import { reminderDigest, requestMessage } from './messages.js';
 import { dueReminderSlot, nextReminderDate, reconcile, todayIn, urgencyOf, type ObligationRecord } from './obligation.js';
 
 const kind = { id: 'k1', key: 'renewal', name: 'Renewal', color: '#6366f1', behavior: 'recurring' as const, actionLabel: 'Renew' };
@@ -13,7 +13,7 @@ const tracked = (over: Partial<TrackedDate> = {}): TrackedDate => ({
   dateKind: kind,
   recurrence: { amount: 1, unit: 'year' },
   reminders: [{ amount: 30, unit: 'day' }, { amount: 7, unit: 'day' }],
-  notify: { owner: true, userIds: [], emails: [] },
+  notify: { owner: true, userIds: [], emails: [], unitManagers: 'fallback' },
   ...over,
 });
 const event = (dates: TrackedDate[], over: Partial<AssetChanged> = {}): AssetChanged => ({
@@ -21,7 +21,7 @@ const event = (dates: TrackedDate[], over: Partial<AssetChanged> = {}): AssetCha
   name: 'Figma',
   assetTypeId: 't1',
   assetTypeName: 'License',
-  purchaseClassId: 'p1',
+  unitId: 'p1',
   ownerId: 'u1',
   status: 'active',
   active: true,
@@ -155,5 +155,14 @@ describe('messages', () => {
     expect(m.subject).toBe('Renewal: <script>x</script> — due in 7 days');
     expect(m.html).not.toContain('<script>x');
     expect(m.text).toContain('$1,200');
+  });
+});
+
+describe('request emails', () => {
+  it('describes status changes in plain words and escapes notes', () => {
+    const m = requestMessage({ number: 'REQ-1001', title: 'Miro seats', status: 'rejected', actorName: 'Dana', note: '<b>Use FigJam</b>', kind: 'status', url: 'https://a/requests/1' }, 'Tom');
+    expect(m.subject).toBe('REQ-1001 is declined: Miro seats');
+    expect(m.html).toContain('&lt;b&gt;Use FigJam');
+    expect(m.text).toContain('Use FigJam');
   });
 });

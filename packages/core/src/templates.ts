@@ -82,7 +82,7 @@ export const starterTemplates: AssetTemplate[] = [
       f('contract_end', 'Contract end', 'date', {
         showInTable: true,
         section: 'Plan',
-        tracking: { dateKind: 'expiry', notify: { owner: true, userFields: ['assignee'], emails: [] } },
+        tracking: { dateKind: 'expiry', notify: { owner: true, userFields: ['assignee'], emails: [], unitManagers: 'fallback' } },
       }),
     ],
   },
@@ -126,7 +126,7 @@ export function instantiateTemplate(template: AssetTemplate, dateKindIdByKey: Re
       const dateKindId = dateKindIdByKey.get(tracking.dateKind);
       if (!dateKindId) throw new Error(`Template "${template.key}" needs date kind "${tracking.dateKind}"`);
       const { dateKind: _ignored, ...trackingRest } = tracking;
-      resolved.tracking = { dateKindId, notify: { owner: true, userFields: [], emails: [] }, ...trackingRest };
+      resolved.tracking = { dateKindId, notify: { owner: true, userFields: [], emails: [], unitManagers: 'fallback' }, ...trackingRest };
     }
     return { id: globalThis.crypto.randomUUID(), ...rest, config: resolved } as FieldDefinition;
   });

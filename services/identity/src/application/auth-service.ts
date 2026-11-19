@@ -74,6 +74,7 @@ export class AuthService {
       email: user.email,
       isAdmin: isAdministrator(user),
       grants: await this.store.effectiveGrants(user.id),
+      units: await this.store.userUnits(user.id),
       preferences: user.preferences,
     };
   }
@@ -81,7 +82,12 @@ export class AuthService {
   private async establish(identity: ExternalIdentity, userAgent: string | null): Promise<IssuedSession> {
     const user = await this.store.transaction(async (tx) => {
       const u = await tx.upsertUserFromIdentity(identity);
-      if (identity.source !== 'local') await tx.syncExternalGroups(u.id, identity.source, identity.groups);
+      if (identity.source !== 'local') {
+        await tx.syncExternalGroups(u.id, identity.source, identity.groups);
+        // Directory groups and attributes decide which teams/divisions the person belongs to.
+        const changed = await tx.syncUserDirectory(u.id);
+        if (changed.length) await tx.publishUnitChanged(changed);
+      }
       await tx.touchLogin(u.id);
       await tx.publishUserChanged(u);
       return u;
@@ -101,6 +107,7 @@ export class AuthService {
       email: user.email,
       isAdmin: isAdministrator(user),
       grants: await this.store.effectiveGrants(user.id),
+      units: await this.store.userUnits(user.id),
     });
   }
 }

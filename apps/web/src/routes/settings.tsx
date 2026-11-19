@@ -6,22 +6,22 @@ import {
   type GrantInput,
   type GrantLevel,
   type Group,
-  type PurchaseClass,
-  type PurchaseClassInput,
   type User,
 } from '@am/core';
 import { useMutation, useQueryClient, type QueryKey } from '@tanstack/react-query';
-import { CalendarDays, KeyRound, Pencil, Plus, RefreshCcw, Shield, Tags, Trash2, Users } from 'lucide-react';
+import { Building2, CalendarDays, KeyRound, Pencil, Plus, RefreshCcw, Shield, Trash2, Users } from 'lucide-react';
+import { Link } from '@tanstack/react-router';
 import { useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { DurationInput, DurationListEditor } from '@/components/duration-editor';
-import { AssetTypeSelect, ColorPicker, PersonName, PersonPicker, PurchaseClassSelect } from '@/components/pickers';
+import { AssetTypeSelect, ColorPicker, PersonName, PersonPicker, UnitPath, UnitPicker } from '@/components/pickers';
 import { Button } from '@/components/ui/button';
 import { Avatar, Badge, Card, EmptyState, PageHeader, Tabs } from '@/components/ui/display';
 import { Field, Input, Segmented, Select, Switch } from '@/components/ui/form';
 import { ConfirmDialog, Dialog } from '@/components/ui/overlay';
 import { api, ApiError } from '@/lib/api';
-import { keys, useDateKinds, useGrants, useGroupMembers, useGroups, useLookups, useMe, usePurchaseClasses, useUsers } from '@/lib/queries';
+import { keys, useDateKinds, useGrants, useGroupMembers, useGroups, useLookups, useMe, useUsers } from '@/lib/queries';
+import { useMyOrg } from '@/lib/org';
 import { formatDateTime, formatDurations, slugKey } from '@/lib/utils';
 
 /** Mutation with toast + invalidation; every settings screen saves through this. */
@@ -133,76 +133,6 @@ function DateKindDialog({ kind, onClose }: { kind: DateKind | null; onClose: () 
         {d.behavior !== 'informational' && <Field label="Default reminders">{() => <DurationListEditor value={d.defaultReminders} onChange={(defaultReminders) => setD({ ...d, defaultReminders })} />}</Field>}
         <Field label="Color">{() => <ColorPicker value={d.color} onChange={(color) => setD({ ...d, color })} />}</Field>
         {kind && <Switch checked={d.archived} onChange={(archived) => setD({ ...d, archived })} label="Archived" description="Hidden from the template builder; existing dates keep working" />}
-      </div>
-    </Dialog>
-  );
-}
-
-// ─── Purchase classes ────────────────────────────────────────────────────────
-
-export function PurchaseClassesPage() {
-  const classes = usePurchaseClasses();
-  const [editing, setEditing] = useState<PurchaseClass | 'new' | null>(null);
-  return (
-    <>
-      <PageHeader
-        title="Purchase classes"
-        description="Who or what a purchase is for — a department, client or project. Access is granted per purchase class."
-        actions={<Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setEditing('new')}>New purchase class</Button>}
-      />
-      <div className="mx-auto w-full max-w-3xl px-6 py-6">
-        <Card padded={false}>
-          {classes.data?.length ? (
-            <ul className="divide-y divide-border">
-              {classes.data.map((c) => (
-                <Row
-                  key={c.id}
-                  lead={<Dot color={c.color} />}
-                  title={
-                    <span className="flex items-center gap-2">
-                      {c.name}
-                      {c.archived && <Badge>Archived</Badge>}
-                    </span>
-                  }
-                  subtitle={c.description ?? c.key}
-                  actions={<Button size="icon" variant="ghost" aria-label="Edit" icon={<Pencil className="size-3.5" />} onClick={() => setEditing(c)} />}
-                />
-              ))}
-            </ul>
-          ) : (
-            <EmptyState icon={<Tags />} title="No purchase classes" description="Create one per department, client or project you buy for." />
-          )}
-        </Card>
-      </div>
-      {editing && <PurchaseClassDialog pc={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
-    </>
-  );
-}
-
-function PurchaseClassDialog({ pc, onClose }: { pc: PurchaseClass | null; onClose: () => void }) {
-  const [d, setD] = useState<PurchaseClassInput>(pc ?? { key: '', name: '', description: null, color: '#64748b', archived: false });
-  const save = useSave(() => (pc ? api.put(`/api/identity/purchase-classes/${pc.id}`, d) : api.post('/api/identity/purchase-classes', d)), [keys.purchaseClasses], 'Purchase class saved', onClose);
-  return (
-    <Dialog
-      open
-      onOpenChange={(o) => !o && onClose()}
-      title={pc ? `Edit ${pc.name}` : 'New purchase class'}
-      footer={
-        <>
-          <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" loading={save.isPending} disabled={!d.name} onClick={() => save.mutate(undefined)}>
-            Save
-          </Button>
-        </>
-      }
-    >
-      <div className="space-y-4">
-        <Field label="Name" required>
-          {(id) => <Input id={id} value={d.name} placeholder="e.g. Engineering, Client Acme" onChange={(e) => setD({ ...d, name: e.target.value, ...(!pc && { key: slugKey(e.target.value) }) })} />}
-        </Field>
-        <Field label="Description">{(id) => <Input id={id} value={d.description ?? ''} onChange={(e) => setD({ ...d, description: e.target.value || null })} />}</Field>
-        <Field label="Color">{() => <ColorPicker value={d.color} onChange={(color) => setD({ ...d, color })} />}</Field>
-        {pc && <Switch checked={d.archived} onChange={(archived) => setD({ ...d, archived })} label="Archived" description="No new assets can be created in it" />}
       </div>
     </Dialog>
   );
@@ -408,7 +338,7 @@ export function AccessPage() {
     <>
       <PageHeader
         title="Access"
-        description="Grant people or directory groups a level on a purchase class and/or asset type. The highest matching grant wins. Changes apply within 15 minutes."
+        description="Most access comes from the org chart: members see their unit, managers manage everything beneath it. Use grants for everything else — e.g. Procurement manages the whole company, Finance views it. The highest matching level wins; changes apply within 15 minutes."
         actions={<Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setAdding(true)}>Grant access</Button>}
       />
       <div className="mx-auto w-full max-w-4xl space-y-4 px-6 py-6">
@@ -430,8 +360,8 @@ export function AccessPage() {
                   title={g.principalName}
                   subtitle={
                     <>
-                      {g.purchaseClassId ? lookups.classById.get(g.purchaseClassId)?.name ?? 'Unknown class' : 'All purchase classes'}
-                      {' · '}
+                      {g.unitId ? <UnitPath id={g.unitId} /> : 'Whole organization'}
+                      {' and everything beneath · '}
                       {g.assetTypeId ? lookups.typeById.get(g.assetTypeId)?.name ?? 'Unknown type' : 'All asset types'}
                     </>
                   }
@@ -452,7 +382,7 @@ export function AccessPage() {
 
 function GrantDialog({ onClose }: { onClose: () => void }) {
   const groups = useGroups();
-  const [d, setD] = useState<Omit<GrantInput, 'principalId'> & { principalId: string | null }>({ principalType: 'group', principalId: null, purchaseClassId: null, assetTypeId: null, level: 'view' });
+  const [d, setD] = useState<Omit<GrantInput, 'principalId'> & { principalId: string | null }>({ principalType: 'group', principalId: null, unitId: null, assetTypeId: null, level: 'view' });
   const save = useSave(() => api.post('/api/identity/grants', d), [keys.grants], 'Access granted', onClose);
   return (
     <Dialog
@@ -487,7 +417,7 @@ function GrantDialog({ onClose }: { onClose: () => void }) {
           }
         </Field>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Purchase class">{(id) => <PurchaseClassSelect id={id} includeAll value={d.purchaseClassId} onChange={(purchaseClassId) => setD({ ...d, purchaseClassId })} />}</Field>
+          <Field label="Unit" hint="Applies to everything beneath it too.">{(id) => <UnitPicker id={id} allowClear value={d.unitId} onChange={(unitId) => setD({ ...d, unitId })} />}</Field>
           <Field label="Asset type">{(id) => <AssetTypeSelect id={id} includeAll value={d.assetTypeId} onChange={(assetTypeId) => setD({ ...d, assetTypeId })} />}</Field>
         </div>
         <Field label="Level" hint={levelText[d.level]}>
@@ -541,6 +471,7 @@ export function ProfilePage() {
             Reset link
           </Button>
         </Card>
+        <MyTeams />
         <Card className="space-y-3">
           <h2 className="flex items-center gap-2 text-[13px] font-semibold">
             <KeyRound className="size-4 text-muted" /> Your access
@@ -552,7 +483,7 @@ export function ProfilePage() {
               {me.grants.map((g, i) => (
                 <li key={i} className="flex items-center justify-between">
                   <span>
-                    {g.purchaseClassId ? lookups.classById.get(g.purchaseClassId)?.name : 'All purchase classes'} · {g.assetTypeId ? lookups.typeById.get(g.assetTypeId)?.name : 'All asset types'}
+                    {g.unitId ? lookups.unitPathNames(g.unitId).join(' › ') : 'Whole organization'} · {g.assetTypeId ? lookups.typeById.get(g.assetTypeId)?.name : 'All asset types'}
                   </span>
                   <Badge>{g.level}</Badge>
                 </li>
@@ -564,5 +495,30 @@ export function ProfilePage() {
         </Card>
       </div>
     </>
+  );
+}
+
+function MyTeams() {
+  const { mine } = useMyOrg();
+  return (
+    <Card className="space-y-3">
+      <h2 className="flex items-center gap-2 text-[13px] font-semibold">
+        <Building2 className="size-4 text-muted" /> Your teams
+      </h2>
+      {mine.length ? (
+        <ul className="space-y-1.5 text-[13px]">
+          {mine.map(({ unit, role }) => (
+            <li key={`${unit.id}-${role}`} className="flex items-center justify-between gap-2">
+              <Link to="/units/$unitId" params={{ unitId: unit.id }} className="min-w-0 hover:underline">
+                <UnitPath id={unit.id} />
+              </Link>
+              <Badge tone={role === 'manager' ? 'accent' : 'neutral'}>{role === 'manager' ? 'Manager' : 'Member'}</Badge>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-xs text-muted">You aren’t in any team yet. Teams come from your directory groups when you sign in; an administrator can also add you.</p>
+      )}
+    </Card>
   );
 }

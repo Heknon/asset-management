@@ -15,6 +15,12 @@ import {
   validateAttributes,
   validateTypeStructure,
   consolidateGrants,
+  requestableUnitIds,
+  searchTerms,
+  prefixTsQuery,
+  buildSearchText,
+  highlightRuns,
+  parseOrgImport,
   type DateKind,
 } from './index.js';
 
@@ -111,26 +117,74 @@ describe('tracked dates', () => {
 });
 
 describe('permissions', () => {
-  const pcA = '11111111-1111-4111-8111-111111111111';
-  const pcB = '22222222-2222-4222-8222-222222222222';
+  const root = '00000000-0000-4000-8000-0000000000aa';
+  const rnd = '11111111-1111-4111-8111-111111111111';
+  const team = '22222222-2222-4222-8222-222222222222';
+  const sales = '44444444-4444-4444-8444-444444444444';
   const type = '33333333-3333-4333-8333-333333333333';
   const principal = {
     isAdmin: false,
     grants: [
-      { purchaseClassId: pcA, assetTypeId: null, level: 'view' as const },
-      { purchaseClassId: pcA, assetTypeId: type, level: 'edit' as const },
+      { unitId: rnd, assetTypeId: null, level: 'view' as const },
+      { unitId: team, assetTypeId: type, level: 'edit' as const },
     ],
   };
 
-  it('takes the highest matching grant', () => {
-    expect(effectiveLevel(principal, { purchaseClassId: pcA, assetTypeId: type })).toBe('edit');
-    expect(effectiveLevel(principal, { purchaseClassId: pcA, assetTypeId: pcB })).toBe('view');
-    expect(effectiveLevel(principal, { purchaseClassId: pcB, assetTypeId: type })).toBe('none');
-    expect(effectiveLevel({ isAdmin: true, grants: [] }, { purchaseClassId: pcB, assetTypeId: type })).toBe('manage');
+  it('applies grants to the whole subtree and takes the highest', () => {
+    expect(effectiveLevel(principal, { unitPath: [root, rnd, team], assetTypeId: type })).toBe('edit');
+    expect(effectiveLevel(principal, { unitPath: [root, rnd, team], assetTypeId: 'other' })).toBe('view');
+    expect(effectiveLevel(principal, { unitPath: [root, rnd], assetTypeId: type })).toBe('view');
+    expect(effectiveLevel(principal, { unitPath: [root, sales], assetTypeId: type })).toBe('none');
+    expect(effectiveLevel(principal, { unitPath: [root], assetTypeId: type })).toBe('none');
+    expect(effectiveLevel({ isAdmin: true, grants: [] }, { unitPath: [root, sales], assetTypeId: type })).toBe('manage');
   });
 
   it('builds query scopes and consolidates grants', () => {
-    expect(scopesFor(principal, 'edit')).toEqual([{ purchaseClassId: pcA, assetTypeId: type }]);
-    expect(consolidateGrants([...principal.grants, { purchaseClassId: pcA, assetTypeId: null, level: 'manage' }])).toHaveLength(2);
+    expect(scopesFor(principal, 'edit')).toEqual([{ unitId: team, assetTypeId: type }]);
+    expect(consolidateGrants([...principal.grants, { unitId: rnd, assetTypeId: null, level: 'manage' }])).toHaveLength(2);
+  });
+
+  it('lets people request for their units and every unit above them', () => {
+    const paths: Record<string, string[]> = { [team]: [root, rnd, team] };
+    const allowed = requestableUnitIds({ isAdmin: false, units: [{ unitId: team, role: 'member' }] }, (id) => paths[id]);
+    expect(allowed).toEqual(new Set([root, rnd, team]));
+  });
+});
+
+describe('search', () => {
+  it('normalises terms across scripts and accents', () => {
+    expect(searchTerms('Café  Figma-Enterprise, café')).toEqual(['cafe', 'figma', 'enterprise']);
+    expect(prefixTsQuery('ad cc')).toBe('ad:* & cc:*');
+    expect(prefixTsQuery('  --  ')).toBeNull();
+  });
+
+  it('indexes labelled values but never restricted ones', () => {
+    const text = buildSearchText(license, 'GitHub', { vendor: 'GitHub', seats: 120, license_key: 'SECRET', auto_renews: true }, 'Dana', {
+      typeName: 'Software license',
+      statusLabel: 'Active',
+      unitName: 'Platform',
+      personName: () => undefined,
+    });
+    expect(text).toContain('Vendor: GitHub');
+    expect(text).toContain('Team: Platform');
+    expect(text).toContain('Auto-renews: yes');
+    expect(text).not.toContain('SECRET');
+  });
+
+  it('splits highlighted snippets safely', () => {
+    expect(highlightRuns('Vendor: «Fig»ma <b>')).toEqual([
+      { text: 'Vendor: ', hit: false },
+      { text: 'Fig', hit: true },
+      { text: 'ma <b>', hit: false },
+    ]);
+  });
+
+  it('parses pasted org charts', () => {
+    const { rows, errors } = parseOrgImport('# org\nWix / R&D / Editor\nWix › R&D › Editor › Platform | CN=platform,DC=wix ; department=Platform | CN=leads\n | x');
+    expect(rows).toEqual([
+      { line: 2, path: ['Wix', 'R&D', 'Editor'], members: [], managers: [] },
+      { line: 3, path: ['Wix', 'R&D', 'Editor', 'Platform'], members: ['CN=platform,DC=wix', 'department=Platform'], managers: ['CN=leads'] },
+    ]);
+    expect(errors).toEqual([{ line: 4, message: 'Missing unit path' }]);
   });
 });
