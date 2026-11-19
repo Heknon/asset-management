@@ -138,7 +138,17 @@ const routeTree = root.addChildren([
   ]),
 ]);
 
-export const createAppRouter = (queryClient: QueryClient) => createRouter({ routeTree, context: { queryClient }, defaultPreload: 'intent' });
+/** While the session is resolved before the first page: a quiet spinner, never a blank screen. */
+function Pending() {
+  return (
+    <div className="flex h-full min-h-dvh items-center justify-center bg-bg">
+      <Spinner />
+    </div>
+  );
+}
+
+export const createAppRouter = (queryClient: QueryClient) =>
+  createRouter({ routeTree, context: { queryClient }, defaultPreload: 'intent', defaultPendingComponent: Pending, defaultPendingMs: 100, defaultPendingMinMs: 0 });
 
 declare module '@tanstack/react-router' {
   interface Register {

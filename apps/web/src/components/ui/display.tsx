@@ -18,7 +18,7 @@ export function SectionTitle({ children, aside, className }: { children: ReactNo
 
 export function PageHeader({ title, description, icon, actions, children }: { title: ReactNode; description?: ReactNode; icon?: ReactNode; actions?: ReactNode; children?: ReactNode }) {
   return (
-    <div className="border-b border-border bg-bg/80 px-4 sm:px-6 pt-5 pb-4 backdrop-blur">
+    <div className="border-b border-border bg-bg/80 px-4 pt-5 pb-4 backdrop-blur has-[[role=tablist]]:pb-0 sm:px-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
           {icon}
@@ -29,7 +29,7 @@ export function PageHeader({ title, description, icon, actions, children }: { ti
         </div>
         {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
       </div>
-      {children && <div className="mt-4">{children}</div>}
+      {children && <div className="mt-4 has-[[role=tablist]]:-mb-px">{children}</div>}
     </div>
   );
 }

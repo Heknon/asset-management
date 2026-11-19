@@ -11,7 +11,7 @@ import {
   type User,
 } from '@am/core';
 import { useMutation, useQueryClient, type QueryKey } from '@tanstack/react-query';
-import { Building2, CalendarDays, KeyRound, Pencil, Plus, RefreshCcw, Trash2, Users } from 'lucide-react';
+import { Building2, CalendarDays, KeyRound, MoreHorizontal, Pencil, Plus, RefreshCcw, Trash2, UserX, Users } from 'lucide-react';
 import { Link } from '@tanstack/react-router';
 import { useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
@@ -23,7 +23,8 @@ import { Button } from '@/components/ui/button';
 import { Avatar, Badge, Card, EmptyState, PageHeader, Spinner, Tabs } from '@/components/ui/display';
 import { WorkflowEditor } from '@/components/workflow-editor';
 import { Field, Input, Segmented, Switch } from '@/components/ui/form';
-import { ConfirmDialog, Dialog } from '@/components/ui/overlay';
+import { ConfirmDialog, Dialog, Menu, MenuItem } from '@/components/ui/overlay';
+import { useMediaQuery } from '@/lib/hooks';
 import { api, ApiError } from '@/lib/api';
 import { keys, useOrgWorkflow, useDateKinds, useGroupMembers, useGroups, useLookups, useMe, useUsers } from '@/lib/queries';
 import { useMyOrg } from '@/lib/org';
@@ -182,6 +183,7 @@ export function PeoplePage() {
   const groups = useGroups();
   const me = useMe().data!;
   const [group, setGroup] = useState<Group | 'new' | null>(null);
+  const phone = useMediaQuery('(max-width: 639px)');
   const update = useSave((v: { id: string; patch: Partial<Pick<User, 'isAdmin' | 'active'>> }) => api.patch(`/api/identity/users/${v.id}`, v.patch), [['users']], 'User updated');
 
   return (
@@ -211,14 +213,25 @@ export function PeoplePage() {
                   meta={<span className="hidden text-xs text-subtle md:block">{u.lastLoginAt ? `Last seen ${formatDateTime(u.lastLoginAt)}` : 'Never signed in'}</span>}
                   actions={
                     u.id !== me.userId && (
-                      <>
-                        <Button size="sm" variant="ghost" onClick={() => update.mutate({ id: u.id, patch: { isAdmin: !u.isAdmin } })}>
-                          {u.isAdmin ? 'Remove admin' : 'Make admin'}
-                        </Button>
-                        <Button size="sm" variant={u.active ? 'danger-ghost' : 'ghost'} onClick={() => update.mutate({ id: u.id, patch: { active: !u.active } })}>
-                          {u.active ? 'Disable' : 'Enable'}
-                        </Button>
-                      </>
+                      phone ? (
+                        <Menu trigger={<Button size="icon" variant="ghost" aria-label={`Actions for ${u.displayName}`} icon={<MoreHorizontal className="size-4" />} />}>
+                          <MenuItem icon={<KeyRound />} onSelect={() => update.mutate({ id: u.id, patch: { isAdmin: !u.isAdmin } })}>
+                            {u.isAdmin ? 'Remove admin' : 'Make admin'}
+                          </MenuItem>
+                          <MenuItem icon={<UserX />} danger={u.active} onSelect={() => update.mutate({ id: u.id, patch: { active: !u.active } })}>
+                            {u.active ? 'Disable' : 'Enable'}
+                          </MenuItem>
+                        </Menu>
+                      ) : (
+                        <>
+                          <Button size="sm" variant="ghost" onClick={() => update.mutate({ id: u.id, patch: { isAdmin: !u.isAdmin } })}>
+                            {u.isAdmin ? 'Remove admin' : 'Make admin'}
+                          </Button>
+                          <Button size="sm" variant={u.active ? 'danger-ghost' : 'ghost'} onClick={() => update.mutate({ id: u.id, patch: { active: !u.active } })}>
+                            {u.active ? 'Disable' : 'Enable'}
+                          </Button>
+                        </>
+                      )
                     )
                   }
                 />
