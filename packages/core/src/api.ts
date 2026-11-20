@@ -645,7 +645,27 @@ export interface PurchaseRequest {
   updatedAt: string;
   access: RequestAccess;
   commentCount: number;
+  /**
+   * The team's own part, once the buyers are done (see `followUp` on team
+   * variants): for the buyers the request is finished, for the team that uses
+   * the item it goes on ("Swapping on machines"). Null when the item's kind
+   * has no team steps, or the buying is not done yet.
+   */
+  team: RequestTeamStage | null;
   snippet?: string;
+}
+
+export interface RequestTeamStage {
+  /** The team variant whose steps these are, and the unit that owns it. */
+  variantId: string;
+  variantName: string;
+  unitId: string;
+  statusInfo: RequestStatusInfo;
+  /** Statuses the caller may move the team's part to now. */
+  moves: RequestStatusInfo[];
+  statuses: RequestStatusInfo[];
+  /** The caller is one of the team (a member of the unit, or the item's owner) and can move it. */
+  canAct: boolean;
 }
 
 export const requestCreateSchema = z.object({
@@ -678,7 +698,8 @@ export type RequestQuery = z.infer<typeof requestQuerySchema>;
 
 export const requestActionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('comment'), body: z.string().trim().min(1).max(4000) }),
-  z.object({ action: z.literal('status'), status: fieldKeySchema, note: z.string().max(4000).optional() }),
+  /** `stage: 'team'` moves the team's own part (after the buying is done) instead of the buyers'. */
+  z.object({ action: z.literal('status'), status: fieldKeySchema, note: z.string().max(4000).optional(), stage: z.enum(['buying', 'team']).default('buying') }),
   z.object({ action: z.literal('assign'), assigneeId: uuid.nullable() }),
 ]);
 export type RequestAction = z.infer<typeof requestActionSchema>;
@@ -692,6 +713,8 @@ export interface RequestEvent {
   body: string | null;
   fromStatus: RequestStatus | null;
   toStatus: RequestStatus | null;
+  /** Whose workflow the status belongs to: the buyers', or the team's own part. */
+  stage: 'buying' | 'team';
   at: string;
 }
 

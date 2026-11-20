@@ -47,6 +47,8 @@ export interface RegistryDB extends OutboxTable {
     description: string | null;
     sections: Json<string[]>;
     fields: Json<FieldDefinition[]>;
+    /** The unit's own steps after the buyers are done; null: none. */
+    follow_up: Json<Workflow | null>;
     version: Generated<number>;
     archived: Generated<boolean>;
     created_by_name: string;
@@ -132,6 +134,12 @@ export interface RegistryDB extends OutboxTable {
     needed_by: string | null;
     link: string | null;
     asset_id: string | null;
+    /** The team's own part, once the buying is done: whose steps (a team variant) and where it stands. */
+    team_variant_id: string | null;
+    /** The variant's unit: members of it (down to the request's unit) handle the team's part. */
+    team_unit_id: string | null;
+    team_status: string | null;
+    team_status_category: StatusCategory | null;
     search_text: string;
     search_key: string;
     created_at: Timestamp;
@@ -146,6 +154,7 @@ export interface RegistryDB extends OutboxTable {
     body: string | null;
     from_status: RequestStatus | null;
     to_status: RequestStatus | null;
+    stage: Generated<'buying' | 'team'>;
     at: Timestamp;
   };
   catalogs: {
@@ -529,6 +538,19 @@ export const migrations: Record<string, Migration> = {
     async up(db) {
       // Asset search finds an owner or person field by any of these, not only the display name.
       await sql`alter table users_ref add column username text, add column email text, add column other_names text[] not null default '{}'`.execute(db);
+    },
+  },
+  '0011_team_follow_up': {
+    async up(db) {
+      // A team variant's own steps after the buyers are done, and where each request stands in them.
+      await sql`alter table type_variants add column follow_up jsonb`.execute(db);
+      await sql`alter table requests
+        add column team_variant_id uuid references type_variants(id),
+        add column team_unit_id uuid,
+        add column team_status text,
+        add column team_status_category text`.execute(db);
+      await sql`alter table request_events add column stage text not null default 'buying'`.execute(db);
+      await sql`create index requests_team_open on requests (team_unit_id) where team_status_category in ('todo','active')`.execute(db);
     },
   },
 };

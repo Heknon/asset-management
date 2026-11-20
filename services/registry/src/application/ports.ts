@@ -119,6 +119,10 @@ export interface RegistryStore {
   updateRequest(id: string, row: RequestRow, searchText: string): Promise<RequestState>;
   getRequest(id: string, opts?: { forUpdate?: boolean }): Promise<RequestState | null>;
   setRequestStatus(id: string, status: { key: string; category: StatusCategory }, assetId?: string | null): Promise<void>;
+  /** Starts, moves or (null) ends the team's own part of a request. */
+  setRequestTeam(id: string, team: { variantId: string; unitId: string; key: string; category: StatusCategory } | null): Promise<void>;
+  /** Requests whose team part (in this variant's steps) is still open. */
+  openTeamStages(variantId: string): Promise<RequestState[]>;
   /** Open renewal requests of one item's date. */
   openRenewals(assetId: string, fieldKey: string): Promise<RequestState[]>;
   getSetting<T>(key: string): Promise<T | null>;
@@ -131,7 +135,7 @@ export interface RegistryStore {
     visibility: { userId: string; viewScopes: Scope[]; editScopes: Scope[]; myUnitIds: string[] },
   ): Promise<{ items: Array<RequestState & { snippet?: string }>; total: number }>;
   countRequests(visibility: { userId: string; viewScopes: Scope[]; editScopes: Scope[]; myUnitIds: string[] }): Promise<{ mine: number; team: number; handle: number; unassigned: number }>;
-  addRequestEvent(e: Omit<RequestEvent, 'id' | 'at'>): Promise<void>;
+  addRequestEvent(e: Omit<RequestEvent, 'id' | 'at' | 'stage'> & { stage?: RequestEvent['stage'] }): Promise<void>;
   listRequestEvents(requestId: string): Promise<RequestEvent[]>;
   requestForAsset(assetId: string): Promise<RequestState | null>;
 

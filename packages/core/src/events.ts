@@ -91,6 +91,10 @@ export interface RequestChanged {
   requestKind: 'purchase' | 'renewal';
   /** Renewals: the item and the date occurrence being renewed. */
   renewal: { assetId: string; fieldKey: string; obligationId: string | null } | null;
+  /** 'team': the change is to the team's own part (status* describe the team's status). Older events have none: 'buying'. */
+  stage?: 'buying' | 'team';
+  /** The team's own part, when it has started (the buying is done). */
+  team?: { unitId: string; variantName: string; status: string; label: string; category: 'todo' | 'active' | 'done' | 'closed' } | null;
   /** When it changed; events can arrive out of order. */
   at: string;
 }

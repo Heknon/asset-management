@@ -79,6 +79,7 @@ const toVariant = (r: Selectable<RegistryDB['type_variants']>): TypeVariant => (
   description: r.description,
   sections: r.sections,
   fields: r.fields,
+  followUp: r.follow_up ?? null,
   version: r.version,
   archived: r.archived,
   createdByName: r.created_by_name,
@@ -130,6 +131,7 @@ const toRequest = (r: RequestRowDb): RequestState & { snippet?: string } => ({
   neededBy: r.needed_by,
   link: r.link,
   assetId: r.asset_id,
+  team: r.team_variant_id && r.team_unit_id && r.team_status && r.team_status_category ? { variantId: r.team_variant_id, unitId: r.team_unit_id, status: r.team_status, category: r.team_status_category } : null,
   createdAt: r.created_at,
   updatedAt: r.updated_at,
   commentCount: Number(r.comment_count ?? 0),
@@ -179,6 +181,9 @@ const toBatch = (r: Selectable<RegistryDB['import_batches']> & { undoable: numbe
   undoneAt: r.undone_at ? r.undone_at.toISOString() : null,
   undoable: r.undone_at ? 0 : Number(r.undoable),
 });
+
+const openBuying = sql<SqlBool>`requests.status_category in ('todo','active')`;
+const openTeam = sql<SqlBool>`requests.team_status_category in ('todo','active')`;
 
 type RequestVisibility = { userId: string; viewScopes: Scope[]; editScopes: Scope[]; myUnitIds: string[] };
 
@@ -320,7 +325,7 @@ export class PgRegistryStore implements RegistryStore {
     try {
       const r = await this.db
         .insertInto('type_variants')
-        .values({ asset_type_id: assetTypeId, unit_id: input.unitId, name: input.name, description: input.description, sections: json(input.sections), fields: json(input.fields), created_by_name: byName })
+        .values({ asset_type_id: assetTypeId, unit_id: input.unitId, name: input.name, description: input.description, sections: json(input.sections), fields: json(input.fields), follow_up: json(input.followUp ?? null), created_by_name: byName })
         .returningAll()
         .executeTakeFirstOrThrow();
       return toVariant(r);
@@ -333,7 +338,7 @@ export class PgRegistryStore implements RegistryStore {
   async updateVariant(id: string, input: Omit<TypeVariantInput, 'unitId'>, expectedVersion: number) {
     const r = await this.db
       .updateTable('type_variants')
-      .set({ name: input.name, description: input.description, sections: json(input.sections), fields: json(input.fields), version: sql`version + 1`, updated_at: sql`now()` })
+      .set({ name: input.name, description: input.description, sections: json(input.sections), fields: json(input.fields), follow_up: json(input.followUp ?? null), version: sql`version + 1`, updated_at: sql`now()` })
       .where('id', '=', id)
       .where('version', '=', expectedVersion)
       .returningAll()
@@ -703,6 +708,19 @@ export class PgRegistryStore implements RegistryStore {
       .execute();
   }
 
+  async setRequestTeam(id: string, team: { variantId: string; unitId: string; key: string; category: StatusCategory } | null) {
+    await this.db
+      .updateTable('requests')
+      .set({ team_variant_id: team?.variantId ?? null, team_unit_id: team?.unitId ?? null, team_status: team?.key ?? null, team_status_category: team?.category ?? null, updated_at: sql`now()` })
+      .where('id', '=', id)
+      .execute();
+  }
+
+  async openTeamStages(variantId: string) {
+    const rows = await this.requests().where('requests.team_variant_id', '=', variantId).where(openTeam).forUpdate('requests').execute();
+    return rows.map((r) => toRequest(r as RequestRowDb));
+  }
+
   async openRenewals(assetId: string, fieldKey: string) {
     const rows = await this.requests()
       .where('requests.kind', '=', 'renewal')
@@ -751,14 +769,30 @@ export class PgRegistryStore implements RegistryStore {
     return sql<SqlBool>`(requests.requester_id = ${v.userId}::uuid or ${scopeFilter(v.viewScopes, 'units_ref.path', 'requests.asset_type_id')})`;
   }
 
-  private requestScope(scope: RequestQuery['scope'], v: RequestVisibility) {
+  /** The team's part is waiting on me: I am in the unit that owns its steps (down to the request's unit), or I own the item. */
+  private teamHandles(v: RequestVisibility) {
+    const mine = v.myUnitIds.length
+      ? sql<SqlBool>`units_ref.path[array_position(units_ref.path, requests.team_unit_id):] && ${sql.val(v.myUnitIds)}::uuid[]`
+      : sql<SqlBool>`false`;
+    return sql<SqlBool>`(requests.team_status is not null and (${mine} or exists (select 1 from assets a where a.id = coalesce(requests.asset_id, requests.renewal_asset_id) and a.owner_id = ${v.userId}::uuid)))`;
+  }
+
+  /**
+   * `openOnly`: what is waiting on me now. Buyers handle a request while its
+   * buying is open; the team handles its own part once that has started.
+   */
+  private requestScope(scope: RequestQuery['scope'], v: RequestVisibility, openOnly = false) {
     switch (scope) {
       case 'mine':
         return sql<SqlBool>`requests.requester_id = ${v.userId}::uuid`;
       case 'team':
         return v.myUnitIds.length ? sql<SqlBool>`(${this.visible(v)} and units_ref.path && ${sql.val(v.myUnitIds)}::uuid[])` : sql<SqlBool>`false`;
-      case 'handle':
-        return scopeFilter(v.editScopes, 'units_ref.path', 'requests.asset_type_id');
+      case 'handle': {
+        const buyers = scopeFilter(v.editScopes, 'units_ref.path', 'requests.asset_type_id');
+        return openOnly
+          ? sql<SqlBool>`((${buyers} and ${openBuying}) or (${this.teamHandles(v)} and ${openTeam}))`
+          : sql<SqlBool>`(${buyers} or ${this.teamHandles(v)})`;
+      }
       case 'all':
         return this.visible(v);
     }
@@ -766,10 +800,11 @@ export class PgRegistryStore implements RegistryStore {
 
   async queryRequests(q: RequestQuery, v: RequestVisibility) {
     const search = q.q ? textSearch('requests', q.q, this.fuzzy) : null;
-    let base = this.db.selectFrom('requests').leftJoin('units_ref', 'units_ref.id', 'requests.unit_id').where(this.requestScope(q.scope, v));
-    if (q.status === 'open') base = base.where('requests.status_category', 'in', ['todo', 'active']);
-    else if (q.status === 'closed') base = base.where('requests.status_category', 'in', ['done', 'closed']);
-    else if (q.status !== 'all') base = base.where('requests.status', '=', q.status);
+    let base = this.db.selectFrom('requests').leftJoin('units_ref', 'units_ref.id', 'requests.unit_id').where(this.requestScope(q.scope, v, q.status === 'open'));
+    // Open while either the buyers or the team still have something to do.
+    if (q.status === 'open') base = base.where(sql<SqlBool>`(${openBuying} or ${openTeam})`);
+    else if (q.status === 'closed') base = base.where(sql<SqlBool>`(not ${openBuying} and not coalesce(${openTeam}, false))`);
+    else if (q.status !== 'all') base = base.where(sql<SqlBool>`(requests.status = ${q.status} or requests.team_status = ${q.status})`);
     if (q.kind) base = base.where('requests.kind', '=', q.kind);
     if (q.renewalAssetId) base = base.where('requests.renewal_asset_id', '=', q.renewalAssetId);
     if (q.unitId) base = base.where(inSubtree(q.unitId, 'units_ref.path'));
@@ -791,25 +826,25 @@ export class PgRegistryStore implements RegistryStore {
   }
 
   async countRequests(v: RequestVisibility) {
-    const open = sql<SqlBool>`requests.status_category in ('todo','active')`;
     const r = await this.db
       .selectFrom('requests')
       .leftJoin('units_ref', 'units_ref.id', 'requests.unit_id')
-      .where(open)
+      .where(sql<SqlBool>`(${openBuying} or ${openTeam})`)
       .select([
         sql<number>`count(*) filter (where ${this.requestScope('mine', v)})`.as('mine'),
         sql<number>`count(*) filter (where ${this.requestScope('team', v)})`.as('team'),
-        sql<number>`count(*) filter (where ${this.requestScope('handle', v)})`.as('handle'),
-        sql<number>`count(*) filter (where ${this.requestScope('handle', v)} and requests.assignee_id is null)`.as('unassigned'),
+        sql<number>`count(*) filter (where ${this.requestScope('handle', v, true)})`.as('handle'),
+        // Nobody has picked up the buying yet.
+        sql<number>`count(*) filter (where ${scopeFilter(v.editScopes, 'units_ref.path', 'requests.asset_type_id')} and ${openBuying} and requests.assignee_id is null)`.as('unassigned'),
       ])
       .executeTakeFirstOrThrow();
     return { mine: Number(r.mine), team: Number(r.team), handle: Number(r.handle), unassigned: Number(r.unassigned) };
   }
 
-  async addRequestEvent(e: Omit<RequestEvent, 'id' | 'at'>) {
+  async addRequestEvent(e: Omit<RequestEvent, 'id' | 'at' | 'stage'> & { stage?: RequestEvent['stage'] }) {
     await this.db
       .insertInto('request_events')
-      .values({ request_id: e.requestId, actor_id: e.actorId, actor_name: e.actorName, kind: e.kind, body: e.body, from_status: e.fromStatus, to_status: e.toStatus })
+      .values({ request_id: e.requestId, actor_id: e.actorId, actor_name: e.actorName, kind: e.kind, body: e.body, from_status: e.fromStatus, to_status: e.toStatus, stage: e.stage ?? 'buying' })
       .execute();
   }
 
@@ -824,6 +859,7 @@ export class PgRegistryStore implements RegistryStore {
       body: r.body,
       fromStatus: r.from_status,
       toStatus: r.to_status,
+      stage: r.stage,
       at: r.at.toISOString(),
     }));
   }

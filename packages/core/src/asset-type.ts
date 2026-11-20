@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { fieldDefinitionSchema, fieldKeySchema, type FieldDefinition } from './fields.js';
-import { workflowSchema } from './workflow.js';
+import { followUpSchema, validateFollowUp, workflowSchema } from './workflow.js';
 
 export const statusSchema = z.object({
   value: fieldKeySchema,
@@ -165,6 +165,11 @@ export const typeVariantInputSchema = z.object({
   description: z.string().max(400).nullable().default(null),
   sections: z.array(z.string().min(1).max(60)).max(20).default([]),
   fields: z.array(fieldDefinitionSchema).max(100),
+  /**
+   * The unit's own steps once the buyers are done with a purchase or renewal
+   * of one of its items ("swap the new license on our machines"); null: none.
+   */
+  followUp: followUpSchema.nullable().default(null),
 });
 export type TypeVariantInput = z.infer<typeof typeVariantInputSchema>;
 
@@ -201,5 +206,6 @@ export function validateVariantStructure(type: Pick<AssetType, 'fields' | 'secti
     if (match && Number(match[1]) >= offset) issues.push({ path: `fields.${Number(match[1]) - offset}${match[2]}`, message: m.message });
     else if (!match && !issues.some((x) => x.message === m.message)) issues.push(m);
   }
+  if (input.followUp) for (const i of validateFollowUp(input.followUp)) issues.push({ path: `followUp.${i.path}`, message: i.message });
   return issues;
 }

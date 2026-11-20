@@ -104,6 +104,42 @@ export function validateWorkflow(wf: Workflow): SchemaIssueLite[] {
   return issues;
 }
 
+// ─── A team's own steps after the buyers are done ─────────────────────────
+
+/**
+ * What a unit does once the buyers finish ("our part"): procurement renewed
+ * the license, but for the team that uses it the work starts now: install the
+ * new key, swap it on every machine, renew the machines. Set on a team
+ * variant, so it applies to that unit's items of that kind; the request then
+ * has two statuses: the buyers' and the team's.
+ *
+ * Same shape as a request workflow; it starts at its first (to-do) status
+ * when the buying is done, and must be able to reach Done. Closed is optional
+ * ("not needed after all").
+ */
+export const followUpSchema = z.object({
+  statuses: z.array(workflowStatusSchema).min(2).max(20),
+  transitions: z.array(workflowTransitionSchema).max(300),
+});
+
+/** A ready-made follow-up: the new license has to be installed where the old one was. */
+export const defaultFollowUp: Workflow = {
+  statuses: [
+    { key: 'to_install', label: 'To install', color: '#6366f1', category: 'todo' },
+    { key: 'installing', label: 'Swapping on machines', color: '#f59e0b', category: 'active' },
+    { key: 'installed', label: 'Installed', color: '#10b981', category: 'done' },
+    { key: 'not_needed', label: 'Not needed', color: '#94a3b8', category: 'closed' },
+  ],
+  transitions: [t('to_install', 'installing'), t('to_install', 'installed'), t('to_install', 'not_needed'), t('installing', 'installed'), t('installing', 'to_install')],
+};
+
+/** Like a request workflow, without having to be closable. */
+export function validateFollowUp(wf: Workflow): SchemaIssueLite[] {
+  return validateWorkflow(wf)
+    .filter((i) => !/“Closed” status/.test(i.message))
+    .map((i) => (/“Done” status, for when/.test(i.message) ? { ...i, message: 'Add a “Done” status, for when your part is finished' } : /first status \(where requests start\)/.test(i.message) ? { ...i, message: 'The first status (where your part starts) must be a “To do” status' } : i));
+}
+
 const unknownStatus = (key: string): WorkflowStatus => ({ key, label: key.replace(/_/g, ' '), color: '#94a3b8', category: 'active' });
 
 export const statusIn = (wf: Workflow, key: string): WorkflowStatus => wf.statuses.find((s) => s.key === key) ?? unknownStatus(key);

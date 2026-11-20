@@ -22,9 +22,19 @@ export interface RequestState {
   neededBy: string | null;
   link: string | null;
   assetId: string | null;
+  /** The team's own part (after the buying is done), if its item's kind has one. */
+  team: TeamStage | null;
   createdAt: Date;
   updatedAt: Date;
   commentCount: number;
+}
+
+export interface TeamStage {
+  variantId: string;
+  /** The variant's unit. */
+  unitId: string;
+  status: string;
+  category: StatusCategory;
 }
 
 export const requestNumber = (seq: number) => `REQ-${seq}`;
@@ -38,7 +48,23 @@ export function assertMove(wf: Workflow, from: RequestStatus, to: RequestStatus,
   throw AppError.forbidden('Only people who handle requests for this team can do that');
 }
 
+/** The buyers' part is still open. */
 export const isOpen = (r: Pick<RequestState, 'statusCategory'>) => r.statusCategory === 'todo' || r.statusCategory === 'active';
+export const isTeamOpen = (r: Pick<RequestState, 'team'>) => !!r.team && (r.team.category === 'todo' || r.team.category === 'active');
+
+/**
+ * Who does the team's part: members of the variant's unit or of a unit
+ * beneath it on the way to the request's unit (Platform, or R&D above it when
+ * R&D owns the variant), and the item's owner. Procurement, who handled the
+ * buying, is not part of it unless they belong there.
+ */
+export function isTeamMember(p: { userId: string; units: Array<{ unitId: string }> }, r: Pick<RequestState, 'unitPath' | 'team'>, itemOwnerId: string | null): boolean {
+  if (!r.team) return false;
+  if (itemOwnerId && itemOwnerId === p.userId) return true;
+  const from = r.unitPath.indexOf(r.team.unitId);
+  const path = from >= 0 ? r.unitPath.slice(from) : [r.team.unitId];
+  return p.units.some((u) => path.includes(u.unitId));
+}
 
 export function accessOf(isHandler: boolean, isRequester: boolean): RequestAccess {
   return isHandler ? 'handler' : isRequester ? 'requester' : 'viewer';
