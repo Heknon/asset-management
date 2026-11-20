@@ -20,7 +20,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && bun run --filter @am/browser-runtime typecheck && bun run --filter web typecheck",
     "test": "bun test",
     "migrate": "bun run --filter './services/*' migrate",
-    "seed": "bun scripts/seed-demo.ts"
+    "seed": "bun scripts/seed-demo.ts",
+    "check": "bun run typecheck && bun scripts/i18n-check.mjs && bun test",
+    "db:migrate:deploy": "bun packages/serverless/src/migrate.ts"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",
