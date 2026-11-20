@@ -2,9 +2,10 @@ import * as RDialog from '@radix-ui/react-dialog';
 import * as RMenu from '@radix-ui/react-dropdown-menu';
 import * as RPopover from '@radix-ui/react-popover';
 import * as RTooltip from '@radix-ui/react-tooltip';
-import { X } from 'lucide-react';
+import { ChevronRight, X } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { useMediaQuery } from '@/lib/hooks';
+import { t } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { Button } from './button';
 
@@ -54,7 +55,7 @@ function Panel({ open, onOpenChange, title, description, children, footer, class
               {description ? <RDialog.Description className="mt-0.5 text-[13px] text-muted">{description}</RDialog.Description> : <RDialog.Description className="sr-only">{title}</RDialog.Description>}
             </div>
             <RDialog.Close asChild>
-              <Button variant="ghost" size="icon" aria-label="Close" icon={<X className="size-4" />} />
+              <Button variant="ghost" size="icon" aria-label={t('Close')} icon={<X className="size-4" />} />
             </RDialog.Close>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-5">{children}</div>
@@ -70,7 +71,7 @@ export const Sheet = (p: PanelProps) => <Panel {...p} placement="side" />;
 /** A bottom sheet on phones, a side panel on tablets: for editing one item of a list that should stay in view. */
 export const Drawer = (p: PanelProps) => <Panel {...p} placement="drawer" />;
 
-export function ConfirmDialog({ open, onOpenChange, title, description, confirmLabel = 'Confirm', danger, onConfirm, loading }: { open: boolean; onOpenChange: (o: boolean) => void; title: string; description: ReactNode; confirmLabel?: string; danger?: boolean; onConfirm: () => void; loading?: boolean }) {
+export function ConfirmDialog({ open, onOpenChange, title, description, confirmLabel = t('Confirm'), danger, onConfirm, loading }: { open: boolean; onOpenChange: (o: boolean) => void; title: string; description: ReactNode; confirmLabel?: string; danger?: boolean; onConfirm: () => void; loading?: boolean }) {
   return (
     <Dialog
       open={open}
@@ -78,7 +79,7 @@ export function ConfirmDialog({ open, onOpenChange, title, description, confirmL
       title={title}
       footer={
         <>
-          <Button onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button onClick={() => onOpenChange(false)}>{t('Cancel')}</Button>
           <Button variant={danger ? 'danger' : 'primary'} onClick={onConfirm} loading={loading}>
             {confirmLabel}
           </Button>
@@ -118,6 +119,24 @@ export function MenuItem({ children, onSelect, icon, danger, disabled }: { child
       <span className="flex size-4 items-center justify-center text-muted [&>svg]:size-4">{icon}</span>
       {children}
     </RMenu.Item>
+  );
+}
+
+/** An item that opens a submenu (to the side, or over the menu on narrow screens). */
+export function MenuSub({ label, icon, children }: { label: ReactNode; icon?: ReactNode; children: ReactNode }) {
+  return (
+    <RMenu.Sub>
+      <RMenu.SubTrigger className="flex h-8 cursor-pointer items-center gap-2 rounded-md px-2 text-[13px] outline-none touch:h-10 data-[highlighted]:bg-surface-2 data-[state=open]:bg-surface-2">
+        <span className="flex size-4 items-center justify-center text-muted [&>svg]:size-4">{icon}</span>
+        {label}
+        <ChevronRight className="size-3.5 text-subtle rtl:rotate-180" />
+      </RMenu.SubTrigger>
+      <RMenu.Portal>
+        <RMenu.SubContent sideOffset={6} collisionPadding={8} className={cn(popClass, 'min-w-36')}>
+          {children}
+        </RMenu.SubContent>
+      </RMenu.Portal>
+    </RMenu.Sub>
   );
 }
 

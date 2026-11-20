@@ -1,6 +1,8 @@
 import { addDuration, isRestricted, type AssetFilter, type AssetType, type FieldDefinition, type FilterOp } from '@am/core';
 import { ListFilter, Plus, X } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
+import { t } from '@/lib/i18n';
+import { tj } from '@/lib/i18n-react';
 import { usePeople } from '@/lib/queries';
 import { formatDate, todayIso } from '@/lib/utils';
 import { AttributeInput } from './attribute';
@@ -25,45 +27,45 @@ interface FilterField {
 
 const OPS: Record<Kind, Array<{ op: FilterOp; label: string }>> = {
   text: [
-    { op: 'contains', label: 'contains' },
-    { op: 'equals', label: 'is' },
-    { op: 'notEquals', label: 'is not' },
-    { op: 'isEmpty', label: 'is empty' },
-    { op: 'isNotEmpty', label: 'is not empty' },
+    { op: 'contains', label: t('contains') },
+    { op: 'equals', label: t('is') },
+    { op: 'notEquals', label: t('is not') },
+    { op: 'isEmpty', label: t('is empty') },
+    { op: 'isNotEmpty', label: t('is not empty') },
   ],
   number: [
-    { op: 'equals', label: 'is' },
-    { op: 'gte', label: 'is at least' },
-    { op: 'gt', label: 'is more than' },
-    { op: 'lte', label: 'is at most' },
-    { op: 'lt', label: 'is less than' },
-    { op: 'between', label: 'is between' },
-    { op: 'isEmpty', label: 'is empty' },
+    { op: 'equals', label: t('is') },
+    { op: 'gte', label: t('is at least') },
+    { op: 'gt', label: t('is more than') },
+    { op: 'lte', label: t('is at most') },
+    { op: 'lt', label: t('is less than') },
+    { op: 'between', label: t('is between') },
+    { op: 'isEmpty', label: t('is empty') },
   ],
   date: [
-    { op: 'between', label: 'is between' },
-    { op: 'lt', label: 'is before' },
-    { op: 'gt', label: 'is after' },
-    { op: 'equals', label: 'is on' },
-    { op: 'isEmpty', label: 'is empty' },
-    { op: 'isNotEmpty', label: 'is set' },
+    { op: 'between', label: t('is between') },
+    { op: 'lt', label: t('is before') },
+    { op: 'gt', label: t('is after') },
+    { op: 'equals', label: t('is on') },
+    { op: 'isEmpty', label: t('is empty') },
+    { op: 'isNotEmpty', label: t('is set') },
   ],
   choice: [
-    { op: 'equals', label: 'is' },
-    { op: 'notEquals', label: 'is not' },
-    { op: 'in', label: 'is any of' },
-    { op: 'isEmpty', label: 'is empty' },
+    { op: 'equals', label: t('is') },
+    { op: 'notEquals', label: t('is not') },
+    { op: 'in', label: t('is any of') },
+    { op: 'isEmpty', label: t('is empty') },
   ],
   multi: [
-    { op: 'contains', label: 'includes' },
-    { op: 'in', label: 'includes any of' },
-    { op: 'isEmpty', label: 'is empty' },
+    { op: 'contains', label: t('includes') },
+    { op: 'in', label: t('includes any of') },
+    { op: 'isEmpty', label: t('is empty') },
   ],
-  boolean: [{ op: 'equals', label: 'is' }],
+  boolean: [{ op: 'equals', label: t('is') }],
   person: [
-    { op: 'equals', label: 'is' },
-    { op: 'notEquals', label: 'is not' },
-    { op: 'isEmpty', label: 'is not set' },
+    { op: 'equals', label: t('is') },
+    { op: 'notEquals', label: t('is not') },
+    { op: 'isEmpty', label: t('is not set') },
   ],
 };
 
@@ -89,10 +91,10 @@ function kindOf(f: FieldDefinition): Kind {
 
 export function filterFields(type: AssetType | undefined): FilterField[] {
   const system: FilterField[] = [
-    { key: 'name', label: 'Name', kind: 'text' },
-    { key: 'ownerId', label: 'Owner', kind: 'person', definition: { id: 'owner', key: 'owner', label: 'Owner', kind: 'user', required: false, restricted: false, showInTable: false, config: {} } },
-    { key: 'createdAt', label: 'Created', kind: 'date' },
-    { key: 'updatedAt', label: 'Last updated', kind: 'date' },
+    { key: 'name', label: t('Name'), kind: 'text' },
+    { key: 'ownerId', label: t('Owner'), kind: 'person', definition: { id: 'owner', key: 'owner', label: t('Owner'), kind: 'user', required: false, restricted: false, showInTable: false, config: {} } },
+    { key: 'createdAt', label: t('Created'), kind: 'date' },
+    { key: 'updatedAt', label: t('Last updated'), kind: 'date' },
   ];
   const own = (type?.fields ?? [])
     .filter((f) => !isRestricted(f) && f.kind !== 'longText' && f.kind !== 'assetRef')
@@ -104,10 +106,10 @@ const needsValue = (op: FilterOp) => op !== 'isEmpty' && op !== 'isNotEmpty';
 
 /** Quick ranges for dates, the most common question ("what renews soon?"). */
 const DATE_PRESETS = [
-  { label: 'Next 30 days', days: 30 },
-  { label: 'Next 90 days', days: 90 },
-  { label: 'Next 12 months', days: 365 },
-  { label: 'Already passed', days: -1 },
+  { label: t('Next 30 days'), days: 30 },
+  { label: t('Next 90 days'), days: 90 },
+  { label: t('Next 12 months'), days: 365 },
+  { label: t('Already passed'), days: -1 },
 ];
 
 function Editor({ fields, initial, onSave, onCancel }: { fields: FilterField[]; initial?: AssetFilter; onSave: (f: AssetFilter) => void; onCancel: () => void }) {
@@ -136,7 +138,7 @@ function Editor({ fields, initial, onSave, onCancel }: { fields: FilterField[]; 
 
   return (
     <div className="w-full space-y-3 p-4 sm:w-80 sm:p-3">
-      <Field label="Field">
+      <Field label={t('Field')}>
         {(id) => (
           <Select
             id={id}
@@ -154,7 +156,7 @@ function Editor({ fields, initial, onSave, onCancel }: { fields: FilterField[]; 
           </Select>
         )}
       </Field>
-      <Field label="Condition">
+      <Field label={t('Condition')}>
         {(id) => (
           <Select id={id} value={activeOp} onChange={(e) => (setOp(e.target.value as FilterOp), setValue(field.kind === 'boolean' ? true : undefined))}>
             {ops.map((o) => (
@@ -166,7 +168,7 @@ function Editor({ fields, initial, onSave, onCancel }: { fields: FilterField[]; 
         )}
       </Field>
       {needsValue(activeOp) && (
-        <Field label="Value">
+        <Field label={t('Value')}>
           {(id) =>
             activeOp === 'between' ? (
               <div className="space-y-2">
@@ -190,8 +192,8 @@ function Editor({ fields, initial, onSave, onCancel }: { fields: FilterField[]; 
               </div>
             ) : field.kind === 'boolean' ? (
               <Select id={id} value={String(value ?? true)} onChange={(e) => setValue(e.target.value === 'true')}>
-                <option value="true">Yes</option>
-                <option value="false">No</option>
+                <option value="true">{t('Yes')}</option>
+                <option value="false">{t('No')}</option>
               </Select>
             ) : (
               input(value, setValue, id)
@@ -201,10 +203,10 @@ function Editor({ fields, initial, onSave, onCancel }: { fields: FilterField[]; 
       )}
       <div className="flex justify-end gap-2 pt-1 max-sm:[&>*]:flex-1">
         <Button size="sm" onClick={onCancel}>
-          Cancel
+          {t('Cancel')}
         </Button>
         <Button size="sm" variant="primary" disabled={!valid} onClick={() => onSave({ field: field.key, op: activeOp, ...(needsValue(activeOp) && { value }) })}>
-          Apply
+          {t('Apply')}
         </Button>
       </div>
     </div>
@@ -216,19 +218,16 @@ function describe(f: AssetFilter, fields: FilterField[], people: Map<string, { d
   const label = OPS[field?.kind ?? 'text'].find((o) => o.op === f.op)?.label ?? f.op;
   const show = (v: unknown): string => {
     if (v === undefined || v === null) return '';
-    if (Array.isArray(v)) return v.map(show).join(f.op === 'between' ? ' and ' : ', ');
-    if (typeof v === 'boolean') return v ? 'yes' : 'no';
+    if (Array.isArray(v)) return f.op === 'between' && v.length === 2 ? t('{from} and {to}', { from: show(v[0]), to: show(v[1]) }) : v.map(show).join(', ');
+    if (typeof v === 'boolean') return v ? t('yes') : t('no');
     const def = field?.definition;
     if (def && (def.kind === 'select' || def.kind === 'multiSelect')) return def.config.options.find((o) => o.value === v)?.label ?? String(v);
     if (field?.kind === 'person') return people.get(String(v))?.displayName ?? '…';
     if (field?.kind === 'date' && typeof v === 'string') return formatDate(v);
     return String(v);
   };
-  return (
-    <>
-      <span className="font-medium">{field?.label ?? f.field}</span> <span className="text-muted">{label}</span> {needsValue(f.op) && <span className="font-medium">{show(f.value)}</span>}
-    </>
-  );
+  const parts = { field: <span className="font-medium">{field?.label ?? f.field}</span>, condition: <span className="text-muted">{label}</span> };
+  return needsValue(f.op) ? tj('{field} {condition} {value}', { ...parts, value: <span className="font-medium">{show(f.value)}</span> }) : tj('{field} {condition}', parts);
 }
 
 export function FilterBar({ type, value, onChange }: { type: AssetType | undefined; value: AssetFilter[]; onChange: (f: AssetFilter[]) => void }) {
@@ -240,7 +239,7 @@ export function FilterBar({ type, value, onChange }: { type: AssetType | undefin
       {value.map((f, i) => (
         <Popover
           key={i}
-          phoneTitle="Edit filter"
+          phoneTitle={t('Edit filter')}
           open={editing === i}
           onOpenChange={(o) => setEditing(o ? i : null)}
           trigger={
@@ -250,7 +249,7 @@ export function FilterBar({ type, value, onChange }: { type: AssetType | undefin
               </button>
               <button
                 type="button"
-                aria-label="Remove filter"
+                aria-label={t('Remove filter')}
                 className="rounded p-0.5 text-subtle hover:bg-surface-3 hover:text-fg"
                 onClick={(e) => {
                   e.stopPropagation();
@@ -266,17 +265,17 @@ export function FilterBar({ type, value, onChange }: { type: AssetType | undefin
         </Popover>
       ))}
       <Popover
-        phoneTitle="Add a filter"
+        phoneTitle={t('Add a filter')}
         open={editing === 'new'}
         onOpenChange={(o) => setEditing(o ? 'new' : null)}
         trigger={
-          <Button icon={value.length ? <Plus className="size-3.5" /> : <ListFilter className="size-3.5" />} title={type ? undefined : 'Pick an asset type to filter by its own fields'}>
-            {value.length ? 'Filter' : 'Add filter'}
+          <Button icon={value.length ? <Plus className="size-3.5" /> : <ListFilter className="size-3.5" />} title={type ? undefined : t('Pick an asset type to filter by its own fields')}>
+            {value.length ? t('Filter') : t('Add filter')}
           </Button>
         }
       >
         <Editor fields={fields} onCancel={() => setEditing(null)} onSave={(f) => (onChange([...value, f]), setEditing(null))} />
-        {!type && <p className="border-t border-border px-3 py-2 text-xs text-subtle">Tip: choose an asset type to filter by its own fields (seats, renewal date, vendor…).</p>}
+        {!type && <p className="border-t border-border px-3 py-2 text-xs text-subtle">{t('Tip: choose an asset type to filter by its own fields (seats, renewal date, vendor…).')}</p>}
       </Popover>
     </>
   );

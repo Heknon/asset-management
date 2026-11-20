@@ -1,7 +1,22 @@
 import { canManageTemplates, effectivePermissions, unitPermissions, type Me, type OrgUnit, type Permission } from '@am/core';
 import { useMemo } from 'react';
 import type { UnitOption } from '@/components/pickers';
+import { t } from './i18n';
 import { useLookups, useMe } from './queries';
+
+/** "Your department", "Your division", … for a unit of that kind. */
+function yourUnit(kind: string): string {
+  switch (kind.toLowerCase()) {
+    case 'team':
+      return t('Your team');
+    case 'department':
+      return t('Your department');
+    case 'division':
+      return t('Your division');
+    default:
+      return t('Your {kind}', { kind: kind.toLowerCase() });
+  }
+}
 
 /** The units I belong to or manage, plus helpers built on the org tree. */
 export function useMyOrg() {
@@ -24,10 +39,10 @@ export function useMyOrg() {
         const u = unitById.get(id);
         if (!u || seen.has(id)) return;
         seen.add(id);
-        requestTargets.push({ unit: u, hint: depth === 0 ? (role === 'manager' ? 'You manage' : 'Your team') : u.parentId ? `Your ${u.kind.toLowerCase()}` : 'Whole company' });
+        requestTargets.push({ unit: u, hint: depth === 0 ? (role === 'manager' ? t('You manage') : t('Your team')) : u.parentId ? yourUnit(u.kind) : t('Whole company') });
       });
     }
-    if (!requestTargets.length) units.filter((u) => !u.parentId && !u.archived).forEach((u) => requestTargets.push({ unit: u, hint: 'Whole company' }));
+    if (!requestTargets.length) units.filter((u) => !u.parentId && !u.archived).forEach((u) => requestTargets.push({ unit: u, hint: t('Whole company') }));
 
     /** My permissions on items of a unit (from the org chart; catalog shares are added by the server per item). */
     const permissionsOn = (unitId: string, assetTypeId = ''): Set<Permission> => {

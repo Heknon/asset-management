@@ -10,7 +10,7 @@ import { Select } from './form';
 import { useMediaQuery } from '@/lib/hooks';
 import { useShortcut } from '@/lib/shortcuts';
 import type { Table } from '@tanstack/react-table';
-import { intlLocale } from '@/lib/i18n';
+import { formatNumber, intlLocale, t } from '@/lib/i18n';
 
 export interface SortState {
   sort: string;
@@ -140,7 +140,7 @@ export function DataTable<T>({
                 {selection && (
                   <th className={cn('h-9 bg-bg text-start', selectCell)}>
                     <RowCheck
-                      label="Select all on this page"
+                      label={t('Select all on this page')}
                       checked={allOnPage}
                       mixed={someOnPage && !allOnPage}
                       onChange={() => {
@@ -165,7 +165,7 @@ export function DataTable<T>({
                       {sortable(meta) ? (
                         <button
                           type="button"
-                          title={`Sort by ${typeof h.column.columnDef.header === 'string' ? h.column.columnDef.header.toLowerCase() : 'this column'}`}
+                          title={typeof h.column.columnDef.header === 'string' ? t('Sort by {column}', { column: h.column.columnDef.header.toLowerCase() }) : t('Sort by this column')}
                           className={cn('group/sort -mx-1 inline-flex items-center gap-1 rounded px-1 py-0.5 hover:bg-surface-2 hover:text-fg', meta?.align === 'right' && 'flex-row-reverse', active && 'text-fg')}
                           onClick={() => changeSort(meta!.sortKey!)}
                         >
@@ -197,7 +197,7 @@ export function DataTable<T>({
                   <tr key={row.id} onClick={onRowClick ? () => onRowClick(row.original) : undefined} data-cursor={cursor === i || undefined} data-selected={selection?.selected.has(row.id) || undefined} className={cn('group', onRowClick && 'cursor-pointer')}>
                     {selection && (
                       <td className={cn('h-11 transition-colors group-hover:bg-surface-2/60 group-data-[selected]:bg-accent-soft', selectCell)} onMouseDown={(e) => e.shiftKey && e.preventDefault()} onClick={(e) => (e.stopPropagation(), toggle(i, e.shiftKey))}>
-                        <RowCheck label="Select" checked={selection.selected.has(row.id)} onChange={() => undefined} />
+                        <RowCheck label={t('Select')} checked={selection.selected.has(row.id)} onChange={() => undefined} />
                       </td>
                     )}
                     {row.getVisibleCells().map((cell) => {
@@ -217,12 +217,10 @@ export function DataTable<T>({
       )}
       {page && page.total > page.limit && (
         <div className="flex items-center justify-between border-t border-border px-4 sm:px-6 py-2 text-xs text-muted">
-          <span>
-            {page.offset + 1}–{Math.min(page.offset + page.limit, page.total)} of {page.total}
-          </span>
+          <span>{t('{from}–{to} of {total}', { from: formatNumber(page.offset + 1), to: formatNumber(Math.min(page.offset + page.limit, page.total)), total: formatNumber(page.total) })}</span>
           <div className="flex gap-1">
-            <Button size="icon" variant="ghost" aria-label="Previous page" disabled={page.offset === 0} onClick={() => page.onChange(Math.max(0, page.offset - page.limit))} icon={<ChevronLeft className="size-4" />} />
-            <Button size="icon" variant="ghost" aria-label="Next page" disabled={page.offset + page.limit >= page.total} onClick={() => page.onChange(page.offset + page.limit)} icon={<ChevronRight className="size-4" />} />
+            <Button size="icon" variant="ghost" aria-label={t('Previous page')} disabled={page.offset === 0} onClick={() => page.onChange(Math.max(0, page.offset - page.limit))} icon={<ChevronLeft className="size-4 rtl:rotate-180" />} />
+            <Button size="icon" variant="ghost" aria-label={t('Next page')} disabled={page.offset + page.limit >= page.total} onClick={() => page.onChange(page.offset + page.limit)} icon={<ChevronRight className="size-4 rtl:rotate-180" />} />
           </div>
         </div>
       )}
@@ -238,8 +236,8 @@ export function ExportButton({ onExport, disabled }: { onExport: () => void; dis
   const features = useFeatures();
   if (!features.data?.csvExport) return null;
   return (
-    <Button variant="ghost" icon={<Download className="size-3.5" />} disabled={disabled} onClick={onExport} title="Download what this table shows — every page, with your filters and sorting — as a spreadsheet file">
-      Export CSV
+    <Button variant="ghost" icon={<Download className="size-3.5" />} disabled={disabled} onClick={onExport} title={t('Download what this table shows — every page, with your filters and sorting — as a spreadsheet file')}>
+      {t('Export CSV')}
     </Button>
   );
 }
@@ -294,13 +292,13 @@ function PhoneList<T>({
         <div className="flex items-center gap-2 border-b border-border px-4 py-2 text-xs text-muted">
           {selection && rows.length > 0 && (
             <button type="button" className="order-last ms-auto h-8 rounded-md px-2 text-[13px] font-medium text-accent-fg" onClick={() => (selecting ? (setPicking(false), selection.onChange(new Set())) : setPicking(true))}>
-              {selecting ? 'Cancel' : 'Select'}
+              {selecting ? t('Cancel') : t('Select')}
             </button>
           )}
-          <span>Sort by</span>
+          <span>{t('Sort by')}</span>
           {sortColumns.length > 0 && (
           <Select
-            aria-label="Sort by"
+            aria-label={t('Sort by')}
             className="w-auto"
             value={activeSort ? `${activeSort.sort}:${activeSort.order}` : ''}
             onChange={(e) => {
@@ -308,7 +306,7 @@ function PhoneList<T>({
               if (key) onSort(key, order as SortState['order']);
             }}
           >
-            {!activeSort && <option value="">Default</option>}
+            {!activeSort && <option value="">{t('Default')}</option>}
             {sortColumns.flatMap((c) => [
               <option key={`${c.meta!.sortKey}:asc`} value={`${c.meta!.sortKey}:asc`}>
                 {String(c.header)} ↑
@@ -340,7 +338,7 @@ function PhoneList<T>({
                   aria-pressed={selecting ? selection!.selected.has(row.id) : undefined}
                   className={cn('flex gap-3 px-4 py-3 text-[13px]', (onRowClick || selecting) && 'cursor-pointer active:bg-surface-2', selecting && selection!.selected.has(row.id) && 'bg-accent-soft/40')}
                 >
-                  {selecting && <RowCheck label="Select" checked={selection!.selected.has(row.id)} onChange={() => undefined} className="mt-0.5" />}
+                  {selecting && <RowCheck label={t('Select')} checked={selection!.selected.has(row.id)} onChange={() => undefined} className="mt-0.5" />}
                   <div className="min-w-0 flex-1 space-y-1">
                   {title && <div className="min-w-0 font-medium [&_*]:max-w-full">{flexRender(title.column.columnDef.cell, title.getContext())}</div>}
                   <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">

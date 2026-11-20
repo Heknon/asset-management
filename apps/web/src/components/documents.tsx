@@ -5,6 +5,7 @@ import { useRef, useState, type DragEvent } from 'react';
 import { toast } from 'sonner';
 import { api, ApiError } from '@/lib/api';
 import { keys, useFiles } from '@/lib/queries';
+import { plural, t } from '@/lib/i18n';
 import { cn, formatBytes, formatDateTime } from '@/lib/utils';
 import { Button } from './ui/button';
 import { EmptyState, Spinner } from './ui/display';
@@ -20,7 +21,7 @@ async function uploadFile(assetId: string, file: File): Promise<FileRecord> {
   Object.entries(ticket.upload.fields).forEach(([k, v]) => form.append(k, v));
   form.append('file', file); // must be the last field for S3
   const res = await fetch(ticket.upload.url, { method: 'POST', body: form });
-  if (!res.ok) throw new Error(`Storage rejected the upload (${res.status})`);
+  if (!res.ok) throw new Error(t('Storage rejected the upload ({status})', { status: res.status }));
   return api.post<FileRecord>(`/api/files/${ticket.file.id}/complete`);
 }
 
@@ -37,14 +38,14 @@ export function Documents({ assetId, canEdit, canManage, currentUserId }: { asse
     mutationFn: async (list: File[]) => {
       for (const f of list) await uploadFile(assetId, f);
     },
-    onSuccess: (_d, list) => toast.success(list.length === 1 ? `Uploaded ${list[0]!.name}` : `Uploaded ${list.length} files`),
-    onError: (e) => toast.error(e instanceof Error ? e.message : 'Upload failed'),
+    onSuccess: (_d, list) => toast.success(list.length === 1 ? t('Uploaded {name}', { name: list[0]!.name }) : plural(list.length, 'Uploaded {n} file', 'Uploaded {n} files')),
+    onError: (e) => toast.error(e instanceof Error ? e.message : t('Upload failed')),
     onSettled: () => qc.invalidateQueries({ queryKey: keys.files(assetId) }),
   });
   const remove = useMutation({
     mutationFn: (f: FileRecord) => api.delete(`/api/files/${f.id}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.files(assetId) }),
-    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Delete failed'),
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : t('Delete failed')),
   });
 
   const onDrop = (e: DragEvent) => {
@@ -65,12 +66,12 @@ export function Documents({ assetId, canEdit, canManage, currentUserId }: { asse
       className={cn('rounded-xl border border-border bg-surface transition-colors', dragging && 'border-accent bg-accent-soft/40')}
     >
       <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
-        <h2 className="text-[13px] font-semibold">Documents</h2>
+        <h2 className="text-[13px] font-semibold">{t('Documents')}</h2>
         {canEdit && (
           <>
             <input ref={input} type="file" multiple hidden accept={allowedContentTypes.join(',')} onChange={(e) => e.target.files && upload.mutate([...e.target.files])} />
             <Button size="sm" icon={<UploadCloud className="size-3.5" />} loading={upload.isPending} onClick={() => input.current?.click()}>
-              Upload
+              {t('Upload')}
             </Button>
           </>
         )}
@@ -80,7 +81,7 @@ export function Documents({ assetId, canEdit, canManage, currentUserId }: { asse
           <Spinner />
         </div>
       ) : !files.data?.length ? (
-        <EmptyState icon={<UploadCloud />} title="No documents" description={canEdit ? 'Drop contracts, invoices or order forms here.' : 'Nothing has been attached yet.'} />
+        <EmptyState icon={<UploadCloud />} title={t('No documents')} description={canEdit ? t('Drop contracts, invoices or order forms here.') : t('Nothing has been attached yet.')} />
       ) : (
         <ul className="divide-y divide-border">
           {files.data.map((f) => {
@@ -97,9 +98,9 @@ export function Documents({ assetId, canEdit, canManage, currentUserId }: { asse
                   </div>
                 </button>
                 <div className="flex opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 touch:opacity-100">
-                  <Button size="icon" variant="ghost" aria-label="Download" icon={<Download className="size-4" />} onClick={() => void download(f)} />
+                  <Button size="icon" variant="ghost" aria-label={t('Download')} icon={<Download className="size-4" />} onClick={() => void download(f)} />
                   {(canManage || (canEdit && f.uploadedBy === currentUserId)) && (
-                    <Button size="icon" variant="danger-ghost" aria-label="Delete" icon={<Trash2 className="size-4" />} onClick={() => remove.mutate(f)} />
+                    <Button size="icon" variant="danger-ghost" aria-label={t('Delete')} icon={<Trash2 className="size-4" />} onClick={() => remove.mutate(f)} />
                   )}
                 </div>
               </li>
@@ -128,7 +129,7 @@ function FilePreview({ file, onClose, onDownload }: { file: FileRecord | null; o
       title={file?.filename ?? ''}
       description={file ? `${formatBytes(file.size)} · ${file.contentType}` : undefined}
       className="max-w-4xl"
-      footer={file && <Button icon={<Download className="size-3.5" />} onClick={() => onDownload(file)}>Download</Button>}
+      footer={file && <Button icon={<Download className="size-3.5" />} onClick={() => onDownload(file)}>{t('Download')}</Button>}
     >
       {!url.data ? (
         <div className="flex h-full items-center justify-center">
@@ -143,7 +144,7 @@ function FilePreview({ file, onClose, onDownload }: { file: FileRecord | null; o
       ) : file?.preview === 'audio' ? (
         <audio src={url.data.url} controls className="w-full" />
       ) : file?.preview === 'text' ? (
-        <pre className="overflow-auto rounded-lg bg-surface-2 p-4 font-mono text-xs leading-relaxed whitespace-pre-wrap">{text.data ?? 'Loading…'}</pre>
+        <pre className="overflow-auto rounded-lg bg-surface-2 p-4 font-mono text-xs leading-relaxed whitespace-pre-wrap">{text.data ?? t('Loading…')}</pre>
       ) : null}
     </Sheet>
   );

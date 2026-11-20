@@ -3,6 +3,7 @@ import { DEMO_PASSWORD, demoPersonas } from '@am/demo-seed';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Building2, Check, HardDrive, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
+import { t } from '@/lib/i18n';
 import { localServer } from '@/lib/run-mode';
 import { Button } from './ui/button';
 import { Avatar, Spinner } from './ui/display';
@@ -15,7 +16,7 @@ const titleCase = (u: string) => u.split('.').map((w) => w[0]!.toUpperCase() + w
  */
 export function LocalSignIn({ onSignIn, busy }: { onSignIn: (username: string, password: string) => void; busy: boolean }) {
   const demo = useQuery({ queryKey: ['local-demo'], queryFn: localServer.demo, refetchInterval: (q) => (q.state.data?.state === 'running' ? 1000 : false) });
-  const start = useMutation({ mutationFn: localServer.startDemo, onSuccess: () => void demo.refetch(), onError: () => toast.error('Could not start loading the demo') });
+  const start = useMutation({ mutationFn: localServer.startDemo, onSuccess: () => void demo.refetch(), onError: () => toast.error(t('Could not start loading the demo')) });
   const state = demo.data?.state ?? 'idle';
 
   return (
@@ -25,20 +26,20 @@ export function LocalSignIn({ onSignIn, busy }: { onSignIn: (username: string, p
           <HardDrive className="size-4" />
         </span>
         <div>
-          <p className="font-medium">Running in this browser</p>
-          <p className="mt-0.5 text-xs leading-relaxed text-muted">The whole app, its database included, runs on this device. Data is kept in this browser and never sent anywhere.</p>
+          <p className="font-medium">{t('Running in this browser')}</p>
+          <p className="mt-0.5 text-xs leading-relaxed text-muted">{t('The whole app, its database included, runs on this device. Data is kept in this browser and never sent anywhere.')}</p>
         </div>
       </div>
 
       <Button className="w-full justify-center" icon={<ShieldCheck className="size-4" />} disabled={busy} onClick={() => onSignIn(LOCAL_ADMIN.username, LOCAL_ADMIN.password)}>
-        Continue as Administrator
+        {t('Continue as Administrator')}
       </Button>
 
       <div className="border-t border-border pt-4">
         {state === 'done' ? (
           <>
             <p className="mb-2 flex items-center gap-1.5 text-xs font-medium text-success">
-              <Check className="size-3.5" /> Demo company loaded. Sign in as:
+              <Check className="size-3.5" /> {t('Demo company loaded. Sign in as:')}
             </p>
             <ul className="space-y-1">
               {demoPersonas.map((p) => (
@@ -62,7 +63,7 @@ export function LocalSignIn({ onSignIn, busy }: { onSignIn: (username: string, p
         ) : state === 'running' ? (
           <div>
             <p className="flex items-center gap-2 font-medium">
-              <Spinner className="size-3.5" /> Loading the demo company…
+              <Spinner className="size-3.5" /> {t('Loading the demo company…')}
             </p>
             <ul className="mt-2 space-y-0.5 text-xs text-muted">
               {(demo.data?.log ?? []).map((l, i) => (
@@ -75,10 +76,10 @@ export function LocalSignIn({ onSignIn, busy }: { onSignIn: (username: string, p
         ) : (
           <>
             <Button variant="ghost" className="w-full justify-center" icon={<Building2 className="size-4" />} loading={start.isPending} onClick={() => start.mutate()}>
-              Load the demo company
+              {t('Load the demo company')}
             </Button>
             <p className="mt-1 text-center text-xs text-muted">
-              {state === 'failed' ? 'Loading failed — try again.' : '~200 teams, 60 people, 400 licenses and devices, requests and catalogs. Takes a minute or two.'}
+              {state === 'failed' ? t('Loading failed — try again.') : t('~200 teams, 60 people, 400 licenses and devices, requests and catalogs. Takes a minute or two.')}
             </p>
           </>
         )}

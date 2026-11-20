@@ -15,6 +15,7 @@ import {
   FolderOpen,
   Inbox,
   KeyRound,
+  Languages,
   LayoutTemplate,
   LogOut,
   Mail,
@@ -35,6 +36,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { api } from '@/lib/api';
+import { getLocale, locales, setLocale, t, type Locale } from '@/lib/i18n';
 import { useCreatableTypes, useMyOrg } from '@/lib/org';
 import { useAssetTypes, useRequestCounts, useSummary, useViews } from '@/lib/queries';
 import { useUniversalSearch } from '@/lib/search';
@@ -47,7 +49,7 @@ import { HitIcon, hitLink } from './search-hit';
 import { NewRequestProvider, useNewRequest } from './request-form';
 import { TypeIcon } from './type-icon';
 import { Avatar, Kbd } from './ui/display';
-import { ConfirmDialog, Dialog, Menu, MenuItem, MenuSeparator } from './ui/overlay';
+import { ConfirmDialog, Dialog, Menu, MenuItem, MenuSeparator, MenuSub } from './ui/overlay';
 import { inBrowser, localServer } from '@/lib/run-mode';
 
 export type ThemePref = 'light' | 'dark' | 'system';
@@ -130,6 +132,11 @@ function Sidebar({ me, onSearch, onNavigate }: { me: Me; onSearch: () => void; o
     qc.clear();
     void navigate({ to: '/login' });
   };
+  /** Also saved on the profile, so the language follows the person to other devices. */
+  const chooseLocale = async (next: Locale) => {
+    await api.patch('/api/identity/me/preferences', { locale: next }).catch(() => undefined);
+    setLocale(next);
+  };
 
   return (
     // Any click on a link inside closes the drawer on small screens.
@@ -142,11 +149,11 @@ function Sidebar({ me, onSearch, onNavigate }: { me: Me; onSearch: () => void; o
       </div>
       <div className="space-y-2 px-3">
         <button type="button" onClick={() => (onNavigate?.(), newRequest())} className="flex h-9 w-full lg:h-8 items-center justify-center gap-1.5 rounded-lg bg-accent text-[13px] font-medium text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.12)] transition-colors hover:bg-accent-hover">
-          <Plus className="size-4" /> Request something
+          <Plus className="size-4" /> {t('Request something')}
         </button>
         <button type="button" onClick={() => (onNavigate?.(), onSearch())} className="flex h-9 w-full lg:h-8 items-center gap-2 rounded-lg border border-border bg-surface px-2.5 text-[13px] text-subtle transition-colors hover:border-border-strong">
           <Search className="size-3.5" />
-          Search anything
+          {t('Search anything')}
           <span className="ms-auto hidden gap-0.5 [@media(hover:hover)]:flex">
             <Kbd>⌘</Kbd>
             <Kbd>K</Kbd>
@@ -155,36 +162,36 @@ function Sidebar({ me, onSearch, onNavigate }: { me: Me; onSearch: () => void; o
       </div>
       <nav className="mt-3 flex-1 space-y-0.5 overflow-y-auto px-3 pb-4">
         <NavItem to="/" icon={<Inbox />} active={path === '/'} count={summary.data?.overdue}>
-          Upcoming
+          {t('Upcoming')}
         </NavItem>
         <NavItem to="/requests" icon={<ShoppingCart />} active={path.startsWith('/requests')} count={requestBadge} tone="accent">
-          Requests
+          {t('Requests')}
         </NavItem>
         <NavItem to="/assets" icon={<Shapes />} active={path === '/assets' && !typeParam}>
-          All assets
+          {t('All assets')}
         </NavItem>
         <NavItem to="/catalogs" icon={<FolderOpen />} active={path.startsWith('/catalogs')}>
-          Catalogs
+          {t('Catalogs')}
         </NavItem>
         <NavItem to="/calendar" icon={<CalendarDays />} active={path === '/calendar'}>
-          Calendar
+          {t('Calendar')}
         </NavItem>
         {inBrowser && (
           <NavItem to="/mailbox" icon={<Mail />} active={path === '/mailbox'}>
-            Sent emails
+            {t('Sent emails')}
           </NavItem>
         )}
 
         {mine.length > 0 && (
           <>
-            <Heading>My teams</Heading>
+            <Heading>{t('My teams')}</Heading>
             {mine.slice(0, 8).map(({ unit, role }) => (
               <Link key={unit.id} to="/units/$unitId" params={{ unitId: unit.id }} className={navClass(path === `/units/${unit.id}`)}>
                 <span className="flex size-4 items-center justify-center">
                   <span className="size-2 rounded-full" style={{ background: unit.color }} />
                 </span>
                 <span className="min-w-0 flex-1 truncate">{unit.name}</span>
-                {role === 'manager' && <span className="text-[10px] font-semibold text-subtle uppercase">Lead</span>}
+                {role === 'manager' && <span className="text-[10px] font-semibold text-subtle uppercase">{t('Lead')}</span>}
               </Link>
             ))}
           </>
@@ -192,7 +199,7 @@ function Sidebar({ me, onSearch, onNavigate }: { me: Me; onSearch: () => void; o
 
         {!!views.data?.filter((v) => v.pinned).length && (
           <>
-            <Heading>Saved views</Heading>
+            <Heading>{t('Saved views')}</Heading>
             {views.data
               .filter((v) => v.pinned)
               .map((v) => (
@@ -203,39 +210,39 @@ function Sidebar({ me, onSearch, onNavigate }: { me: Me; onSearch: () => void; o
           </>
         )}
 
-        <Heading>Asset types</Heading>
-        {(types.data ?? []).map((t) => (
-          <Link key={t.id} to="/assets" search={{ type: t.id }} className={navClass(typeParam === t.id)}>
-            <TypeIcon icon={t.icon} color={t.color} size={18} />
-            <span className="truncate">{t.name}</span>
+        <Heading>{t('Asset types')}</Heading>
+        {(types.data ?? []).map((ty) => (
+          <Link key={ty.id} to="/assets" search={{ type: ty.id }} className={navClass(typeParam === ty.id)}>
+            <TypeIcon icon={ty.icon} color={ty.color} size={18} />
+            <span className="truncate">{ty.name}</span>
           </Link>
         ))}
-        {types.data?.length === 0 && <p className="px-2 text-xs text-subtle">{me.isAdmin || canManageOrganization ? 'Create a template to get started.' : 'No asset types yet.'}</p>}
+        {types.data?.length === 0 && <p className="px-2 text-xs text-subtle">{me.isAdmin || canManageOrganization ? t('Create a template to get started.') : t('No asset types yet.')}</p>}
 
         {(me.isAdmin || canManageOrganization) && (
           <>
-            <Heading>Administration</Heading>
+            <Heading>{t('Administration')}</Heading>
             {me.isAdmin && (
               <NavItem to="/settings/organization" icon={<Network />} active={path === '/settings/organization'}>
-                Organization
+                {t('Organization')}
               </NavItem>
             )}
             <NavItem to="/templates" icon={<LayoutTemplate />} active={path.startsWith('/templates')}>
-              Templates
+              {t('Templates')}
             </NavItem>
             <NavItem to="/settings/date-kinds" icon={<CalendarDays />} active={path === '/settings/date-kinds'}>
-              Date kinds
+              {t('Date kinds')}
             </NavItem>
             <NavItem to="/settings/workflow" icon={<Workflow />} active={path === '/settings/workflow'}>
-              Request workflow
+              {t('Request workflow')}
             </NavItem>
             {me.isAdmin && (
               <NavItem to="/settings/people" icon={<Users />} active={path === '/settings/people'}>
-                People & groups
+                {t('People & groups')}
               </NavItem>
             )}
             <NavItem to="/settings/access" icon={<KeyRound />} active={path === '/settings/access'}>
-              Access
+              {t('Access')}
             </NavItem>
           </>
         )}
@@ -255,19 +262,19 @@ function Sidebar({ me, onSearch, onNavigate }: { me: Me; onSearch: () => void; o
           }
         >
           <MenuItem icon={<User />} onSelect={() => (onNavigate?.(), void navigate({ to: '/profile' }))}>
-            Profile & notifications
+            {t('Profile & notifications')}
           </MenuItem>
           {!matchMedia('(pointer: coarse)').matches && (
             <MenuItem icon={<Keyboard />} onSelect={() => window.dispatchEvent(new Event('shortcuts:help'))}>
-              Keyboard shortcuts
+              {t('Keyboard shortcuts')}
             </MenuItem>
           )}
           <MenuSeparator />
           {(
             [
-              ['light', 'Light', <Sun key="l" />],
-              ['dark', 'Dark', <Moon key="d" />],
-              ['system', 'Match device', <Monitor key="s" />],
+              ['light', t('Light'), <Sun key="l" />],
+              ['dark', t('Dark'), <Moon key="d" />],
+              ['system', t('Match device'), <Monitor key="s" />],
             ] as const
           ).map(([value, label, icon]) => (
             <MenuItem key={value} icon={icon} onSelect={() => setTheme(value)}>
@@ -277,13 +284,31 @@ function Sidebar({ me, onSearch, onNavigate }: { me: Me; onSearch: () => void; o
               </span>
             </MenuItem>
           ))}
+          <MenuSub
+            icon={<Languages />}
+            label={
+              <span className="flex flex-1 items-center justify-between gap-6">
+                {t('Language')}
+                <span className="text-xs text-subtle">{locales.find((l) => l.id === getLocale())?.native}</span>
+              </span>
+            }
+          >
+            {locales.map((l) => (
+              <MenuItem key={l.id} onSelect={() => void chooseLocale(l.id)}>
+                <span lang={l.id} className="flex flex-1 items-center justify-between gap-6">
+                  {l.native}
+                  {getLocale() === l.id && <Check className="size-3.5 text-accent-fg" />}
+                </span>
+              </MenuItem>
+            ))}
+          </MenuSub>
           <MenuSeparator />
           <MenuItem icon={<LogOut />} onSelect={() => void logout()}>
-            Sign out
+            {t('Sign out')}
           </MenuItem>
           {inBrowser && (
             <MenuItem icon={<Trash2 />} danger onSelect={() => setResetting(true)}>
-              Reset this browser’s data…
+              {t('Reset this browser’s data…')}
             </MenuItem>
           )}
         </Menu>
@@ -293,9 +318,9 @@ function Sidebar({ me, onSearch, onNavigate }: { me: Me; onSearch: () => void; o
           open={resetting}
           onOpenChange={setResetting}
           danger
-          title="Reset this browser’s data?"
-          description="Deletes everything Assets stored in this browser: items, people, requests, documents and sent emails. It starts again empty. This cannot be undone."
-          confirmLabel="Delete everything"
+          title={t('Reset this browser’s data?')}
+          description={t('Deletes everything Assets stored in this browser: items, people, requests, documents and sent emails. It starts again empty. This cannot be undone.')}
+          confirmLabel={t('Delete everything')}
           onConfirm={() => void reset()}
         />
       )}
@@ -353,15 +378,15 @@ function TopBar({ me, onSearch }: { me: Me; onSearch: () => void }) {
   return (
     <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-1 border-b border-border bg-surface/90 px-2 pt-[env(safe-area-inset-top)] backdrop-blur lg:hidden">
       <RDialog.Root open={open} onOpenChange={setOpen}>
-        <RDialog.Trigger className={icon} aria-label="Menu">
+        <RDialog.Trigger className={icon} aria-label={t('Menu')}>
           <MenuIcon />
         </RDialog.Trigger>
         <RDialog.Portal>
           <RDialog.Overlay className="animate-overlay fixed inset-0 z-40 bg-black/30 dark:bg-black/60" />
           <RDialog.Content className="animate-drawer fixed inset-y-0 start-0 z-50 w-[min(18rem,86vw)] border-e border-border bg-surface pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] shadow-pop outline-none">
-            <RDialog.Title className="sr-only">Navigation</RDialog.Title>
-            <RDialog.Description className="sr-only">Pages, teams and asset types</RDialog.Description>
-            <RDialog.Close className={cn(icon, 'absolute top-2 end-2 z-10')} aria-label="Close menu" style={{ marginTop: 'env(safe-area-inset-top)' }}>
+            <RDialog.Title className="sr-only">{t('Navigation')}</RDialog.Title>
+            <RDialog.Description className="sr-only">{t('Pages, teams and asset types')}</RDialog.Description>
+            <RDialog.Close className={cn(icon, 'absolute top-2 end-2 z-10')} aria-label={t('Close menu')} style={{ marginTop: 'env(safe-area-inset-top)' }}>
               <X />
             </RDialog.Close>
             <Sidebar me={me} onSearch={onSearch} onNavigate={() => setOpen(false)} />
@@ -375,10 +400,10 @@ function TopBar({ me, onSearch }: { me: Me; onSearch: () => void }) {
         <span className="text-[15px] font-semibold tracking-tight">Assets</span>
       </Link>
       <span className="flex-1" />
-      <button type="button" className={icon} aria-label="Search" onClick={onSearch}>
+      <button type="button" className={icon} aria-label={t('Search')} onClick={onSearch}>
         <Search />
       </button>
-      <button type="button" className={cn(icon, 'text-accent-fg')} aria-label="Request something" onClick={newRequest}>
+      <button type="button" className={cn(icon, 'text-accent-fg')} aria-label={t('Request something')} onClick={newRequest}>
         <Plus />
       </button>
     </header>
@@ -402,68 +427,68 @@ function CommandPalette({ open, onOpenChange, isAdmin, onHelp }: { open: boolean
   const item = 'flex min-h-10 cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] data-[selected=true]:bg-surface-2 [&>svg]:size-4 [&>svg]:text-muted';
   const group = 'px-1 py-1 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:text-subtle [&_[cmdk-group-heading]]:uppercase';
   const groups = [
-    { title: 'Assets', hits: r.assets },
-    { title: 'Requests', hits: r.requests },
-    { title: 'Teams', hits: r.units },
-    { title: 'People', hits: r.people },
-    { title: 'Asset types', hits: r.types },
+    { key: 'assets', title: t('Assets'), hits: r.assets },
+    { key: 'requests', title: t('Requests'), hits: r.requests },
+    { key: 'units', title: t('Teams'), hits: r.units },
+    { key: 'people', title: t('People'), hits: r.people },
+    { key: 'types', title: t('Asset types'), hits: r.types },
   ];
   const needle = q.trim().toLowerCase();
   const matches = (label: string) => !needle || label.toLowerCase().includes(needle);
   const keyOf = (to: string) => goTo.find((g) => g.to === to)?.key;
   const creates = [
-    { label: 'Request something', icon: <Plus />, keys: ['R'], run: () => newRequest() },
-    ...creatable.map((t) => ({ label: `New ${inSentence(t.name)}`, icon: <TypeIcon icon={t.icon} color={t.color} size={20} />, keys: [] as string[], run: () => void navigate({ to: '/assets', search: { type: t.id, new: '1' } }) })),
-    ...(isAdmin ? [{ label: 'New template', icon: <LayoutTemplate />, keys: [] as string[], run: () => void navigate({ to: '/templates', search: { new: '1' } }) }] : []),
-    { label: 'Import a spreadsheet', icon: <FileUp />, keys: ['G', 'I'], run: () => void navigate({ to: '/import' }) },
-    ...(matchMedia('(pointer: coarse)').matches ? [] : [{ label: 'Keyboard shortcuts', icon: <Keyboard />, keys: ['?'], run: onHelp }]),
+    { label: t('Request something'), icon: <Plus />, keys: ['R'], run: () => newRequest() },
+    ...creatable.map((ty) => ({ label: t('New {type}', { type: inSentence(ty.name) }), icon: <TypeIcon icon={ty.icon} color={ty.color} size={20} />, keys: [] as string[], run: () => void navigate({ to: '/assets', search: { type: ty.id, new: '1' } }) })),
+    ...(isAdmin ? [{ label: t('New template'), icon: <LayoutTemplate />, keys: [] as string[], run: () => void navigate({ to: '/templates', search: { new: '1' } }) }] : []),
+    { label: t('Import a spreadsheet'), icon: <FileUp />, keys: ['G', 'I'], run: () => void navigate({ to: '/import' }) },
+    ...(matchMedia('(pointer: coarse)').matches ? [] : [{ label: t('Keyboard shortcuts'), icon: <Keyboard />, keys: ['?'], run: onHelp }]),
   ].filter((x) => matches(x.label));
   const recents = needle ? recent.filter((x) => x.title.toLowerCase().includes(needle)).slice(0, 4) : recent.slice(0, 5);
   const jumps = [
-    { label: 'Upcoming', icon: <Inbox />, run: () => void navigate({ to: '/' }) },
-    { label: 'Requests', icon: <ShoppingCart />, run: () => void navigate({ to: '/requests' }) },
-    { label: 'All assets', icon: <Shapes />, run: () => void navigate({ to: '/assets' }) },
-    { label: 'Calendar', icon: <CalendarDays />, run: () => void navigate({ to: '/calendar' }) },
-    { label: 'Catalogs', icon: <FolderOpen />, run: () => void navigate({ to: '/catalogs' }) },
-    { label: 'Profile & notifications', icon: <User />, run: () => void navigate({ to: '/profile' }) },
+    { label: t('Upcoming'), icon: <Inbox />, to: '/' },
+    { label: t('Requests'), icon: <ShoppingCart />, to: '/requests' },
+    { label: t('All assets'), icon: <Shapes />, to: '/assets' },
+    { label: t('Calendar'), icon: <CalendarDays />, to: '/calendar' },
+    { label: t('Catalogs'), icon: <FolderOpen />, to: '/catalogs' },
+    { label: t('Profile & notifications'), icon: <User />, to: '/profile' },
     ...(isAdmin
       ? [
-          { label: 'Organization', icon: <Building2 />, run: () => void navigate({ to: '/settings/organization' }) },
-          { label: 'Templates', icon: <LayoutTemplate />, run: () => void navigate({ to: '/templates' }) },
-          { label: 'Access', icon: <KeyRound />, run: () => void navigate({ to: '/settings/access' }) },
+          { label: t('Organization'), icon: <Building2 />, to: '/settings/organization' },
+          { label: t('Templates'), icon: <LayoutTemplate />, to: '/templates' },
+          { label: t('Access'), icon: <KeyRound />, to: '/settings/access' },
         ]
       : []),
   ]
     .filter((x) => matches(x.label))
-    .map((x) => ({ ...x, keys: ((k) => (k ? ['G', k.toUpperCase()] : []))(keyOf(jumpPath[x.label] ?? '')) }));
+    .map((x) => ({ ...x, run: () => void navigate({ to: x.to }), keys: ((k) => (k ? ['G', k.toUpperCase()] : []))(keyOf(x.to)) }));
 
   return (
     <RDialog.Root open={open} onOpenChange={onOpenChange}>
       <RDialog.Portal>
         <RDialog.Overlay className="animate-overlay fixed inset-0 z-40 bg-black/30 dark:bg-black/60" />
         <RDialog.Content className="animate-panel fixed top-[12vh] left-1/2 z-50 w-[calc(100vw-2rem)] max-w-2xl -translate-x-1/2 overflow-hidden rounded-xl border border-border bg-surface shadow-pop">
-          <RDialog.Title className="sr-only">Search</RDialog.Title>
-          <RDialog.Description className="sr-only">Search assets, requests, teams and people, or jump to a page</RDialog.Description>
+          <RDialog.Title className="sr-only">{t('Search')}</RDialog.Title>
+          <RDialog.Description className="sr-only">{t('Search assets, requests, teams and people, or jump to a page')}</RDialog.Description>
           <Command shouldFilter={false} loop>
             <div className="flex items-center gap-2 border-b border-border px-4">
               <Search className="size-4 text-subtle" />
               <Command.Input
                 value={q}
                 onValueChange={setQ}
-                placeholder="Search anything, or jump to…"
+                placeholder={t('Search anything, or jump to…')}
                 className="h-12 flex-1 bg-transparent text-[15px] outline-none placeholder:text-subtle"
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && q.trim()) go(() => void navigate({ to: '/search', search: { q } }));
                 }}
               />
-              {q && <span className="text-[11px] text-subtle">⌘↵ all results</span>}
+              {q && <span className="text-[11px] text-subtle">{t('⌘↵ all results')}</span>}
             </div>
             <Command.List className="max-h-[60vh] overflow-y-auto pb-1">
-              {r.empty && <div className="py-10 text-center text-[13px] text-muted">Nothing found for “{debounced}”</div>}
+              {r.empty && <div className="py-10 text-center text-[13px] text-muted">{t('Nothing found for “{query}”', { query: debounced })}</div>}
               {groups.map(
                 (g) =>
                   g.hits.length > 0 && (
-                    <Command.Group key={g.title} heading={g.title} className={group}>
+                    <Command.Group key={g.key} heading={g.title} className={group}>
                       {g.hits.map((h) => (
                         <Command.Item key={`${h.kind}-${h.id}`} value={`${h.kind}-${h.id}`} className={item} onSelect={() => go(() => void navigate(hitLink(h) as never))}>
                           <HitIcon hit={h} size={24} />
@@ -483,12 +508,12 @@ function CommandPalette({ open, onOpenChange, isAdmin, onHelp }: { open: boolean
                 <Command.Group className={group}>
                   <Command.Item value="all-results" className={item} onSelect={() => go(() => void navigate({ to: '/search', search: { q } }))}>
                     <Search />
-                    See all results for “{q}”
+                    {t('See all results for “{query}”', { query: q })}
                   </Command.Item>
                 </Command.Group>
               )}
               {recents.length > 0 && (
-                <Command.Group heading="Recent" className={group}>
+                <Command.Group heading={t('Recent')} className={group}>
                   {recents.map((x) => (
                     <Command.Item key={`${x.kind}-${x.id}`} value={`recent-${x.kind}-${x.id}`} className={item} onSelect={() => go(() => void navigate(recentLink(x) as never))}>
                       {x.icon ? <TypeIcon icon={x.icon} color={x.color ?? '#64748b'} size={24} /> : x.kind === 'request' ? <ShoppingCart /> : x.kind === 'catalog' ? <FolderOpen /> : x.kind === 'unit' ? <Building2 /> : <Clock />}
@@ -501,7 +526,7 @@ function CommandPalette({ open, onOpenChange, isAdmin, onHelp }: { open: boolean
                 </Command.Group>
               )}
               {creates.length > 0 && (
-                <Command.Group heading="Create" className={group}>
+                <Command.Group heading={t('Create')} className={group}>
                   {creates.map((x) => (
                     <Command.Item key={x.label} value={`create-${x.label}`} className={item} onSelect={() => go(x.run)}>
                       {x.icon}
@@ -512,7 +537,7 @@ function CommandPalette({ open, onOpenChange, isAdmin, onHelp }: { open: boolean
                 </Command.Group>
               )}
               {jumps.length > 0 && (
-                <Command.Group heading="Go to" className={group}>
+                <Command.Group heading={t('Go to')} className={group}>
                   {jumps.map((x) => (
                     <Command.Item key={x.label} value={`jump-${x.label}`} className={item} onSelect={() => go(x.run)}>
                       {x.icon}
@@ -529,17 +554,6 @@ function CommandPalette({ open, onOpenChange, isAdmin, onHelp }: { open: boolean
     </RDialog.Root>
   );
 }
-
-const jumpPath: Record<string, string> = {
-  Upcoming: '/',
-  Requests: '/requests',
-  'All assets': '/assets',
-  Calendar: '/calendar',
-  Catalogs: '/catalogs',
-  'Profile & notifications': '/profile',
-  Organization: '/settings/organization',
-  Templates: '/templates',
-};
 
 function recentLink(x: RecentItem) {
   switch (x.kind) {
@@ -579,17 +593,17 @@ function ShortcutsHelp({ open, onOpenChange, isAdmin }: { open: boolean; onOpenC
   const hidden = new Set(goTo.filter((g) => g.admin && !isAdmin).map((g) => g.label));
   const list = shortcutHelp.filter((x) => !hidden.has(x.label));
   return (
-    <Dialog open={open} onOpenChange={onOpenChange} title="Keyboard shortcuts" description="Work without the mouse. Shortcuts pause while you type in a field.">
+    <Dialog open={open} onOpenChange={onOpenChange} title={t('Keyboard shortcuts')} description={t('Work without the mouse. Shortcuts pause while you type in a field.')}>
       <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
         {(['Actions', 'Lists', 'Go to'] as const).map((g) => (
           <section key={g} className={g === 'Go to' ? 'sm:row-span-2 sm:col-start-2 sm:row-start-1' : undefined}>
-            <h3 className="mb-2 text-[11px] font-semibold tracking-wide text-subtle uppercase">{g}</h3>
+            <h3 className="mb-2 text-[11px] font-semibold tracking-wide text-subtle uppercase">{t(g)}</h3>
             <ul className="space-y-1.5">
               {list
                 .filter((x) => x.group === g)
                 .map((x) => (
                   <li key={x.label} className="flex items-center justify-between gap-3 text-[13px]">
-                    <span>{x.label}</span>
+                    <span>{t(x.label)}</span>
                     <span className="flex shrink-0 items-center gap-1">
                       {x.keys.map((k, i) => (
                         <Kbd key={i}>{k}</Kbd>
@@ -612,14 +626,14 @@ function BottomNav() {
   const counts = useRequestCounts();
   const requestBadge = counts.data ? (counts.data.handle ? counts.data.unassigned || counts.data.handle : 0) : 0;
   const items = [
-    { to: '/', label: 'Upcoming', icon: <Inbox />, active: path === '/', badge: summary.data?.overdue, danger: true },
-    { to: '/requests', label: 'Requests', icon: <ShoppingCart />, active: path.startsWith('/requests'), badge: requestBadge },
-    { to: '/assets', label: 'Assets', icon: <Shapes />, active: path.startsWith('/assets') || path.startsWith('/views') },
-    { to: '/catalogs', label: 'Catalogs', icon: <FolderOpen />, active: path.startsWith('/catalogs') },
-    { to: '/calendar', label: 'Calendar', icon: <CalendarDays />, active: path.startsWith('/calendar') },
+    { to: '/', label: t('Upcoming'), icon: <Inbox />, active: path === '/', badge: summary.data?.overdue, danger: true },
+    { to: '/requests', label: t('Requests'), icon: <ShoppingCart />, active: path.startsWith('/requests'), badge: requestBadge },
+    { to: '/assets', label: t('Assets'), icon: <Shapes />, active: path.startsWith('/assets') || path.startsWith('/views') },
+    { to: '/catalogs', label: t('Catalogs'), icon: <FolderOpen />, active: path.startsWith('/catalogs') },
+    { to: '/calendar', label: t('Calendar'), icon: <CalendarDays />, active: path.startsWith('/calendar') },
   ] as const;
   return (
-    <nav aria-label="Main" className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden">
+    <nav aria-label={t('Main')} className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden">
       <ul className="mx-auto grid h-14 max-w-xl grid-cols-5">
         {items.map((x) => (
           <li key={x.to}>
