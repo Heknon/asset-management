@@ -182,10 +182,10 @@ function DownloadCard({ createdBy, rows, documents, loading }: { createdBy: stri
 
 const storedKey = ['backup', 'stored'];
 
-/** "0 1 * * *" → "01:00"; anything else is shown as it is written. */
-function nightlyTime(cron: string): string {
-  const m = /^(\d{1,2}) (\d{1,2}) \* \* \*$/.exec(cron.trim());
-  return m ? `${m[2]!.padStart(2, '0')}:${m[1]!.padStart(2, '0')}` : cron;
+/** "0 1 * * *" → "01:00", and the first hour of several ("0 6,18 * * *" → "06:00"); null for anything else. */
+function nightlyTime(cron: string): string | null {
+  const m = /^(\d{1,2}) (\d{1,2})(?:,[\d,]+)? \* \* \*$/.exec(cron.trim());
+  return m ? `${m[2]!.padStart(2, '0')}:${m[1]!.padStart(2, '0')}` : null;
 }
 
 /** Backups kept in storage: the nightly one, and the ones made here with "Back up now". */
@@ -273,7 +273,11 @@ function StoredCard({ onOpened }: { onOpened: (b: OpenedBackup) => void }) {
           onChange={(nightly) => save.mutate({ nightly, keepDays: data.keepDays })}
           disabled={save.isPending}
           label={t('Nightly backup')}
-          description={t('Every night at {time} UTC. Backups you make yourself are kept until you delete them.', { time: nightlyTime(data.schedule) })}
+          description={
+            nightlyTime(data.schedule)
+              ? t('Once a day, at {time} UTC. Backups you make yourself are kept until you delete them.', { time: nightlyTime(data.schedule) })
+              : t('Once a day. Backups you make yourself are kept until you delete them.')
+          }
         />
         {data.nightly && (
           <label className="flex items-center gap-2 text-[13px]">

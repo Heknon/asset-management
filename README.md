@@ -353,7 +353,7 @@ What to know:
 
 The same page keeps backups in S3, next to the documents (under `backups/` in the bucket, with the bucket's encryption):
 
-- **Nightly backup** is a switch on the page, off until an administrator turns it on. It runs at 01:00 UTC; `BACKUP_NIGHTLY_CRON` on the files service changes the time (a cron expression, in UTC).
+- **Nightly backup** is a switch on the page, off until an administrator turns it on. It runs at 01:00 UTC; `BACKUP_NIGHTLY_CRON` on the files service changes the time (a cron expression, in UTC). On Vercel it is made on the first cron call of the day (06:00 UTC by default), once a day at most.
 - **Retention.** After each nightly backup, automatic backups older than the number of days set on the page (3 by default) are deleted. Nothing is deleted while no new backup is being made, so a broken night never leaves you with none.
 - **Back up now** makes one on demand. Manual backups are never deleted automatically; delete them from the list.
 - **Download** uses a short-lived presigned link, like documents. **Restore…** on a row opens the same review and confirmation as a dropped file.

@@ -52,6 +52,8 @@ const UPLOAD_TTL_SECONDS = 3600;
 const STALLED_MS = 30 * 60_000;
 const ABANDONED_MS = 24 * 3_600_000;
 const DAY_MS = 24 * 3_600_000;
+/** A nightly backup is skipped when one was made less than this long ago (a little under a day, so the next night's is not). */
+const ONCE_A_DAY_MS = 20 * 3_600_000;
 
 const defaults: StoredBackupSettings = { nightly: false, keepDays: 3 };
 
@@ -139,10 +141,19 @@ export class BackupService {
     return { id };
   }
 
-  /** The nightly run: tidy up what earlier runs left behind, and start a backup when it is switched on. */
+  /**
+   * The nightly run: tidy up what earlier runs left behind, and start a backup
+   * when it is switched on. At most one a day, however often it is called: the
+   * serverless runtime runs every scheduled job on each of its cron calls.
+   */
   async nightly(): Promise<void> {
     await this.removeAbandoned();
-    if ((await this.settings()).nightly) await this.request('automatic', 'Nightly backup');
+    if (!(await this.settings()).nightly) return;
+    const recent = this.now().getTime() - ONCE_A_DAY_MS;
+    const made = (await this.stored()).some((b) => b.kind === 'automatic' && Date.parse(b.createdAt) > recent);
+    const underway = (await this.requests()).some((r) => r.kind === 'automatic' && Date.parse(r.requestedAt) > this.now().getTime() - STALLED_MS);
+    if (made || underway) return;
+    await this.request('automatic', 'Nightly backup');
   }
 
   /** A service delivered its part; when it was the last one, the zip is put together. */

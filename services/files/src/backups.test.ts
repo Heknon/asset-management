@@ -130,6 +130,22 @@ describe('backups in storage', () => {
     expect((await s.backups.status()).running[0]).toMatchObject({ kind: 'automatic' });
   });
 
+  it('makes one nightly backup a day, however often the job runs', async () => {
+    const s = setup('2026-11-20T06:00:00.000Z');
+    await s.backups.saveSettings({ nightly: true, keepDays: 3 });
+    await s.backups.nightly();
+    // Called again while the first is still being made, and again that evening.
+    s.setNow('2026-11-20T06:05:00.000Z');
+    await s.backups.nightly();
+    await s.complete(s.published.at(-1)!);
+    s.setNow('2026-11-20T18:00:00.000Z');
+    await s.backups.nightly();
+    expect(s.published).toHaveLength(1);
+    s.setNow('2026-11-21T06:00:00.000Z');
+    await s.backups.nightly();
+    expect(s.published).toHaveLength(2);
+  });
+
   it('after a nightly backup, deletes automatic backups older than the days to keep, and never manual ones', async () => {
     const s = setup('2026-11-10T01:00:00.000Z');
     await s.backups.saveSettings({ nightly: true, keepDays: 3 });
