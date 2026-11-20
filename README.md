@@ -145,33 +145,33 @@ Code: `packages/browser-runtime` (PGlite dialect, router, bus, storage, mailbox,
 
 ## Serverless on Vercel (Neon + S3)
 
-With `VITE_RUNTIME=server` in the Vercel project, `scripts/build-vercel.mjs` (the project's build command) produces the web app plus **one Vercel Function serving all of `/api`, `/mcp` and the OAuth discovery documents**: the same five service definitions (MCP included — connect assistants at `https://<domain>/mcp`), each with its own Postgres schema, run in one process (`packages/serverless`). Nothing runs between requests:
+With `VITE_RUNTIME=server`, `scripts/build-vercel.mjs` (the project's build command) produces the web app plus **one Vercel Function serving all of `/api`, `/mcp` and the OAuth discovery documents**: the same five service definitions (MCP included — connect assistants at `https://<domain>/mcp`), each with its own Postgres schema, run in one process (`packages/serverless`). Nothing runs between requests:
 
 - **Events** go through the same durable pg-boss queues as the server, but are delivered right after the change that caused them (after the response is sent, with `waitUntil`) instead of by always-on workers. Anything left over, and failed deliveries' retries, run on the next change or cron call.
 - **Reminders, renewal checks and housekeeping** run from Vercel Cron, calling `/api/cron` twice a day (06:00 and 18:00 UTC; `REMINDER_CRON` changes it at build time; Hobby plans allow daily only). Reminders are kept per day and per person, so each goes out once.
-- **Signing keys** for sign-in tokens and cookies are generated on first start and kept in the database (`serverless.secrets`), unless `AUTH_SIGNING_KEY` / `COOKIE_SECRET` are set.
+- **Migrations** run before each deploy, not on cold start: `bun run db:migrate:deploy` applies every service's migrations (each in its own schema) and the job queue's tables against `DATABASE_URL_UNPOOLED`. Applied migrations are skipped and concurrent runs wait on a lock, so it is safe on every deploy. Migrations must keep working with the version still serving.
 
-It reads what the integrations already provide:
+Deployments go through [project-kit](https://github.com/Heknon/project-kit) (`.github/workflows/preview.yml` and `deploy.yml`; its contract is the reference). Every pull request gets a preview with its own database branch and bucket prefix, `dev` deploys to the dev environment, and `master` is production. Vercel's Git integration is off (`vercel.json`); the kit builds with `vercel build` and deploys the result. `bun run check` (typecheck, translations, unit tests) runs on every preview and dev deploy.
 
-| Variable | From | Used for |
+What the function reads:
+
+| Variable | Kind | Used for |
 |---|---|---|
-| `DATABASE_URL_UNPOOLED` | Neon integration | Postgres (direct connection: each service pins its schema per connection, which the pooled endpoint does not allow) |
-| `STORAGE_S3_BUCKET_NAME`, `STORAGE_AWS_REGION`, `STORAGE_AWS_ROLE_ARN` | AWS S3 integration | Documents; the function assumes the role with Vercel's OIDC token, no access keys |
-| `VERCEL_PROJECT_PRODUCTION_URL`, `VERCEL_BRANCH_URL` | Vercel | Links in emails, sign-in redirects, the bucket's CORS (`PUBLIC_URL` overrides) |
+| `APP_ENV` | from the kit | `production`, `dev` or `preview`. Set: the settings below are required and the function refuses to start without them |
+| `DATABASE_URL_UNPOOLED` | from the kit | Postgres, direct connection: each service pins its schema per connection, which the pooled endpoint does not allow |
+| `S3_BUCKET`, `S3_REGION`, `S3_PREFIX` | from the kit | Documents; every object key starts with `S3_PREFIX` (empty in production, `dev/`, `preview/pr-<n>/`) |
+| `S3_ROLE_ARN` | from the kit | The role the function assumes with its Vercel OIDC token; no access keys |
+| `CRON_SECRET` | from the kit, production only | Vercel sends it with cron calls; `/api/cron` then refuses anyone else |
+| `AUTH_SIGNING_KEY`, `COOKIE_SECRET` | generated secrets | Sign-in tokens (the P-256 key is derived from the secret; a PKCS#8 PEM also works) and session cookies |
+| `LOCAL_ADMIN_PASSWORD` | supplied secret | The first administrator (12+ characters), user name `admin` (or `LOCAL_ADMIN_USERNAME`); needed to sign in the first time |
+| `SMTP_URL` | supplied secret | Email, e.g. `smtps://user:pass@smtp.postmarkapp.com:465` (`MAIL_FROM` sets the sender). Unset: nothing is sent and reminders wait |
+| `VITE_RUNTIME` | plain value | `server`: build the function instead of the in-browser version |
+| `AUTH_MODE` | plain value | Sign-in methods: `manual`, `ldap`, `adfs` or a mix. `manual`: admins add people with a password (**People & groups → Add person**). Unset: `manual` |
+| `VERCEL_ENV`, `VERCEL_PROJECT_PRODUCTION_URL`, `VERCEL_BRANCH_URL`, `VERCEL_URL` | Vercel | Links in emails and sign-in redirects: the production domain in production, the branch URL elsewhere. `PUBLIC_URL` overrides |
 
-Set in the project (Settings → Environment Variables):
+`.env.example` lists them all. LDAP and ADFS take the same `LDAP_*` / `OIDC_*` variables as the server, but the directory must be reachable from Vercel (the internet). Uploads and previews go from the browser straight to the bucket; the kit sets the bucket's CORS (the production and dev domains, the team's previews and `http://localhost:*`), and the function never changes it.
 
-| Variable | Example | |
-|---|---|---|
-| `VITE_RUNTIME` | `server` | Required: build the function instead of the in-browser version |
-| `LOCAL_ADMIN_PASSWORD` | 12+ characters | The first administrator, user name `admin` (or `LOCAL_ADMIN_USERNAME`); needed to sign in the first time |
-| `AUTH_MODE` | `manual`, `ldap`, `adfs`, `manual,ldap`… | Sign-in methods. `manual`: admins add people with a password (**People & groups → Add person**), people change it on their profile. Unset: `manual` |
-| `SMTP_URL`, `MAIL_FROM` | `smtps://user:pass@smtp.postmarkapp.com:465` | Email. Unset: nothing is sent and reminders wait (they go out once mail is set up) |
-| `CRON_SECRET` | random string | Vercel sends it with cron calls; `/api/cron` then refuses anyone else |
-
-LDAP and ADFS take the same `LDAP_*` / `OIDC_*` variables as the server, but the directory must be reachable from Vercel (the internet). Uploads and previews go from the browser straight to the bucket; on first start the function adds this deployment's origins to the bucket's CORS when its role allows, and logs a warning otherwise (then add a CORS rule allowing `GET`, `HEAD`, `POST` from your domain).
-
-Locally: `bun run --filter @am/serverless dev` runs the same runtime on one port (`.env` as for the server; `PORT`, default 3000), and `VITE_API_URL=http://localhost:3000 bun run --filter web dev` points the app at it. `GET /api/health` lists the running services.
+Locally: `bun run --filter @am/serverless dev` runs the same runtime on one port (`.env` as for the server; `PORT`, default 3000), and `VITE_API_URL=http://localhost:3000 bun run --filter web dev` points the app at it. Without `APP_ENV` it migrates on start and generates the signing key and cookie secret once, keeping them in the database (`serverless.secrets`). To use the dev resources instead: `bunx vercel env pull .env.local --environment=preview --git-branch=dev`. `GET /api/health` lists the running services.
 
 ## Deploying to OpenShift
 
