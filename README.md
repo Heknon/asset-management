@@ -10,6 +10,7 @@ A generic system for everything an organisation buys and has to keep track of �
 - **Catalogs you can share.** A unit groups its assets into catalogs ("R&D developer tooling", "Device lab") and shares them with other teams, divisions, groups or people, with any role.
 - **Owners and buyers in one loop.** Before a renewal, the owner is asked "still needed?" automatically or with one click: renew as is, renew with changes, or don't renew. Every asset has a conversation with @mentions, and renewal decisions are recorded in it, next to its documents.
 - **Export any table to CSV**, with the same filters, search and sorting, and only the rows (and fields) you are allowed to see.
+- **Backup and restore.** An administrator downloads everything the installation stores as one zip (a CSV per table, plus the documents) and restores it by dropping the file back in. No database access needed, which suits air-gapped installations.
 - **Requests.** Anyone can ask for something for their team, or for any unit above it ("my department needs…", "the whole company needs…"). Procurement moves each request through a workflow of its own statuses (Jira-style, configurable per template); fulfilling creates the asset and links it back. Renewals are requests too. Everyone involved is emailed at each step.
 - **Search that forgives.** One box searches every non-restricted field of every asset you can see, plus requests, teams and people. Words can match partially, anywhere in the text, or with small typos. Results show which field matched. Filters work on any field in plain language ("Renewal date is in the next 90 days", "Seats is at least 40"). Any search can be saved as a pinned view.
 - **Phone, tablet and desktop; light and dark.** Below 1024px the sidebar becomes a slide-in menu under a compact top bar; dialogs rise from the bottom and forms take the full screen on phones; touch screens get larger targets and controls that don't depend on hover; wide tables keep the item name pinned while the rest scrolls; the calendar becomes a dotted month plus a day list. Theme is Light, Dark or Match device (follows the OS live), from the user menu.
@@ -328,6 +329,25 @@ Requests follow a **workflow**: an ordered list of statuses, each with a name, a
 - **Renewal checks.** Recurring dates can ask the owner automatically ("Ask the owner first: 60 days before" on the date field; the license and domain templates do this by default), and anyone handling a renewal can ask with one click (⋯ → Ask the owner). The owner gets an email and a "Waiting for your answer" card on Upcoming, and answers with one click: renew as is, renew with changes (with a note) or don't renew. The answer is emailed to whoever asked (or to `REQUEST_INBOX_EMAILS` when the owner speaks first), shown as a badge on the date, and filterable (Upcoming → Waiting for owner / Owner answered). Each occurrence is asked once; the next cycle starts fresh.
 - **Conversations.** Every asset has a conversation. Anyone who can see the asset can post; type `@` to mention someone (they are emailed), and the owner is emailed about new messages. Questions and answers from renewal checks appear in the thread, so the documents, the decisions and the discussion about a purchase live in one place.
 - **CSV export.** *Export CSV* on any asset table (all assets, a type, a team, a catalog, a saved view) downloads every matching row with the table's filters, search and sort. Columns follow the templates (currency and numbers stay numeric), teams are written as full paths, and restricted fields are included only for people who manage them. Smaller tables (sub-unit rollups) export in the browser. Exports are counted (`am_exports_total`, `am_exported_rows_total`) and logged with who exported what. Set `CSV_EXPORT_ENABLED=false` (Helm: `services.registry.env`, Terraform: `csv_export_enabled`) to turn exports off.
+
+## Backup and restore
+
+*Administration → Backup & restore* (administrators only) is a backup that needs no access to the database or to S3.
+
+- **Download a backup** saves one zip: `manifest.json` (when, by whom, which schema version), a folder per service with one CSV per table (`registry/assets.csv`, `identity/users.csv`, …) and, unless switched off, the documents under `documents/`. The CSVs open in a spreadsheet; every value is written as Postgres writes it, an empty cell is NULL and `""` is empty text (the format of `COPY … CSV HEADER`).
+- **Restore** takes that zip (drop it on the page). It first shows what is in the file next to what is stored now, and asks to type a word to confirm. It then replaces everything: all four services' data and, when the file has them, the documents. By default it downloads a copy of the current data first, so a restore can be undone.
+
+What to know:
+
+- **All or nothing.** Rows are uploaded into staging tables next to the real ones, each service checks that it would accept its part, and only then is the data replaced, one transaction per service. A file that is damaged, incomplete or does not fit changes nothing.
+- **Same version only.** A backup is restored into the schema version that made it (the applied migrations must match). To move an old backup forward, restore it into an installation of that version, upgrade, and take a new backup.
+- **Everyone signs in again** after a restore: sessions are not part of a backup. The break-glass administrator from `LOCAL_ADMIN_*` is re-created if the backup does not have it.
+- **Not in the backup:** sessions, single-use sign-in codes, and the job queue. Events that were waiting to be delivered between services are included and delivered after the restore.
+- **Documents.** Without "Include documents" the zip only lists them; restoring into the same installation still finds the ones that are in storage. Documents in storage that the restored data no longer refers to are left where they are.
+- **Reminders** sent after the backup was made are unknown to the restored data and may be sent again.
+- **The file holds everything**: restricted fields (license keys, PINs) and password hashes of local accounts. Treat it like a database dump. Every download and restore is logged by each service (`"audit":"backup"`, with the user).
+- The zip is put together in the browser, so very large document sets need a machine with enough memory and disk for the file.
+- `BACKUP_ENABLED=false` (on all four services) turns the feature off; it is on by default.
 
 ## Identity providers
 

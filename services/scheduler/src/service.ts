@@ -1,4 +1,4 @@
-import { defineService, envList, type BaseConfig } from '@am/platform';
+import { defineService, envList, registerBackupRoutes, type BaseConfig } from '@am/platform';
 import { z } from 'zod';
 import { CollaborationNotifier } from './application/collaboration-notifier.js';
 import { ObligationService } from './application/obligation-service.js';
@@ -51,6 +51,7 @@ export const defineSchedulerService = (adapters: SchedulerAdapters) =>
       const obligations = new ObligationService(store, clock, appUrl);
       const dispatcher = new ReminderDispatcher(store, mailer, clock, logger, appUrl, { name: 'Asset Management', email: fromAddress });
       registerRoutes(app, obligations, dispatcher);
+      registerBackupRoutes(app, { name: 'scheduler', database, logger, enabled: config.BACKUP_ENABLED });
 
       await bus.subscribe('scheduler', 'asset.changed', (e) => obligations.onAssetChanged(e));
       await bus.subscribe('scheduler', 'asset.deleted', (e) => obligations.onAssetDeleted(e.assetId));

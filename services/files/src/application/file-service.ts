@@ -1,5 +1,5 @@
 import { AppError, permissionMeta, previewKindOf, type Permission, type FileRecord, type Principal, type SignedUrl, type UploadRequest, type UploadTicket } from '@am/core';
-import { contentDisposition, objectKeyFor, toRecord, validateUpload } from '../domain/file.js';
+import { contentDisposition, isObjectKey, objectKeyFor, toRecord, validateUpload } from '../domain/file.js';
 import type { AssetAccess, FileStore, ObjectStorage } from './ports.js';
 
 export interface Caller {
@@ -84,6 +84,26 @@ export class FileService {
     }
     await this.files.delete(file.id);
     await this.storage.delete([file.objectKey]);
+  }
+
+  /** Backup: a link to a document's bytes, whoever it belongs to. For administrators only (the route checks). */
+  async backupDownload(fileId: string): Promise<SignedUrl> {
+    const file = await this.get(fileId);
+    if (file.status !== 'ready') throw AppError.conflict('The file is still uploading');
+    const { url, expiresAt } = await this.storage.presignDownload(file.objectKey, { contentType: file.contentType, disposition: contentDisposition(file.filename, false) });
+    return { url, expiresAt: expiresAt.toISOString() };
+  }
+
+  /**
+   * Restore: where to put a document's bytes back under its original key, or
+   * nothing when storage still has them. For administrators only (the route checks).
+   */
+  async backupUpload(input: { objectKey: string; contentType: string; size: number }): Promise<{ upload: UploadTicket['upload'] | null }> {
+    if (!isObjectKey(input.objectKey)) throw AppError.validation('Not a document key');
+    const head = await this.storage.head(input.objectKey);
+    if (head && head.size === input.size) return { upload: null };
+    const upload = await this.storage.presignUpload(input.objectKey, input.contentType, input.size);
+    return { upload: { url: upload.url, fields: upload.fields, expiresAt: upload.expiresAt.toISOString() } };
   }
 
   /** The asset is gone, so are its documents. */

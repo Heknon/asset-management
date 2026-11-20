@@ -1,4 +1,4 @@
-import { defineService, type BaseConfig } from '@am/platform';
+import { defineService, registerBackupRoutes, type BaseConfig } from '@am/platform';
 import type { z } from 'zod';
 import type { AssetAccess, ObjectStorage } from './application/ports.js';
 import { FileService } from './application/file-service.js';
@@ -26,7 +26,8 @@ export const defineFilesService = (adapters: FilesAdapters) =>
       const storage = adapters.storage(config);
       if (config.S3_CREATE_BUCKET && storage.ensureBucket && (await storage.ensureBucket())) logger.info({ bucket: config.S3_BUCKET }, 'created the document bucket');
       const files = new FileService(new PgFileStore(database.db), storage, adapters.assetAccess(config), config.MAX_UPLOAD_BYTES);
-      registerRoutes(app, files);
+      registerRoutes(app, files, { backup: config.BACKUP_ENABLED });
+      registerBackupRoutes(app, { name: 'files', database, logger, enabled: config.BACKUP_ENABLED });
 
       await bus.subscribe('files', 'asset.deleted', (e) => files.onAssetDeleted(e.assetId));
 

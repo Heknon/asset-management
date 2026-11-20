@@ -2,7 +2,7 @@ import { roles, type AccessCheck, type Permission, type Principal } from '@am/co
 import { describe, expect, it } from 'bun:test';
 import { FileService } from './application/file-service.js';
 import type { AssetAccess, FileStore, ObjectStorage } from './application/ports.js';
-import { contentDisposition, type StoredFile } from './domain/file.js';
+import { contentDisposition, isObjectKey, objectKeyFor, type StoredFile } from './domain/file.js';
 
 const ASSET = '11111111-1111-4111-8111-111111111111';
 const principal = (userId: string): Principal => ({ userId, username: userId, displayName: userId, email: null, isAdmin: false, grants: [], units: [] });
@@ -94,5 +94,14 @@ describe('FileService', () => {
 
   it('encodes non-ASCII filenames per RFC 6266', () => {
     expect(contentDisposition('Überweisung "Q1".pdf', true)).toBe(`inline; filename="_berweisung _Q1_.pdf"; filename*=UTF-8''%C3%9Cberweisung%20%22Q1%22.pdf`);
+  });
+});
+
+describe('restoring documents', () => {
+  it('only accepts keys of the shape the service itself hands out', () => {
+    expect(isObjectKey(objectKeyFor(ASSET, '22222222-2222-4222-8222-222222222222'))).toBe(true);
+    expect(isObjectKey('assets/../../etc/passwd')).toBe(false);
+    expect(isObjectKey(`other/${ASSET}/${ASSET}`)).toBe(false);
+    expect(isObjectKey(`assets/${ASSET}/${ASSET}/extra`)).toBe(false);
   });
 });

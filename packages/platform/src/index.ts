@@ -6,4 +6,5 @@ export * from './http.js';
 export * from './events.js';
 export * from './service.js';
 export * from './scopes.js';
+export * from './backup.js';
 export * from './telemetry/index.js';
