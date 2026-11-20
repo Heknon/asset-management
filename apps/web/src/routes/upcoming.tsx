@@ -9,13 +9,13 @@ import { DateKindBadge } from '@/components/badges';
 import { ObligationList } from '@/components/obligations';
 import { Card, EmptyState, PageHeader, Skeleton, Stat } from '@/components/ui/display';
 import { Segmented, Select } from '@/components/ui/form';
-import { useDateKinds, useMe, useObligations, useRequestCounts, useRequests, useSummary } from '@/lib/queries';
+import { useAssetTypes, useAssets, useDateKinds, useMe, useObligations, useRequestCounts, useRequests, useSummary, useUnits } from '@/lib/queries';
 import { useNewRequest } from '@/components/request-form';
 import { RequestStatusBadge } from '@/components/badges';
 import { Button } from '@/components/ui/button';
 import { Link } from '@tanstack/react-router';
 import { ArrowRight, Plus, ShoppingCart } from 'lucide-react';
-import { formatMoney, todayIso } from '@/lib/utils';
+import { cn, formatMoney, todayIso } from '@/lib/utils';
 import { plural, t, tMaybe } from '@/lib/i18n';
 
 /** How many items a group shows before "Show all". */
@@ -31,6 +31,49 @@ const groupsOf = (items: Obligation[], today: string) => {
     { key: 'later', title: t('Later'), items: items.filter((o) => o.dueDate > month) },
   ].filter((g) => g.items.length);
 };
+
+/**
+ * A brand-new install: three steps to a working setup, for the people who can do them.
+ * Each step ticks off as it is done; the card goes away once all three are.
+ */
+function GetStarted() {
+  const { canManageOrganization } = useMyOrg();
+  const units = useUnits();
+  const types = useAssetTypes();
+  const assets = useAssets({ limit: 1 });
+  if (!canManageOrganization || !units.data || !types.data || !assets.data) return null;
+  const steps = [
+    { done: units.data.length > 0, title: t('Set up your organization'), text: t('Add the company, divisions and teams, or import your org chart.'), to: '/settings/organization', cta: t('Organization') },
+    { done: types.data.length > 0, title: t('Create a template'), text: t('Choose what you track — licenses, contracts, equipment — from a ready-made template or your own.'), to: '/templates', cta: t('Templates') },
+    { done: assets.data.total > 0, title: t('Add your items'), text: t('Add them one by one, or import a spreadsheet you already keep.'), to: '/import', cta: t('Import') },
+  ];
+  if (steps.every((st) => st.done)) return null;
+  return (
+    <Card className="space-y-4">
+      <div>
+        <h2 className="text-[15px] font-semibold">{t('Get started')}</h2>
+        <p className="text-[13px] text-muted">{t('Three steps and renewals start showing up here, with reminders by email.')}</p>
+      </div>
+      <ol className="grid gap-3 md:grid-cols-3">
+        {steps.map((st, i) => (
+          <li key={st.to} className={cn('flex flex-col gap-2 rounded-xl border p-4', st.done ? 'border-border bg-surface-2/50' : 'border-border-strong')}>
+            <div className="flex items-center gap-2">
+              {st.done ? <CheckCircle2 className="size-5 text-success" /> : <span className="flex size-5 items-center justify-center rounded-full bg-accent text-[11px] font-semibold text-white">{i + 1}</span>}
+              <span className={cn('text-[13px] font-semibold', st.done && 'text-muted line-through')}>{st.title}</span>
+            </div>
+            <p className="flex-1 text-xs text-muted">{st.text}</p>
+            {!st.done && (
+              <Link to={st.to} className="inline-flex items-center gap-1 self-start text-[13px] font-medium text-accent hover:underline">
+                {st.cta}
+                <ArrowRight className="size-3.5" />
+              </Link>
+            )}
+          </li>
+        ))}
+      </ol>
+    </Card>
+  );
+}
 
 export function UpcomingPage() {
   const me = useMe().data!;
@@ -52,7 +95,7 @@ export function UpcomingPage() {
   return (
     <>
       <PageHeader
-        title={t(hour < 12 ? 'Good morning, {name}' : hour < 18 ? 'Good afternoon, {name}' : 'Good evening, {name}', { name: me.displayName.split(' ')[0] })}
+        title={t(hour < 12 ? 'Good morning, {name}' : hour < 18 ? 'Good afternoon, {name}' : 'Good evening, {name}', { name: tMaybe(me.displayName).split(' ')[0] })}
         description={t('Renewals, deadlines and expiries that need attention.')}
         actions={
           <>
@@ -76,6 +119,7 @@ export function UpcomingPage() {
         }
       />
       <div className="mx-auto w-full max-w-5xl space-y-6 px-4 sm:px-6 py-6">
+        <GetStarted />
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <Stat label={t('Overdue')} value={summary.data?.overdue ?? '–'} tone={summary.data?.overdue ? 'danger' : undefined} onClick={jump('overdue')} />
           <Stat label={t('Due in 7 days')} value={summary.data?.dueThisWeek ?? '–'} tone={summary.data?.dueThisWeek ? 'warning' : undefined} onClick={jump('week')} />
