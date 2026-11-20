@@ -332,7 +332,7 @@ export function AppShell({ me }: { me: Me }) {
           <Sidebar me={me} onSearch={() => setPaletteOpen(true)} />
         </aside>
         <TopBar me={me} onSearch={() => setPaletteOpen(true)} />
-        <main className="flex min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto pb-[calc(3.5rem+env(safe-area-inset-bottom))] sm:pb-[env(safe-area-inset-bottom)]">
+        <main className="flex min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto pb-[calc(3.5rem+env(safe-area-inset-bottom))] lg:pb-[env(safe-area-inset-bottom)]">
           <Outlet />
         </main>
         <BottomNav />
@@ -605,7 +605,7 @@ function ShortcutsHelp({ open, onOpenChange, isAdmin }: { open: boolean; onOpenC
   );
 }
 
-/** Phones: the main places one tap away, at the bottom where thumbs reach. The menu keeps the rest. */
+/** Phones and tablets (no sidebar below desktop width): the main places one tap away, at the bottom where thumbs reach. The menu keeps the rest. */
 function BottomNav() {
   const path = useRouterState({ select: (s) => s.location.pathname });
   const summary = useSummary();
@@ -619,8 +619,8 @@ function BottomNav() {
     { to: '/calendar', label: 'Calendar', icon: <CalendarDays />, active: path.startsWith('/calendar') },
   ] as const;
   return (
-    <nav aria-label="Main" className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur sm:hidden">
-      <ul className="grid h-14 grid-cols-5">
+    <nav aria-label="Main" className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden">
+      <ul className="mx-auto grid h-14 max-w-xl grid-cols-5">
         {items.map((x) => (
           <li key={x.to}>
             <Link
