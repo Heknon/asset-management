@@ -1,7 +1,7 @@
 import type { Asset, AssetType, FieldDefinition, SavedQuery, SavedView, TypeVariant } from '@am/core';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
-import { Bookmark, Search, Shapes, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, Bookmark, Columns3, Search, Shapes, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { api, ApiError, withQuery } from '@/lib/api';
@@ -20,9 +20,11 @@ import { DataTable, ExportButton, exportRows, type DataColumn, type SortState } 
 import { downloadUrl } from '@/lib/download';
 import { EmptyState } from './ui/display';
 import { Checkbox, Field, Input, Select } from './ui/form';
-import { Dialog } from './ui/overlay';
+import { Dialog, Popover } from './ui/overlay';
 
 const PAGE = 50;
+/** Above this, act on a narrower search instead (and the export covers any size). */
+const SELECT_ALL_MAX = 2000;
 
 /**
  * In a table the name, type, status and team already have columns, so show the
@@ -33,14 +35,24 @@ function matchedPart(snippet: string): string {
   return parts.length ? parts.slice(0, 3).join(' · ') : snippet;
 }
 
-/** Columns come from the type's fields, so every template gets a tailored table. */
-function columnsFor(type: AssetType | undefined, variant: TypeVariant | undefined, lookups: ReturnType<typeof useLookups>, searching: boolean): Array<DataColumn<Asset>> {
+/**
+ * Columns come from the type's fields, so every template gets a tailored table.
+ * `visible` (column ids, in order) is the person's own choice; without it the
+ * template's "Show as table column" fields are shown.
+ */
+function columnsFor(type: AssetType | undefined, variant: TypeVariant | undefined, lookups: ReturnType<typeof useLookups>, searching: boolean, visible?: string[]) {
+  const all = allColumnsFor(type, variant, lookups, searching);
+  const fields = [...(type?.fields ?? []), ...(variant?.fields ?? [])];
+  const defaults = all.filter((c) => !c.id!.startsWith('attributes.') || fields.filter((f) => f.showInTable).slice(0, 6).some((f) => `attributes.${f.key}` === c.id)).map((c) => c.id!);
+  const chosen = visible?.length ? ['name', ...visible.filter((id) => id !== 'name')].filter((id) => all.some((c) => c.id === id)) : defaults;
+  return { all, defaults, columns: chosen.map((id) => all.find((c) => c.id === id)!) };
+}
+
+function allColumnsFor(type: AssetType | undefined, variant: TypeVariant | undefined, lookups: ReturnType<typeof useLookups>, searching: boolean): Array<DataColumn<Asset>> {
   // With a variant chosen, its own fields become columns too.
   const fieldCols = [...(type?.fields ?? []), ...(variant?.fields ?? [])]
-    .filter((f) => f.showInTable)
-    .slice(0, 6)
     .map((f: FieldDefinition) => ({
-      id: f.key,
+      id: `attributes.${f.key}`,
       header: f.label,
       meta: { sortKey: `attributes.${f.key}`, align: f.kind === 'currency' || f.kind === 'number' ? ('right' as const) : undefined, csvValue: (a: Asset) => csvText(a.attributes[f.key]) },
       cell: ({ row }: { row: { original: Asset } }) => <AttributeValue field={f} value={row.original.attributes[f.key]} compact />,
@@ -96,6 +108,7 @@ export interface ExplorerQuery extends Required<Pick<SavedQuery, 'filters'>> {
   status?: string;
   q: string;
   sort?: SortState;
+  columns?: string[];
 }
 
 const fromSaved = (s: SavedQuery = {}): ExplorerQuery => ({
@@ -107,6 +120,7 @@ const fromSaved = (s: SavedQuery = {}): ExplorerQuery => ({
   q: s.q ?? '',
   filters: s.filters ?? [],
   sort: s.sort ? { sort: s.sort, order: s.order ?? 'desc' } : undefined,
+  columns: s.columns,
 });
 
 const toSaved = (q: ExplorerQuery): SavedQuery => ({
@@ -117,7 +131,26 @@ const toSaved = (q: ExplorerQuery): SavedQuery => ({
   ...(q.q && { q: q.q }),
   ...(q.filters.length && { filters: q.filters }),
   ...(q.sort && { sort: q.sort.sort, order: q.sort.order }),
+  ...(q.columns && { columns: q.columns }),
 });
+
+/** Column choices outside a saved view: remembered in this browser, per asset type. */
+const layoutKey = (typeId?: string) => `asset-columns:${typeId ?? 'all'}`;
+function rememberedColumns(typeId?: string): string[] | undefined {
+  try {
+    return JSON.parse(localStorage.getItem(layoutKey(typeId)) ?? 'null') ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+function rememberColumns(typeId: string | undefined, columns: string[] | undefined) {
+  try {
+    if (columns) localStorage.setItem(layoutKey(typeId), JSON.stringify(columns));
+    else localStorage.removeItem(layoutKey(typeId));
+  } catch {
+    /* private mode */
+  }
+}
 
 /**
  * Search + filters + table for assets: used by "All assets", each asset type,
@@ -147,6 +180,8 @@ export function AssetExplorer({
   const [name, setName] = useState('');
   // Selected items, kept across pages (by id, with the item as last seen).
   const [picked, setPicked] = useState<Map<string, Asset>>(new Map());
+  const [, setLayoutTick] = useState(0);
+  const [selectingAll, setSelectingAll] = useState(false);
   // Everyone a selected item points at (owner and person fields), for the export.
   const people = usePeople([...picked.values()].flatMap((a) => [a.ownerId, ...Object.values(a.attributes).filter((v): v is string => typeof v === 'string' && /^[0-9a-f-]{36}$/.test(v))]));
   const search = useDebounced(query.q);
@@ -182,14 +217,21 @@ export function AssetExplorer({
   const exportTitle = view?.name ?? title ?? type?.name ?? 'Assets';
   const variant = query.variantId ? lookups.variantById.get(query.variantId) : undefined;
   const typeVariants = type ? lookups.variants.filter((v) => v.assetTypeId === type.id && !v.archived) : [];
-  const columns = useMemo(() => columnsFor(type, variant, lookups, !!search), [type, variant, lookups, search]);
+  const chosenColumns = query.columns ?? (view ? undefined : rememberedColumns(query.assetTypeId));
+  const layout = useMemo(() => columnsFor(type, variant, lookups, !!search, chosenColumns), [type, variant, lookups, search, JSON.stringify(chosenColumns)]);
+  const columns = layout.columns;
+  const setColumns = (ids: string[] | undefined) => {
+    if (!view) rememberColumns(query.assetTypeId, ids);
+    setQuery((q) => ({ ...q, columns: view ? ids : undefined }));
+    if (!view) setLayoutTick((n) => n + 1);
+  };
   const dirty = JSON.stringify(toSaved(query)) !== JSON.stringify(toSaved({ ...fromSaved(view?.query ?? initial), ...fixed }));
   const hasQuery = !!(query.q || query.filters.length || query.status || (query.unitId && !fixed.unitId) || (query.assetTypeId && !fixed.assetTypeId));
 
   const saveView = useMutation({
     mutationFn: (asNew: boolean) =>
       asNew || !view
-        ? api.post<SavedView>('/api/registry/views', { name, query: toSaved(query), pinned: true })
+        ? api.post<SavedView>('/api/registry/views', { name, query: toSaved({ ...query, columns: chosenColumns }), pinned: true })
         : api.put<SavedView>(`/api/registry/views/${view.id}`, { name: view.name, query: toSaved(query), pinned: view.pinned }),
     onSuccess: (v) => {
       void qc.invalidateQueries({ queryKey: keys.views });
@@ -201,6 +243,22 @@ export function AssetExplorer({
   });
 
   const error = assets.error instanceof ApiError ? assets.error.message : null;
+  /** Every item matching the search and filters, not just this page. */
+  const selectAll = async () => {
+    setSelectingAll(true);
+    try {
+      const all = new Map(picked);
+      for (let off = 0; off < (assets.data?.total ?? 0); off += 500) {
+        const page = await api.get<{ items: Asset[] }>('/api/registry/assets', { ...listQuery, limit: 500, offset: off });
+        page.items.forEach((a) => all.set(a.id, a));
+      }
+      setPicked(all);
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : 'Could not select everything');
+    } finally {
+      setSelectingAll(false);
+    }
+  };
   const pageItems = assets.data?.items ?? [];
   const selection = {
     selected: new Set(picked.keys()),
@@ -261,6 +319,7 @@ export function AssetExplorer({
         <FilterBar type={type && variant ? { ...type, fields: [...type.fields, ...variant.fields] } : type} value={query.filters} onChange={(filters) => update({ filters })} />
         <span className="ml-auto flex items-center gap-2">
           <span className="text-xs text-subtle">{assets.data ? `${assets.data.total.toLocaleString()} ${assets.data.total === 1 ? 'result' : 'results'}` : ''}</span>
+          <ColumnsMenu all={layout.all} shown={columns.map((c) => c.id!)} defaults={layout.defaults} onChange={setColumns} />
           <ExportButton disabled={!assets.data?.total} onExport={() => downloadUrl(withQuery('/api/registry/assets/export.csv', { ...listQuery, title: exportTitle }))} />
           {(hasQuery || view) && (view ? dirty : true) && (
             <Button icon={<Bookmark className="size-3.5" />} onClick={() => (view ? saveView.mutate(false) : (setName(''), setSaving(true)))} loading={saveView.isPending}>
@@ -295,7 +354,16 @@ export function AssetExplorer({
       />
       {/* Room for the action bar, so it never covers the last rows. */}
       {picked.size > 0 && <div className="h-20 shrink-0" />}
-      {picked.size > 0 && <BulkActions items={[...picked.values()]} onClear={() => setPicked(new Map())} onExport={() =>
+      {picked.size > 0 && <BulkActions
+        items={[...picked.values()]}
+        onClear={() => setPicked(new Map())}
+        extra={
+          assets.data && assets.data.total > picked.size && pageItems.every((a) => picked.has(a.id)) && assets.data.total <= SELECT_ALL_MAX ? (
+            <Button size="sm" variant="ghost" loading={selectingAll} onClick={() => void selectAll()}>
+              Select all {assets.data.total.toLocaleString()}
+            </Button>
+          ) : null
+        } onExport={() =>
             exportRows(
               `${exportTitle} (selected)`,
               // People are stored by id: export their names.
@@ -320,5 +388,71 @@ export function AssetExplorer({
         <Field label="Name">{(id) => <Input id={id} autoFocus value={name} placeholder="e.g. R&D licenses renewing this quarter" onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && name.trim() && saveView.mutate(true)} />}</Field>
       </Dialog>
     </>
+  );
+}
+
+/** Which columns the table shows, and in what order. */
+function ColumnsMenu({ all, shown, defaults, onChange }: { all: Array<DataColumn<Asset>>; shown: string[]; defaults: string[]; onChange: (ids: string[] | undefined) => void }) {
+  const label = (c: DataColumn<Asset>) => (typeof c.header === 'string' ? c.header : c.id!);
+  const move = (id: string, d: -1 | 1) => {
+    const next = [...shown];
+    const i = next.indexOf(id);
+    if (i + d < 1 || i + d >= next.length) return;
+    [next[i], next[i + d]] = [next[i + d]!, next[i]!];
+    onChange(next);
+  };
+  const custom = JSON.stringify(shown) !== JSON.stringify(defaults);
+  return (
+    <Popover
+      align="end"
+      className="max-h-[var(--radix-popover-content-available-height)] w-64 overflow-y-auto p-2"
+      trigger={
+        <Button variant="ghost" icon={<Columns3 className="size-3.5" />}>
+          Columns
+        </Button>
+      }
+    >
+      <p className="px-1 pb-1.5 text-[11px] font-semibold tracking-wide text-subtle uppercase">Shown</p>
+      <ul>
+        {shown.map((id, i) => {
+          const c = all.find((x) => x.id === id);
+          if (!c) return null;
+          return (
+            <li key={id} className="flex items-center gap-1 rounded-md px-1 py-0.5 hover:bg-surface-2">
+              <span className="flex-1">
+                <Checkbox checked disabled={id === 'name'} onChange={() => onChange(shown.filter((x) => x !== id))} label={label(c)} />
+              </span>
+              {id !== 'name' && (
+                <>
+                  <Button size="icon" variant="ghost" className="size-6" aria-label={`Move ${label(c)} left`} disabled={i <= 1} icon={<ArrowUp className="size-3" />} onClick={() => move(id, -1)} />
+                  <Button size="icon" variant="ghost" className="size-6" aria-label={`Move ${label(c)} right`} disabled={i === shown.length - 1} icon={<ArrowDown className="size-3" />} onClick={() => move(id, 1)} />
+                </>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      {all.some((c) => !shown.includes(c.id!)) && (
+        <>
+          <p className="px-1 pt-3 pb-1.5 text-[11px] font-semibold tracking-wide text-subtle uppercase">Hidden</p>
+          <ul>
+            {all
+              .filter((c) => !shown.includes(c.id!))
+              .map((c) => (
+                <li key={c.id} className="rounded-md px-1 py-1 hover:bg-surface-2">
+                  <Checkbox checked={false} onChange={() => onChange([...shown, c.id!])} label={<span className="text-muted">{label(c)}</span>} />
+                </li>
+              ))}
+          </ul>
+        </>
+      )}
+      {custom && (
+        <div className="mt-2 border-t border-border px-1 pt-2">
+          <button type="button" className="text-xs text-accent-fg" onClick={() => onChange(undefined)}>
+            Reset to the template’s columns
+          </button>
+        </div>
+      )}
+    </Popover>
   );
 }

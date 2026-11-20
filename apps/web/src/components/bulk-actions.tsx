@@ -30,7 +30,7 @@ async function forEach(items: Asset[], fn: (a: Asset) => Promise<unknown>) {
  * What can be done to several items at once: status, owner, catalog, export
  * and delete. Shown while rows are selected; floats above the list.
  */
-export function BulkActions({ items, onClear, onExport }: { items: Asset[]; onClear: () => void; onExport: () => void }) {
+export function BulkActions({ items, onClear, onExport, extra }: { items: Asset[]; onClear: () => void; onExport: () => void; /** e.g. "Select all 80" */ extra?: React.ReactNode }) {
   const { typeById } = useLookups();
   const catalogs = useCatalogs();
   const invalidate = useInvalidateAssets();
@@ -59,6 +59,7 @@ export function BulkActions({ items, onClear, onExport }: { items: Asset[]; onCl
     <>
       <div role="toolbar" aria-label="Selected items" className="animate-panel fixed inset-x-2 flex-nowrap bottom-[max(0.5rem,env(safe-area-inset-bottom))] z-30 mx-auto flex max-w-3xl items-center gap-1 rounded-xl border border-border bg-surface p-1.5 shadow-pop lg:left-64">
         <span className="px-2 text-[13px] font-medium tabular-nums">{noun}</span>
+        {extra}
         <span className="mx-1 h-5 w-px bg-border max-sm:hidden" />
         {statuses.length > 0 && (
           <Menu align="start" trigger={<Button size="sm" variant="ghost" icon={<Check className="size-3.5" />} disabled={busy} aria-label="Status"><span className="max-sm:sr-only">Status</span></Button>}>

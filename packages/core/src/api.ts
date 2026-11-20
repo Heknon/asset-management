@@ -715,6 +715,8 @@ export const savedQuerySchema = z.object({
   filters: z.array(assetFilterSchema).max(20).optional(),
   sort: z.string().max(60).optional(),
   order: z.enum(['asc', 'desc']).optional(),
+  /** The table's columns, in order (column ids such as "status" or "attributes.vendor"); absent: the template's defaults. */
+  columns: z.array(z.string().max(80)).max(40).optional(),
 });
 export type SavedQuery = z.infer<typeof savedQuerySchema>;
 
