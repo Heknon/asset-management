@@ -20,9 +20,9 @@ export function PageHeader({ title, description, icon, actions, children }: { ti
   return (
     <div className="border-b border-border bg-bg/80 px-4 pt-5 pb-4 backdrop-blur has-[[role=tablist]]:pb-0 sm:px-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-3">
+        <div className="flex min-w-0 flex-1 basis-[min(100%,22rem)] items-center gap-3">
           {icon}
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <h1 className="text-lg font-semibold tracking-tight [overflow-wrap:anywhere] sm:truncate">{title}</h1>
             {description && <p className="mt-0.5 text-[13px] text-muted">{description}</p>}
           </div>
@@ -117,13 +117,20 @@ export function Tabs({ value, onValueChange, tabs, children }: { value: string; 
   );
 }
 
-export function Stat({ label, value, hint, tone }: { label: string; value: ReactNode; hint?: ReactNode; tone?: 'danger' | 'warning' }) {
-  return (
-    <Card>
+export function Stat({ label, value, hint, tone, onClick }: { label: string; value: ReactNode; hint?: ReactNode; tone?: 'danger' | 'warning'; /** Makes the card a button, e.g. jump to the list it counts. */ onClick?: () => void }) {
+  const body = (
+    <>
       <p className="text-xs font-medium text-muted">{label}</p>
       <p className={cn('mt-1.5 text-2xl font-semibold tracking-tight tabular-nums', tone === 'danger' && 'text-danger', tone === 'warning' && 'text-warning')}>{value}</p>
       {hint && <p className="mt-0.5 text-xs text-subtle">{hint}</p>}
-    </Card>
+    </>
+  );
+  return onClick ? (
+    <button type="button" onClick={onClick} className="rounded-xl border border-border bg-surface p-4 text-left transition-colors hover:border-border-strong focus-visible:ring-2 focus-visible:ring-accent">
+      {body}
+    </button>
+  ) : (
+    <Card>{body}</Card>
   );
 }
 

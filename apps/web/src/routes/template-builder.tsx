@@ -18,8 +18,8 @@ import {
   defaultWorkflow,
   type Workflow,
 } from '@am/core';
-import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
-import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
+import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
@@ -49,6 +49,7 @@ import {
   Boxes,
   type LucideIcon,
   Check,
+  ChevronDown,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
@@ -57,7 +58,7 @@ import { DurationInput, DurationListEditor } from '@/components/duration-editor'
 import { ColorPicker, IconPicker, AssetTypeSelect, UnitPath, UnitPicker } from '@/components/pickers';
 import { guessIcon, TypeIcon } from '@/components/type-icon';
 import { Button } from '@/components/ui/button';
-import { Badge, Card, EmptyState, PageHeader, SectionTitle, Spinner } from '@/components/ui/display';
+import { Badge, Card, EmptyState, PageHeader, SectionTitle, Spinner, Tabs } from '@/components/ui/display';
 import { WorkflowEditor } from '@/components/workflow-editor';
 import { Checkbox, Field, Input, Segmented, Select, Switch, TagInput } from '@/components/ui/form';
 import { Drawer, Menu, MenuItem, Popover, Sheet } from '@/components/ui/overlay';
@@ -118,8 +119,8 @@ export function TemplateBuilderPage() {
       const { id: _id, createdAt: _c, updatedAt: _u, ...rest } = existing.data;
       setDraft(rest);
       setSavedKeys(new Set(existing.data.fields.map((f) => f.key)));
-      // Desktop shows the inspector beside the list; smaller screens open it when a field is picked.
-      setSelected(matchMedia(WIDE).matches ? (existing.data.fields[0]?.id ?? null) : null);
+      // Opens on the live form preview; picking a field shows its settings.
+      setSelected(null);
       setDirty(false);
     }
   }, [existing.data]);
@@ -176,6 +177,9 @@ export function TemplateBuilderPage() {
     },
   });
 
+  const wide = useMediaQuery(WIDE);
+  const [tab, setTab] = useState('fields');
+
   if (!isNew && existing.isLoading) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -184,17 +188,57 @@ export function TemplateBuilderPage() {
     );
   }
 
+  const issueTab = (path: string) => (path.startsWith('fields') ? 'fields' : path.startsWith('statuses') ? 'statuses' : path.startsWith('requestWorkflow') ? 'requests' : 'settings');
+  const tabs = [
+    { value: 'fields', label: 'Fields', count: draft.fields.length },
+    { value: 'statuses', label: 'Statuses', count: draft.statuses.length },
+    { value: 'requests', label: 'Requests' },
+    ...(!isNew ? [{ value: 'variants', label: 'Team variants' }] : []),
+    { value: 'settings', label: 'Settings' },
+  ];
+
   return (
     <>
       <PageHeader
-        icon={<TypeIcon icon={draft.icon} color={draft.color} size={36} />}
-        title={draft.name || 'Untitled template'}
-        description={isNew ? 'New asset type' : `Version ${draft.version}${draft.archived ? ' · archived' : ''}${dirty ? ' · unsaved changes' : ''}`}
+        icon={
+          <Popover
+            className="w-[min(22rem,calc(100vw-2rem))] space-y-3 p-3"
+            trigger={
+              <button type="button" aria-label="Change icon and color" className="rounded-xl transition-transform hover:scale-105 focus-visible:ring-2 focus-visible:ring-accent">
+                <TypeIcon icon={draft.icon} color={draft.color} size={40} />
+              </button>
+            }
+          >
+            <ColorPicker value={draft.color} onChange={(color) => update({ color })} />
+            <IconPicker value={draft.icon} color={draft.color} onChange={(icon) => (setIconPicked(true), update({ icon }))} />
+          </Popover>
+        }
+        title={
+          <input
+            aria-label="Template name"
+            value={draft.name}
+            placeholder="Name this template"
+            onChange={(e) => update({ name: e.target.value, ...(isNew && { key: slugKey(e.target.value), ...(!iconPicked && { icon: guessIcon(e.target.value) ?? 'box' }) }) })}
+            className="-mx-1 w-full min-w-0 rounded-md bg-transparent px-1 outline-none placeholder:text-subtle hover:bg-surface-2/70 focus:bg-surface-2/70"
+          />
+        }
+        description={
+          <input
+            aria-label="Description"
+            value={draft.description ?? ''}
+            placeholder="Add a short description: what goes here, when to use it"
+            onChange={(e) => update({ description: e.target.value })}
+            className="-mx-1 w-full min-w-0 rounded-md bg-transparent px-1 outline-none placeholder:text-subtle hover:bg-surface-2/70 focus:bg-surface-2/70"
+          />
+        }
         actions={
           <>
-            <Button icon={<Eye className="size-3.5" />} onClick={() => setPreviewOpen(true)}>
-              Preview form
-            </Button>
+            <span className="text-xs text-subtle">{isNew ? 'Not created yet' : dirty ? 'Unsaved changes' : `Version ${draft.version}${draft.archived ? ' · archived' : ''}`}</span>
+            {!wide && (
+              <Button icon={<Eye className="size-3.5" />} onClick={() => setPreviewOpen(true)}>
+                Preview
+              </Button>
+            )}
             {!isNew && (
               <Menu trigger={<Button size="icon" aria-label="More" icon={<MoreHorizontal className="size-4" />} />}>
                 <MenuItem icon={<Archive />} onSelect={() => archive.mutate(!draft.archived)}>
@@ -202,71 +246,81 @@ export function TemplateBuilderPage() {
                 </MenuItem>
               </Menu>
             )}
-            <Button variant="primary" loading={save.isPending} disabled={!draft.name || (!dirty && !isNew)} onClick={() => save.mutate()}>
+            <Button variant="primary" loading={save.isPending} disabled={!draft.name || (!dirty && !isNew)} onClick={() => save.mutate()} title="Save (⌘S)">
               {isNew ? 'Create template' : 'Save'}
             </Button>
           </>
         }
-      />
+      >
+        <Tabs value={tab} onValueChange={setTab} tabs={tabs} />
+      </PageHeader>
       {issues.length > 0 && (
-        <div className="mx-6 mt-4 rounded-lg border border-danger/30 bg-danger-soft px-4 py-3 text-[13px] text-danger">
+        <div className="mx-4 mt-4 rounded-lg border border-danger/30 bg-danger-soft px-4 py-3 text-[13px] text-danger sm:mx-6">
           <p className="font-medium">Fix these before saving:</p>
           <ul className="mt-1 list-disc pl-5">
             {issues.map((i, n) => (
-              <li key={n}>{describeIssue(i, draft.fields)}</li>
+              <li key={n}>
+                <button type="button" className="text-left underline-offset-2 hover:underline" onClick={() => setTab(issueTab(i.path))}>
+                  {describeIssue(i, draft.fields)}
+                </button>
+              </li>
             ))}
           </ul>
         </div>
       )}
-      <SchemaWorkbench
-        fields={draft.fields}
-        sections={draft.sections}
-        issues={issues}
-        savedKeys={savedKeys}
-        kinds={kinds.data ?? []}
-        selected={selected}
-        onSelect={setSelected}
-        onChange={(patch) => update(patch)}
-        infoSummary={isNew && !startName ? undefined : `${draft.name} · IDs like ${draft.refPrefix || defaultRefPrefix(draft.key || 'item')}-1`}
-        info={
+      {tab === 'fields' && (
+        <SchemaWorkbench
+          fields={draft.fields}
+          sections={draft.sections}
+          issues={issues}
+          savedKeys={savedKeys}
+          kinds={kinds.data ?? []}
+          selected={selected}
+          onSelect={setSelected}
+          onChange={(patch) => update(patch)}
+          preview={draft}
+        />
+      )}
+      {tab === 'statuses' && (
+        <div className="mx-auto w-full max-w-2xl px-4 py-6 sm:px-6">
+          <StatusesEditor value={draft.statuses} onChange={(statuses) => update({ statuses })} />
+        </div>
+      )}
+      {tab === 'requests' && (
+        <div className="mx-auto w-full max-w-3xl px-4 py-6 sm:px-6">
+          <RequestWorkflowCard value={draft.requestWorkflow ?? null} saved={existing.data?.requestWorkflow ?? null} onChange={(requestWorkflow) => update({ requestWorkflow })} />
+        </div>
+      )}
+      {tab === 'variants' && !isNew && (
+        <div className="mx-auto w-full max-w-3xl px-4 py-6 sm:px-6">
+          <TeamVariants typeId={typeId} />
+        </div>
+      )}
+      {tab === 'settings' && (
+        <div className="mx-auto w-full max-w-2xl px-4 py-6 sm:px-6">
           <Card className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="Name" required>
-              {(id) => <Input id={id} value={draft.name} placeholder="e.g. Software license" onChange={(e) => update({ name: e.target.value, ...(isNew && { key: slugKey(e.target.value), ...(!iconPicked && { icon: guessIcon(e.target.value) ?? 'box' }) }) })} />}
-            </Field>
-            <Field label="Key" hint={isNew ? 'Stable identifier used in integrations' : 'Cannot be changed'}>
+            <Field label="Key" hint={isNew ? 'Stable identifier used in integrations and exports' : 'Cannot be changed'}>
               {(id) => <Input id={id} value={draft.key} disabled={!isNew} className="font-mono text-xs" onChange={(e) => update({ key: e.target.value })} />}
             </Field>
-            <Field label="Description" className="sm:col-span-2">
-              {(id) => <Input id={id} value={draft.description ?? ''} onChange={(e) => update({ description: e.target.value })} />}
-            </Field>
-            <Field label="Item ID prefix" hint={`Items are numbered ${(draft.refPrefix || defaultRefPrefix(draft.key || 'item'))}-1, -2, … Changing it renames every ID.`}>
+            <Field label="Item ID prefix" hint={`Items are numbered ${draft.refPrefix || defaultRefPrefix(draft.key || 'item')}-1, -2, … Changing it renames every ID.`}>
               {(id) => <Input id={id} className="w-28 font-mono uppercase" maxLength={6} value={draft.refPrefix ?? ''} placeholder={defaultRefPrefix(draft.key || 'item')} onChange={(e) => update({ refPrefix: e.target.value.toUpperCase() || undefined })} />}
             </Field>
-            <Field label="Color">{() => <ColorPicker value={draft.color} onChange={(color) => update({ color })} />}</Field>
-            <Field label="Icon" className="sm:col-span-2">{() => <IconPicker value={draft.icon} color={draft.color} onChange={(icon) => (setIconPicked(true), update({ icon }))} />}</Field>
           </Card>
-        }
-        extra={
-          <>
-            <StatusesEditor value={draft.statuses} onChange={(statuses) => update({ statuses })} />
-          </>
-        }
-        below={
-          <>
-            <RequestWorkflowCard value={draft.requestWorkflow ?? null} saved={existing.data?.requestWorkflow ?? null} onChange={(requestWorkflow) => update({ requestWorkflow })} />
-            {!isNew && <TeamVariants typeId={typeId} />}
-          </>
-        }
-      />
+        </div>
+      )}
       <FormPreview open={previewOpen} onOpenChange={setPreviewOpen} draft={draft} kinds={kinds.data ?? []} />
     </>
   );
 }
 
+const sectionId = (name: string) => `s:${name}`;
+
 /**
- * The field list, its inspector and sections: one editor for organization
- * templates and team variants. `locked` fields (a variant's template) are
- * shown for context and cannot be changed here.
+ * The fields of a template (or a team variant), grouped under their sections:
+ * drag a field between sections, add a field where it belongs, rename a
+ * section in place. Beside it the selected field's settings, or — with none
+ * selected — the form as people will fill it in. `locked` fields (a variant's
+ * template) are shown for context and cannot be changed here.
  */
 function SchemaWorkbench({
   fields,
@@ -278,10 +332,8 @@ function SchemaWorkbench({
   onSelect,
   onChange,
   info,
-  infoSummary,
-  extra,
-  below,
   locked,
+  preview,
 }: {
   fields: FieldDefinition[];
   sections: string[];
@@ -291,27 +343,52 @@ function SchemaWorkbench({
   selected: string | null;
   onSelect: (id: string | null) => void;
   onChange: (patch: { fields?: FieldDefinition[]; sections?: string[] }) => void;
-  info: React.ReactNode;
-  /** One line describing `info` (e.g. "Software license · LIC"): below desktop width the details collapse to it. */
-  infoSummary?: React.ReactNode;
-  extra?: React.ReactNode;
-  below?: React.ReactNode;
+  info?: React.ReactNode;
   locked?: { fields: FieldDefinition[]; sections: string[]; from: string };
+  /** What the live form preview shows (template and variant fields together). */
+  preview: Pick<AssetTypeInput, 'name' | 'fields' | 'sections'>;
 }) {
   const field = fields.find((f) => f.id === selected) ?? null;
   const allKeys = new Set([...(locked?.fields ?? []), ...fields].map((x) => x.key));
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
-  const onDragEnd = ({ active, over }: DragEndEvent) => {
-    if (!over || active.id === over.id) return;
-    onChange({ fields: arrayMove(fields, fields.findIndex((f) => f.id === active.id), fields.findIndex((f) => f.id === over.id)) });
-  };
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }));
   const allSections = [...(locked?.sections ?? []), ...sections.filter((x) => !locked?.sections.includes(x))];
   const wide = useMediaQuery(WIDE);
-  // Kinds open the inspector to set them up; common fields are ready, so on smaller screens they just join the list.
-  const add = (from: FieldKind | FieldPreset, label?: string) => {
-    const f = makeField(from, allKeys, kinds, label);
+  // Sections shown as headings: this editor's own, plus the template's ones its fields use.
+  const shownSections = [...sections, ...allSections.filter((s) => !sections.includes(s) && fields.some((f) => f.section === s))];
+  const items = [
+    ...fields.filter((f) => !f.section || !shownSections.includes(f.section)).map((f) => f.id),
+    ...shownSections.flatMap((s) => [sectionId(s), ...fields.filter((f) => f.section === s).map((f) => f.id)]),
+  ];
+  const onDragEnd = ({ active, over }: DragEndEvent) => {
+    if (!over || active.id === over.id) return;
+    const order = arrayMove(items, items.indexOf(String(active.id)), items.indexOf(String(over.id)));
+    // A field belongs to the nearest heading above it.
+    let current: string | undefined;
+    const next: FieldDefinition[] = [];
+    for (const id of order) {
+      if (id.startsWith('s:')) current = id.slice(2);
+      else {
+        const f = fields.find((x) => x.id === id)!;
+        next.push({ ...f, section: current } as FieldDefinition);
+      }
+    }
+    onChange({ fields: next });
+  };
+  const add = (from: FieldKind | FieldPreset, label?: string, section?: string) => {
+    const f = { ...makeField(from, allKeys, kinds, label), section: section ?? field?.section ?? sections.at(-1) } as FieldDefinition;
     onChange({ fields: [...fields, f] });
+    // Kinds open the settings to set them up; common fields are ready, so on smaller screens they just join the list.
     if (typeof from === 'string' || wide) onSelect(f.id);
+  };
+  const renameSection = (from: string, to: string) => {
+    const name = to.trim();
+    if (!name || name === from || allSections.includes(name)) return;
+    onChange({ sections: sections.map((s) => (s === from ? name : s)), fields: fields.map((f) => (f.section === from ? ({ ...f, section: name } as FieldDefinition) : f)) });
+  };
+  const removeSection = (name: string) => onChange({ sections: sections.filter((s) => s !== name), fields: fields.map((f) => (f.section === name ? ({ ...f, section: undefined } as FieldDefinition) : f)) });
+  const remove = (id: string) => {
+    onChange({ fields: fields.filter((f) => f.id !== id) });
+    onSelect(null);
   };
   const inspector = (plain: boolean) =>
     field && (
@@ -324,20 +401,23 @@ function SchemaWorkbench({
         kinds={kinds}
         keyLocked={savedKeys.has(field.key)}
         onChange={(next) => onChange({ fields: fields.map((f) => (f.id === field.id ? next : f)) })}
-        onRemove={() => {
-          onChange({ fields: fields.filter((f) => f.id !== field.id) });
-          onSelect(null);
-        }}
+        onRemove={() => remove(field.id)}
+        onDone={() => onSelect(null)}
       />
     );
+  const issueAt = (f: FieldDefinition) => issues.some((x) => x.path.startsWith(`fields.${fields.indexOf(f)}.`));
+
   return (
     <div className="grid min-h-0 flex-1 grid-cols-1 gap-6 px-4 py-6 sm:px-6 xl:grid-cols-[minmax(0,1fr)_420px]">
-      <div className="space-y-6">
-        {infoSummary && !wide ? <CollapsedDetails summary={infoSummary}>{info}</CollapsedDetails> : info}
+      <div className="min-w-0 space-y-6">
+        {info}
         <Card padded={false}>
-          <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
-            <h2 className="text-[13px] font-semibold">{locked ? 'Fields' : 'Fields'}</h2>
-            <AddFieldMenu taken={allKeys} onAdd={add} />
+          <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-2.5">
+            <div className="min-w-0">
+              <h2 className="text-[13px] font-semibold">{locked ? `Fields this team adds to ${locked.from}` : 'Fields'}</h2>
+              <p className="text-xs text-muted max-sm:hidden">Drag to reorder or move between sections. Click one to set it up.</p>
+            </div>
+            <AddFieldMenu taken={allKeys} onAdd={(f, l) => add(f, l)} />
           </div>
           {locked && locked.fields.length > 0 && (
             <ul className="divide-y divide-border border-b border-border">
@@ -346,44 +426,43 @@ function SchemaWorkbench({
               ))}
             </ul>
           )}
-          {fields.length === 0 ? (
-            !locked ? (
-              <p className="px-4 pt-4 pb-1 text-[13px] text-muted">No fields yet. Pick the common ones below, or add any field with “Add field”. Tracked dates drive reminders and renewals.</p>
-            ) : <EmptyState
-              icon={<Plus />}
-              title={locked ? 'Add what this team tracks on top' : 'No fields yet'}
-              description={locked ? 'e.g. the workstation, MAC addresses or the lab that uses it. Template fields above stay as they are.' : 'Add the attributes every item of this type has. Tracked dates drive reminders and renewals.'}
-            />
-          ) : (
-            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-              <SortableContext items={fields.map((f) => f.id)} strategy={verticalListSortingStrategy}>
-                <ul className="divide-y divide-border">
-                  {fields.map((f, i) => (
-                    <FieldRow key={f.id} field={f} kinds={kinds} active={f.id === selected} onSelect={() => onSelect(f.id)} hasIssue={issues.some((x) => x.path.startsWith(`fields.${i}.`))} />
-                  ))}
-                </ul>
-              </SortableContext>
-            </DndContext>
+          {fields.length === 0 && !shownSections.length && (
+            <p className="px-4 pt-4 pb-1 text-[13px] text-muted">
+              {locked ? 'Nothing added yet: e.g. the workstation, MAC addresses or the lab that uses it. The template’s fields above stay as they are.' : 'No fields yet. Pick the common ones below, or add any field with “Add field”. Tracked dates drive reminders and renewals.'}
+            </p>
           )}
-          {!locked && <SuggestedFields taken={allKeys} onAdd={add} />}
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+            <SortableContext items={items} strategy={verticalListSortingStrategy}>
+              <ul>
+                {items.map((id) => {
+                  if (id.startsWith('s:')) {
+                    const s = id.slice(2);
+                    return (
+                      <SectionRow
+                        key={id}
+                        id={id}
+                        name={s}
+                        count={fields.filter((f) => f.section === s).length}
+                        own={sections.includes(s)}
+                        onRename={(to) => renameSection(s, to)}
+                        onRemove={() => removeSection(s)}
+                        addMenu={<AddFieldMenu compact taken={allKeys} onAdd={(f, l) => add(f, l, s)} />}
+                      />
+                    );
+                  }
+                  const f = fields.find((x) => x.id === id)!;
+                  return <FieldRow key={id} field={f} kinds={kinds} active={f.id === selected} onSelect={() => onSelect(f.id === selected ? null : f.id)} hasIssue={issueAt(f)} />;
+                })}
+              </ul>
+            </SortableContext>
+          </DndContext>
+          <NewSectionRow existing={allSections} onAdd={(name) => onChange({ sections: [...sections, name] })} />
+          <SuggestedFields taken={allKeys} onAdd={(p) => add(p)} />
         </Card>
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          {extra}
-          <SectionsEditor
-            value={sections}
-            fields={fields}
-            onChange={(next, nextFields) => onChange({ sections: next, fields: nextFields })}
-          />
-        </div>
-        {below}
       </div>
       {wide ? (
         <div className="sticky top-6 self-start">
-          {inspector(false) ?? (
-            <Card>
-              <EmptyState title="Select a field" description="Pick a field on the left to configure it." />
-            </Card>
-          )}
+          {inspector(false) ?? <LivePreview draft={preview} kinds={kinds} onPick={onSelect} />}
         </div>
       ) : (
         <Drawer
@@ -393,7 +472,7 @@ function SchemaWorkbench({
           description={field ? fieldKindMeta[field.kind].label : undefined}
           footer={
             <>
-              <Button variant="danger-ghost" className="mr-auto" icon={<Trash2 className="size-4" />} onClick={() => field && (onChange({ fields: fields.filter((f) => f.id !== field.id) }), onSelect(null))}>
+              <Button variant="danger-ghost" className="mr-auto" icon={<Trash2 className="size-4" />} onClick={() => field && remove(field.id)}>
                 Remove
               </Button>
               <Button variant="primary" onClick={() => onSelect(null)}>
@@ -406,6 +485,71 @@ function SchemaWorkbench({
         </Drawer>
       )}
     </div>
+  );
+}
+
+/** A section heading inside the field list: rename it in place, add a field to it, or remove it. */
+function SectionRow({ id, name, count, own, onRename, onRemove, addMenu }: { id: string; name: string; count: number; own: boolean; onRename: (to: string) => void; onRemove: () => void; addMenu: React.ReactNode }) {
+  const { setNodeRef, transform, transition } = useSortable({ id, disabled: true });
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(name);
+  return (
+    <li ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition }} className="flex items-center gap-2 border-y border-border bg-surface-2/60 px-4 py-1.5 first:border-t-0">
+      {editing ? (
+        <form
+          className="flex-1"
+          onSubmit={(e) => {
+            e.preventDefault();
+            onRename(value);
+            setEditing(false);
+          }}
+        >
+          <Input autoFocus aria-label="Section name" className="h-7 text-xs font-semibold" value={value} onChange={(e) => setValue(e.target.value)} onBlur={() => (onRename(value), setEditing(false))} onKeyDown={(e) => e.key === 'Escape' && (setValue(name), setEditing(false))} />
+        </form>
+      ) : (
+        <button type="button" disabled={!own} onClick={() => (setValue(name), setEditing(true))} className="min-w-0 flex-1 truncate text-left text-[11px] font-semibold tracking-wide text-muted uppercase enabled:hover:text-fg" title={own ? 'Rename section' : 'From the template'}>
+          {name} <span className="font-normal normal-case text-subtle">· {count}</span>
+        </button>
+      )}
+      {addMenu}
+      {own && (
+        <Menu trigger={<Button size="icon" variant="ghost" className="size-7" aria-label={`More for ${name}`} icon={<MoreHorizontal className="size-3.5" />} />}>
+          <MenuItem onSelect={() => (setValue(name), setEditing(true))}>Rename section</MenuItem>
+          <MenuItem icon={<Trash2 />} danger onSelect={onRemove}>
+            Remove section (keeps its fields)
+          </MenuItem>
+        </Menu>
+      )}
+    </li>
+  );
+}
+
+function NewSectionRow({ existing, onAdd }: { existing: string[]; onAdd: (name: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState('');
+  const submit = () => {
+    const n = name.trim();
+    if (n && !existing.includes(n)) onAdd(n);
+    setName('');
+    setOpen(false);
+  };
+  return open ? (
+    <form
+      className="flex items-center gap-2 border-t border-border px-4 py-2"
+      onSubmit={(e) => {
+        e.preventDefault();
+        submit();
+      }}
+    >
+      <Input autoFocus aria-label="New section name" className="h-8" placeholder="Section name, e.g. Commercial" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Escape' && setOpen(false)} />
+      <Button type="submit" size="sm" disabled={!name.trim()}>
+        Add
+      </Button>
+    </form>
+  ) : (
+    <button type="button" onClick={() => setOpen(true)} className="flex w-full items-center gap-2 border-t border-border px-4 py-2.5 text-left text-xs text-muted transition-colors hover:bg-surface-2/50 hover:text-fg">
+      <Plus className="size-3.5" /> Add a section <span className="text-subtle max-sm:hidden">— groups fields on the form, e.g. Commercial, Term, Access</span>
+    </button>
   );
 }
 
@@ -561,6 +705,7 @@ export function VariantBuilderPage() {
         onSelect={setSelected}
         onChange={(patch) => update(patch)}
         locked={{ fields: t.fields, sections: t.sections, from: t.name }}
+        preview={{ name: draft.name || t.name, fields: [...t.fields, ...draft.fields], sections: [...t.sections, ...draft.sections] }}
         info={
           <Card className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Name" required hint="What this unit calls these items">
@@ -598,11 +743,13 @@ function describeIssue(issue: { path: string; message: string }, fields: FieldDe
  * Adding a field: common fields come ready to use (several can be added in a row),
  * any kind can be added blank, and typing a name adds it straight away.
  */
-function AddFieldMenu({ onAdd, taken }: { onAdd: (from: FieldKind | FieldPreset, label?: string) => void; taken: ReadonlySet<string> }) {
+function AddFieldMenu({ onAdd, taken, compact = false }: { onAdd: (from: FieldKind | FieldPreset, label?: string) => void; taken: ReadonlySet<string>; /** A small "+" for a section heading. */ compact?: boolean }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const phone = useMediaQuery('(max-width: 639px)');
-  const trigger = (
+  const trigger = compact ? (
+    <Button size="icon" variant="ghost" className="size-7" aria-label="Add a field to this section" icon={<Plus className="size-3.5" />} onClick={phone ? () => setOpen(true) : undefined} />
+  ) : (
     <Button size="sm" variant="primary" icon={<Plus className="size-3.5" />} onClick={phone ? () => setOpen(true) : undefined}>
       Add field
     </Button>
@@ -785,10 +932,7 @@ function FieldRow({ field, kinds, active, onSelect, hasIssue }: { field: FieldDe
         </span>
         <span className="min-w-0 flex-1">
           <span className={cn('block truncate text-[13px] font-medium', hasIssue && 'text-danger')}>{field.label}</span>
-          <span className="block truncate font-mono text-[11px] text-subtle">
-            {field.key}
-            {field.section ? ` · ${field.section}` : ''}
-          </span>
+          <span className="block truncate text-xs text-subtle">{fieldKindMeta[field.kind].label}{field.description ? ` · ${field.description}` : ''}</span>
         </span>
         <span className="flex shrink-0 items-center gap-1">
           {kind && (
@@ -834,6 +978,7 @@ function FieldInspector({
   keyLocked,
   onChange,
   onRemove,
+  onDone,
   plain = false,
 }: {
   /** Inside a drawer: no card or header (the drawer has its own). */
@@ -845,31 +990,74 @@ function FieldInspector({
   keyLocked: boolean;
   onChange: (f: FieldDefinition) => void;
   onRemove: () => void;
+  onDone?: () => void;
 }) {
   const [autoKey, setAutoKey] = useState(!keyLocked);
   const set = (patch: Partial<FieldDefinition>) => onChange({ ...field, ...patch } as FieldDefinition);
   const setConfig = (patch: Record<string, unknown>) => onChange({ ...field, config: { ...field.config, ...patch } } as FieldDefinition);
   const Icon = kindIcons[field.kind];
+  // Text limits are rarely needed; everything else of a kind is part of setting it up.
+  const kindIsAdvanced = field.kind === 'text';
 
   const header = (
-      <div className="flex items-center gap-2 border-b border-border px-4 py-3">
-        <span className="flex size-7 items-center justify-center rounded-md bg-surface-2 text-muted">
-          <Icon className="size-4" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-[13px] font-semibold">{field.label}</p>
-          <p className="text-xs text-muted">{fieldKindMeta[field.kind].label}</p>
-        </div>
-        <Button size="icon" variant="danger-ghost" aria-label="Remove field" icon={<Trash2 className="size-4" />} onClick={onRemove} />
+    <div className="flex items-center gap-2 border-b border-border px-4 py-3">
+      <span className="flex size-7 items-center justify-center rounded-md bg-surface-2 text-muted">
+        <Icon className="size-4" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[13px] font-semibold">{field.label || 'Untitled field'}</p>
+        <p className="text-xs text-muted">{fieldKindMeta[field.kind].label}</p>
       </div>
+      <Button size="icon" variant="danger-ghost" aria-label="Remove field" icon={<Trash2 className="size-4" />} onClick={onRemove} />
+      {onDone && (
+        <Button size="sm" onClick={onDone}>
+          Done
+        </Button>
+      )}
+    </div>
   );
   const body = (
-      <div className={cn('space-y-4', !plain && 'p-4')}>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Label">
-            {(id) => <Input id={id} value={field.label} onChange={(e) => set({ label: e.target.value, ...(autoKey && { key: slugKey(e.target.value) }) })} />}
+    <div className={cn('space-y-4', !plain && 'p-4')}>
+      <Field label="Name on the form">
+        {(id) => <Input id={id} value={field.label} autoFocus={!plain && !field.label} onChange={(e) => set({ label: e.target.value, ...(autoKey && { key: slugKey(e.target.value) }) })} />}
+      </Field>
+      {!kindIsAdvanced && <KindConfig field={field} fields={fields} kinds={kinds} setConfig={setConfig} />}
+      <div className="space-y-2.5 rounded-lg bg-surface-2/60 p-3">
+        <Switch checked={field.required} onChange={(required) => set({ required })} label="Required" description="Items cannot be saved without it" />
+        <Switch checked={field.showInTable} onChange={(showInTable) => set({ showInTable })} label="Show as a table column" description="People can still add or hide columns themselves" />
+      </div>
+      {sections.length > 0 && (
+        <Field label="Section">
+          {(id) => (
+            <Select id={id} value={field.section ?? ''} onChange={(e) => set({ section: e.target.value || undefined })}>
+              <option value="">No section</option>
+              {sections.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </Select>
+          )}
+        </Field>
+      )}
+      <details className="group rounded-lg border border-border">
+        <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2 text-[13px] font-medium select-none">
+          More options
+          <ChevronDown className="size-4 text-subtle transition-transform group-open:rotate-180" />
+        </summary>
+        <div className="space-y-4 border-t border-border p-3">
+          <Field label="Help text" hint="Shown under the field on the form">
+            {(id) => <Input id={id} value={field.description ?? ''} onChange={(e) => set({ description: e.target.value || undefined })} />}
           </Field>
-          <Field label="Key" hint={keyLocked ? 'Has data; locked' : undefined}>
+          <Switch
+            checked={field.restricted || field.kind === 'secret'}
+            disabled={field.kind === 'secret'}
+            onChange={(restricted) => set({ restricted })}
+            label="Restricted"
+            description="Only people with the “See secrets” permission can see or change it; never searchable"
+          />
+          {kindIsAdvanced && <KindConfig field={field} fields={fields} kinds={kinds} setConfig={setConfig} />}
+          <Field label="Key" hint={keyLocked ? 'Items already use it, so it cannot change' : 'Used in imports, exports and integrations'}>
             {(id) => (
               <Input
                 id={id}
@@ -884,33 +1072,8 @@ function FieldInspector({
             )}
           </Field>
         </div>
-        <Field label="Help text">{(id) => <Input id={id} value={field.description ?? ''} onChange={(e) => set({ description: e.target.value || undefined })} />}</Field>
-        <Field label="Section">
-          {(id) => (
-            <Select id={id} value={field.section ?? ''} onChange={(e) => set({ section: e.target.value || undefined })}>
-              <option value="">No section</option>
-              {sections.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </Select>
-          )}
-        </Field>
-        <div className="space-y-2.5 rounded-lg bg-surface-2/60 p-3">
-          <Switch checked={field.required} onChange={(required) => set({ required })} label="Required" />
-          <Switch
-            checked={field.restricted || field.kind === 'secret'}
-            disabled={field.kind === 'secret'}
-            onChange={(restricted) => set({ restricted })}
-            label="Restricted"
-            description="Only people with the “See secrets” permission can see or change it; never searchable"
-          />
-          <Switch checked={field.showInTable} onChange={(showInTable) => set({ showInTable })} label="Show as table column" />
-        </div>
-
-        <KindConfig field={field} fields={fields} kinds={kinds} setConfig={setConfig} />
-      </div>
+      </details>
+    </div>
   );
   return plain ? (
     body
@@ -1237,67 +1400,32 @@ function StatusesEditor({ value, onChange }: { value: AssetStatus[]; onChange: (
   );
 }
 
-function SectionsEditor({ value, fields, onChange }: { value: string[]; fields: FieldDefinition[]; onChange: (sections: string[], fields: FieldDefinition[]) => void }) {
-  const [draft, setDraft] = useState('');
-  return (
-    <Card>
-      <h2 className="mb-3 text-[13px] font-semibold">Sections</h2>
-      <div className="flex flex-wrap gap-1.5">
-        {value.map((s) => (
-          <Badge key={s}>
-            {s}
-            <span className="text-subtle">{fields.filter((f) => f.section === s).length}</span>
-            <button
-              type="button"
-              aria-label={`Remove ${s}`}
-              onClick={() =>
-                onChange(
-                  value.filter((x) => x !== s),
-                  fields.map((f) => (f.section === s ? ({ ...f, section: undefined } as FieldDefinition) : f)),
-                )
-              }
-            >
-              ×
-            </button>
-          </Badge>
-        ))}
-      </div>
-      <form
-        className="mt-3 flex gap-1.5"
-        onSubmit={(e) => {
-          e.preventDefault();
-          const name = draft.trim();
-          if (name && !value.includes(name)) onChange([...value, name], fields);
-          setDraft('');
-        }}
-      >
-        <Input placeholder="e.g. Commercial" value={draft} onChange={(e) => setDraft(e.target.value)} />
-        <Button type="submit">Add</Button>
-      </form>
-    </Card>
-  );
-}
-
-/** Renders the form users will see, using the same field inputs as the real form. */
-function FormPreview({ open, onOpenChange, draft, kinds }: { open: boolean; onOpenChange: (o: boolean) => void; draft: AssetTypeInput; kinds: DateKind[] }) {
+/** The form people will fill in, with the same inputs as the real one. `onPick` makes a field's label select it for editing. */
+function FormBody({ draft, kinds, onPick }: { draft: Pick<AssetTypeInput, 'fields' | 'sections'>; kinds: DateKind[]; onPick?: (id: string) => void }) {
   const [values, setValues] = useState<Record<string, unknown>>({});
   const grouped = useMemo(() => {
     const out = new Map<string, FieldDefinition[]>();
     for (const f of draft.fields) out.set(f.section ?? '', [...(out.get(f.section ?? '') ?? []), f]);
-    return [...out.entries()];
-  }, [draft.fields]);
+    return [...out.entries()].sort(([a], [b]) => (a === '' ? -1 : b === '' ? 1 : draft.sections.indexOf(a) - draft.sections.indexOf(b)));
+  }, [draft.fields, draft.sections]);
+  if (!draft.fields.length) return <p className="text-[13px] text-muted">Add fields to see the form here.</p>;
   return (
-    <Sheet open={open} onOpenChange={onOpenChange} title={`New ${inSentence(draft.name) || 'asset'}`} description="Preview — nothing is saved">
-      <div className="space-y-6">
-        {grouped.map(([section, fields]) => (
-          <fieldset key={section || '_'}>
-            {section && <legend className="mb-3 text-xs font-semibold tracking-wide text-subtle uppercase">{section}</legend>}
-            <div className="grid grid-cols-2 gap-4">
-              {fields.map((f) => {
-                const t = f.kind === 'date' ? f.config.tracking : undefined;
-                const k = t && kinds.find((x) => x.id === t.dateKindId);
-                return (
-                  <Field key={f.id} label={f.kind === 'boolean' ? '' : f.label} required={f.required} hint={k ? `${k.name}${t?.derive ? ' · calculated' : ''}` : f.description} className={f.kind === 'longText' || f.kind === 'multiSelect' ? 'col-span-2' : ''}>
+    <div className="space-y-6">
+      {grouped.map(([section, fields]) => (
+        <fieldset key={section || '_'}>
+          {section && <legend className="mb-3 text-xs font-semibold tracking-wide text-subtle uppercase">{section}</legend>}
+          <div className="grid grid-cols-2 gap-4">
+            {fields.map((f) => {
+              const t = f.kind === 'date' ? f.config.tracking : undefined;
+              const k = t && kinds.find((x) => x.id === t.dateKindId);
+              return (
+                <div
+                  key={f.id}
+                  className={cn(f.kind === 'longText' || f.kind === 'multiSelect' || f.kind === 'list' ? 'col-span-2' : 'max-sm:col-span-2', onPick && '-m-1.5 cursor-pointer rounded-lg p-1.5 transition-colors hover:bg-surface-2/70')}
+                  onClick={onPick ? (e) => !(e.target as HTMLElement).closest('input,select,textarea,button,[role=combobox]') && onPick(f.id) : undefined}
+                  title={onPick ? 'Click to edit this field' : undefined}
+                >
+                  <Field label={f.kind === 'boolean' ? '' : f.label} required={f.required} hint={k ? `${k.name}${t?.derive ? ' · calculated' : ''}` : f.description}>
                     {(id) =>
                       t?.derive ? (
                         <div className="flex h-8 items-center gap-1.5 rounded-lg bg-surface-2 px-2.5 text-xs text-muted">
@@ -1308,13 +1436,38 @@ function FormPreview({ open, onOpenChange, draft, kinds }: { open: boolean; onOp
                       )
                     }
                   </Field>
-                );
-              })}
-            </div>
-          </fieldset>
-        ))}
-        {!draft.fields.length && <p className="text-[13px] text-muted">Add fields to see the form.</p>}
+                </div>
+              );
+            })}
+          </div>
+        </fieldset>
+      ))}
+    </div>
+  );
+}
+
+/** Beside the field list on wide screens: the form as it will look, updating as you edit. */
+function LivePreview({ draft, kinds, onPick }: { draft: Pick<AssetTypeInput, 'name' | 'fields' | 'sections'>; kinds: DateKind[]; onPick: (id: string) => void }) {
+  return (
+    <Card padded={false}>
+      <div className="flex items-center gap-2 border-b border-border px-4 py-3">
+        <Eye className="size-4 text-subtle" />
+        <div className="min-w-0">
+          <p className="truncate text-[13px] font-semibold">New {inSentence(draft.name) || 'item'}</p>
+          <p className="text-xs text-muted">Live preview · click a field to edit it</p>
+        </div>
       </div>
+      <div className="max-h-[calc(100dvh-12rem)] overflow-y-auto p-4">
+        <FormBody draft={draft} kinds={kinds} onPick={onPick} />
+      </div>
+    </Card>
+  );
+}
+
+function FormPreview({ open, onOpenChange, draft, kinds }: { open: boolean; onOpenChange: (o: boolean) => void; draft: Pick<AssetTypeInput, 'name' | 'fields' | 'sections'>; kinds: DateKind[] }) {
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange} title={`New ${inSentence(draft.name) || 'item'}`} description="Preview — nothing is saved">
+      <FormBody draft={draft} kinds={kinds} />
     </Sheet>
   );
 }
@@ -1336,23 +1489,3 @@ function RequestWorkflowCard({ value, saved, onChange }: { value: Workflow | nul
   );
 }
 
-/** The details card folded into one tappable line, so the field list is what you see first on smaller screens. */
-function CollapsedDetails({ summary, children }: { summary: React.ReactNode; children: React.ReactNode }) {
-  const [open, setOpen] = useState(false);
-  return open ? (
-    <div className="space-y-2">
-      {children}
-      <button type="button" onClick={() => setOpen(false)} className="text-xs text-accent-fg">
-        Hide details
-      </button>
-    </div>
-  ) : (
-    <button type="button" onClick={() => setOpen(true)} className="flex w-full items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3 text-left shadow-sm transition-colors active:bg-surface-2">
-      <span className="min-w-0 flex-1">
-        <span className="block text-xs text-muted">Details</span>
-        <span className="block truncate text-[13px] font-medium">{summary}</span>
-      </span>
-      <span className="text-xs text-accent-fg">Edit</span>
-    </button>
-  );
-}

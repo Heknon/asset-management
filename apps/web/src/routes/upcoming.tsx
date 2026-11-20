@@ -17,6 +17,9 @@ import { Link } from '@tanstack/react-router';
 import { ArrowRight, Plus, ShoppingCart } from 'lucide-react';
 import { formatMoney, todayIso } from '@/lib/utils';
 
+/** How many items a group shows before "Show all". */
+const PREVIEW = 8;
+
 const groupsOf = (items: Obligation[], today: string) => {
   const week = addDuration(today, { amount: 7, unit: 'day' });
   const month = addDuration(today, { amount: 30, unit: 'day' });
@@ -38,6 +41,9 @@ export function UpcomingPage() {
   const today = todayIso();
   const obligations = useObligations({ state: 'active', to: addDuration(today, { amount: 1, unit: 'year' }), mine: scope === 'mine', dateKindId: kind || undefined, check: check || undefined, limit: 500 });
   const groups = useMemo(() => groupsOf(obligations.data?.items ?? [], today), [obligations.data, today]);
+  // Long groups show their first items; "Show all" opens the rest in place.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const jump = (key: string) => () => document.getElementById(`due-${key}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   const canEdit = useCanEditObligation();
   const spend = summary.data?.spend[0];
   const hour = new Date().getHours();
@@ -70,9 +76,9 @@ export function UpcomingPage() {
       />
       <div className="mx-auto w-full max-w-5xl space-y-6 px-4 sm:px-6 py-6">
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <Stat label="Overdue" value={summary.data?.overdue ?? '–'} tone={summary.data?.overdue ? 'danger' : undefined} />
-          <Stat label="Due in 7 days" value={summary.data?.dueThisWeek ?? '–'} tone={summary.data?.dueThisWeek ? 'warning' : undefined} />
-          <Stat label="Due in 30 days" value={summary.data?.dueThisMonth ?? '–'} />
+          <Stat label="Overdue" value={summary.data?.overdue ?? '–'} tone={summary.data?.overdue ? 'danger' : undefined} onClick={jump('overdue')} />
+          <Stat label="Due in 7 days" value={summary.data?.dueThisWeek ?? '–'} tone={summary.data?.dueThisWeek ? 'warning' : undefined} onClick={jump('week')} />
+          <Stat label="Due in 30 days" value={summary.data?.dueThisMonth ?? '–'} onClick={jump('month')} />
           <Stat label="Renewing in 90 days" value={spend ? formatMoney(spend.next90, spend.currency, true) : '–'} hint={spend ? `${formatMoney(spend.next30, spend.currency, true)} in the next 30 days` : 'Recurring spend'} />
         </div>
 
@@ -91,7 +97,7 @@ export function UpcomingPage() {
           </Card>
         ) : (
           groups.map((g) => (
-            <section key={g.key}>
+            <section key={g.key} id={`due-${g.key}`} className="scroll-mt-4">
               <div className="mb-2 flex items-center gap-2 px-1">
                 <h2 className={g.key === 'overdue' ? 'text-[13px] font-semibold text-danger' : 'text-[13px] font-semibold'}>{g.title}</h2>
                 <span className="text-xs text-subtle">{g.items.length}</span>
@@ -102,7 +108,16 @@ export function UpcomingPage() {
                 </span>
               </div>
               <Card padded={false} className="overflow-hidden">
-                <ObligationList items={g.items} canEdit={canEdit} />
+                <ObligationList items={expanded.has(g.key) ? g.items : g.items.slice(0, PREVIEW)} canEdit={canEdit} />
+                {g.items.length > PREVIEW && (
+                  <button
+                    type="button"
+                    onClick={() => setExpanded((s) => (s.has(g.key) ? new Set([...s].filter((k) => k !== g.key)) : new Set([...s, g.key])))}
+                    className="flex w-full items-center justify-center gap-1.5 border-t border-border py-2.5 text-[13px] font-medium text-accent-fg transition-colors hover:bg-surface-2/60"
+                  >
+                    {expanded.has(g.key) ? 'Show fewer' : `Show all ${g.items.length}`}
+                  </button>
+                )}
               </Card>
             </section>
           ))

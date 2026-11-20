@@ -2,15 +2,15 @@ import { isRestricted, type ActivityEntry, type AssetType, type FieldDefinition 
 import { useMutation } from '@tanstack/react-query';
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import { ArrowLeft, CalendarClock, FolderOpen, History, MoreHorizontal, Pencil, Sparkles, Trash2 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { AssetFormSheet } from '@/components/asset-form';
-import { AttributeValue } from '@/components/attribute';
+import { AttributeInput, AttributeValue } from '@/components/attribute';
 import { AccessBadge, StatusBadge } from '@/components/badges';
 import { Conversation } from '@/components/conversation';
 import { Documents } from '@/components/documents';
 import { ObligationList } from '@/components/obligations';
-import { PersonName, UnitPath } from '@/components/pickers';
+import { PersonName, PersonPicker, UnitPath } from '@/components/pickers';
 import { RequestStatusBadge } from '@/components/badges';
 import { TypeIcon } from '@/components/type-icon';
 import { Button } from '@/components/ui/button';
@@ -100,7 +100,7 @@ export function AssetDetailPage() {
       />
       <div className="mx-auto grid grid-cols-1 w-full max-w-6xl gap-6 px-4 sm:px-6 py-6 lg:grid-cols-[minmax(0,1fr)_380px]">
         <div className="space-y-6">
-          <Details type={schema} attributes={a.attributes} ownerId={a.ownerId} canSeeRestricted={can('restricted')} />
+          <Details assetId={a.id} type={schema} attributes={a.attributes} ownerId={a.ownerId} canSeeRestricted={can('restricted')} canEdit={canEdit} />
           <Documents assetId={a.id} canEdit={can('attach')} canManage={can('delete')} currentUserId={me.userId} />
           <Conversation assetId={a.id} permissions={a.permissions} />
         </div>
@@ -125,7 +125,17 @@ export function AssetDetailPage() {
   );
 }
 
-function Details({ type, attributes, ownerId, canSeeRestricted }: { type: AssetType; attributes: Record<string, unknown>; ownerId: string | null; canSeeRestricted: boolean }) {
+function Details({ assetId, type, attributes, ownerId, canSeeRestricted, canEdit }: { assetId: string; type: AssetType; attributes: Record<string, unknown>; ownerId: string | null; canSeeRestricted: boolean; canEdit: boolean }) {
+  const invalidate = useInvalidateAssets();
+  const save = useMutation({
+    mutationFn: (patch: { attributes?: Record<string, unknown>; ownerId?: string | null }) => api.patch(`/api/registry/assets/${assetId}`, patch),
+    onSuccess: () => invalidate(assetId),
+  });
+  const saveValue = (patch: { attributes?: Record<string, unknown>; ownerId?: string | null }) =>
+    save.mutateAsync(patch).catch((e) => {
+      toast.error(e instanceof ApiError ? e.message : 'Could not save');
+      throw e;
+    });
   const sections = useMemo(() => {
     const out: Array<[string, FieldDefinition[]]> = [];
     for (const f of type.fields) {
@@ -142,7 +152,21 @@ function Details({ type, attributes, ownerId, canSeeRestricted }: { type: AssetT
     <Card padded={false}>
       <div className="grid grid-cols-[140px_minmax(0,1fr)] gap-x-6 gap-y-3 border-b border-border px-5 py-4 text-[13px]">
         <span className="text-muted">Owner</span>
-        <PersonName id={ownerId} fallback="Unassigned" />
+        {canEdit ? (
+          <InlineEdit
+            label="Owner"
+            display={<PersonName id={ownerId} fallback="Unassigned" />}
+            editor={(close) => (
+              <PersonPicker
+                value={ownerId}
+                placeholder="Unassigned"
+                onChange={(id) => void saveValue({ ownerId: id }).then(close, () => undefined)}
+              />
+            )}
+          />
+        ) : (
+          <PersonName id={ownerId} fallback="Unassigned" />
+        )}
       </div>
       {sections.map(([section, fields]) => (
         <div key={section} className="border-b border-border px-5 py-4 last:border-0">
@@ -155,7 +179,19 @@ function Details({ type, attributes, ownerId, canSeeRestricted }: { type: AssetT
                   {f.kind === 'date' && f.config.tracking?.derive && <Sparkles className="size-3 text-accent" aria-label="Calculated" />}
                 </dt>
                 <dd className="min-w-0">
-                  <AttributeValue field={f} value={attributes[f.key] as never} />
+                  {canEdit && !(f.kind === 'date' && f.config.tracking?.derive) ? (
+                    <InlineEdit
+                      label={f.label}
+                      display={<AttributeValue field={f} value={attributes[f.key] as never} />}
+                      initial={attributes[f.key]}
+                      editor={(close, value, setValue) => (
+                        <AttributeInput id={`inline-${f.key}`} field={f} value={value} onChange={setValue} />
+                      )}
+                      onSave={(v) => saveValue({ attributes: { [f.key]: v } })}
+                    />
+                  ) : (
+                    <AttributeValue field={f} value={attributes[f.key] as never} />
+                  )}
                 </dd>
               </div>
             ))}
@@ -273,5 +309,88 @@ function Activity({ assetId, type }: { assetId: string; type: AssetType }) {
         ))}
       </ol>
     </Card>
+  );
+}
+
+/**
+ * A value you can change where you read it: click it (or tab to it and press
+ * Enter), change it, Enter or Save keeps it, Esc puts it back. Fields that pick
+ * from a list save as soon as you choose (no `onSave`).
+ */
+function InlineEdit({
+  label,
+  display,
+  initial,
+  editor,
+  onSave,
+}: {
+  label: string;
+  display: React.ReactNode;
+  initial?: unknown;
+  editor: (close: () => void, value: unknown, setValue: (v: unknown) => void) => React.ReactNode;
+  onSave?: (value: unknown) => Promise<unknown>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState<unknown>(initial);
+  const [saving, setSaving] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (editing) box.current?.querySelector<HTMLElement>('input:not([type=hidden]),select,textarea,button')?.focus();
+  }, [editing]);
+  const close = () => setEditing(false);
+  const commit = async () => {
+    if (!onSave) return close();
+    if (JSON.stringify(value ?? null) === JSON.stringify(initial ?? null)) return close();
+    setSaving(true);
+    try {
+      await onSave(value === '' ? null : value);
+      close();
+    } catch {
+      /* the error is shown; keep editing */
+    } finally {
+      setSaving(false);
+    }
+  };
+  if (!editing)
+    return (
+      <button
+        type="button"
+        onClick={() => (setValue(initial), setEditing(true))}
+        className="group/edit -mx-1.5 -my-1 flex w-[calc(100%+0.75rem)] min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-surface-2"
+        title={`Edit ${label}`}
+        aria-label={`Edit ${label}`}
+      >
+        <span className="min-w-0 flex-1">{display}</span>
+        <Pencil className="size-3 shrink-0 text-subtle opacity-0 transition-opacity group-hover/edit:opacity-100 group-focus-visible/edit:opacity-100 touch:opacity-60" />
+      </button>
+    );
+  return (
+    <div
+      ref={box}
+      className="space-y-1.5"
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') {
+          e.stopPropagation();
+          close();
+        }
+        if (e.key === 'Enter' && onSave && !(e.target instanceof HTMLTextAreaElement && !(e.metaKey || e.ctrlKey))) {
+          e.preventDefault();
+          void commit();
+        }
+      }}
+    >
+      {editor(close, value, setValue)}
+      {onSave && (
+        <div className="flex items-center gap-1.5">
+          <Button size="xs" variant="primary" loading={saving} onClick={() => void commit()}>
+            Save
+          </Button>
+          <Button size="xs" variant="ghost" onClick={close}>
+            Cancel
+          </Button>
+          <span className="text-[11px] text-subtle max-sm:hidden">Enter to save · Esc to cancel</span>
+        </div>
+      )}
+    </div>
   );
 }
