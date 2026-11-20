@@ -19,6 +19,7 @@
     "@am/scheduler": "workspace:*",
     "@aws-sdk/client-s3": "3.948.0",
     "@vercel/functions": "^3.11.3",
+    "@vercel/oidc-aws-credentials-provider": "^3.3.21",
     "fastify": "~5.6.2",
     "jose": "^6.2.18",
     "kysely": "0.28.20",

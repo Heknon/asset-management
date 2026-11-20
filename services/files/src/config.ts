@@ -3,6 +3,8 @@ import { z } from 'zod';
 
 export const filesConfig = {
   S3_BUCKET: z.string().min(3),
+  /** Prepended to every object key, so environments can share one bucket (e.g. `dev/`). */
+  S3_PREFIX: z.string().default(''),
   S3_REGION: z.string().default('us-east-1'),
   /** S3-compatible endpoint used by the service (MinIO, Ceph/ODF, NooBaa). Omit for AWS. */
   S3_ENDPOINT: z.string().url().optional(),

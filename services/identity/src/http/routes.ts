@@ -24,6 +24,8 @@ import type { AccessService } from '../application/access-service.js';
 import type { DirectoryService } from '../application/directory-service.js';
 import type { OrgService } from '../application/org-service.js';
 import type { RedirectState } from '../application/ports.js';
+import type { GoogleSignIn } from '../application/google-sign-in.js';
+import { registerGoogleRoutes } from './google-routes.js';
 
 const OIDC_STATE_COOKIE = 'am_oidc';
 const PREFIX = '/api/identity';
@@ -38,6 +40,7 @@ export interface RouteOptions {
   publicUrl: string;
   secureCookies: boolean;
   accessTtlSeconds: number;
+  google: GoogleSignIn | null;
 }
 
 /** Only same-site relative paths, so the login flow cannot be used as an open redirect. */
@@ -71,6 +74,16 @@ export function registerRoutes(app: FastifyInstance, o: RouteOptions): void {
     reply.clearCookie(ACCESS_COOKIE, { path: '/' });
     reply.clearCookie(REFRESH_COOKIE, { path: `${PREFIX}/auth` });
   };
+
+  if (o.google) {
+    registerGoogleRoutes(app, {
+      google: o.google,
+      signIn: (email, userAgent) => o.auth.loginWithVerifiedEmail(email, userAgent),
+      setSessionCookies,
+      safeReturnTo,
+      secureCookies: o.secureCookies,
+    });
+  }
 
   app.get(`${PREFIX}/.well-known/jwks.json`, async (_req, reply) => {
     reply.header('cache-control', 'public, max-age=300');

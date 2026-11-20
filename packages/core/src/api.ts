@@ -29,7 +29,8 @@ const uuid = z.string().uuid();
 export type AuthSource = 'local' | 'ldap' | 'oidc';
 
 export interface AuthProviderInfo {
-  id: AuthSource;
+  /** `google` signs in people who already have an account here, matched by their verified email. */
+  id: AuthSource | 'google';
   label: string;
   /** `password` providers render a form; `redirect` providers render a button. */
   flow: 'password' | 'redirect';
@@ -88,14 +89,16 @@ export interface User extends UserSummary {
 
 export const userUpdateSchema = z.object({ isAdmin: z.boolean(), active: z.boolean() }).partial();
 
-/** Local accounts, for people outside the directory (contractors, service desks). */
-export const localUserCreateSchema = z.object({
-  username: z.string().trim().min(2).max(64).regex(/^[a-zA-Z0-9._-]+$/, 'Letters, digits, dots, dashes and underscores'),
-  displayName: z.string().trim().min(1).max(120),
-  email: z.string().email().nullable().default(null),
-  password: z.string().min(12).max(256),
-  isAdmin: z.boolean().default(false),
-});
+/** Local accounts, for people outside the directory (contractors, service desks). Without a password, they sign in with Google at their email. */
+export const localUserCreateSchema = z
+  .object({
+    username: z.string().trim().min(2).max(64).regex(/^[a-zA-Z0-9._-]+$/, 'Letters, digits, dots, dashes and underscores'),
+    displayName: z.string().trim().min(1).max(120),
+    email: z.string().email().nullable().default(null),
+    password: z.string().min(12).max(256).nullable().default(null),
+    isAdmin: z.boolean().default(false),
+  })
+  .refine((u) => u.password !== null || u.email !== null, { message: 'Give a password, or an email to sign in with Google', path: ['password'] });
 export type LocalUserCreate = z.infer<typeof localUserCreateSchema>;
 /** An admin setting a manual account's password (e.g. a forgotten one). */
 export const passwordSetSchema = z.object({ password: z.string().min(12).max(256) });

@@ -49,10 +49,12 @@ export interface IdentityStore {
   findUserById(id: string): Promise<UserRecord | null>;
   findUserByUsername(username: string, source: AuthSource): Promise<UserRecord | null>;
   findUserByExternalId(source: AuthSource, externalId: string): Promise<UserRecord | null>;
+  /** Accounts with this email (case-insensitive), at most two: enough to tell one from several. */
+  findUsersByEmail(email: string): Promise<UserRecord[]>;
   getPasswordHash(userId: string): Promise<string | null>;
   setPasswordHash(userId: string, hash: string): Promise<void>;
   upsertUserFromIdentity(identity: ExternalIdentity): Promise<UserRecord>;
-  createLocalUser(input: { username: string; displayName: string; email: string | null; passwordHash: string; isAdmin: boolean }): Promise<UserRecord>;
+  createLocalUser(input: { username: string; displayName: string; email: string | null; passwordHash: string | null; isAdmin: boolean }): Promise<UserRecord>;
   updateUser(id: string, patch: Partial<Pick<UserRecord, 'isAdmin' | 'active' | 'preferences'>>): Promise<UserRecord>;
   touchLogin(id: string): Promise<void>;
   listUsers(query: { q?: string; ids?: string[]; limit: number; offset: number }): Promise<Page<User>>;

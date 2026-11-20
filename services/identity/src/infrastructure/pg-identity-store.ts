@@ -67,6 +67,11 @@ export class PgIdentityStore implements IdentityStore {
     return r ? toUser(r) : null;
   }
 
+  async findUsersByEmail(email: string) {
+    const rows = await this.db.selectFrom('users').selectAll().where(sql`lower(email)`, '=', email.toLowerCase()).limit(2).execute();
+    return rows.map(toUser);
+  }
+
   async getPasswordHash(userId: string) {
     const r = await this.db.selectFrom('users').select('password_hash').where('id', '=', userId).executeTakeFirst();
     return r?.password_hash ?? null;
@@ -111,7 +116,7 @@ export class PgIdentityStore implements IdentityStore {
     return toUser(r);
   }
 
-  async createLocalUser(input: { username: string; displayName: string; email: string | null; passwordHash: string; isAdmin: boolean }) {
+  async createLocalUser(input: { username: string; displayName: string; email: string | null; passwordHash: string | null; isAdmin: boolean }) {
     const r = await this.db
       .insertInto('users')
       .values({
@@ -132,6 +137,10 @@ export class PgIdentityStore implements IdentityStore {
 
   async setPasswordHash(userId: string, hash: string) {
     await this.db.updateTable('users').set({ password_hash: hash }).where('id', '=', userId).execute();
+  }
+
+  async setEmail(userId: string, email: string) {
+    await this.db.updateTable('users').set({ email }).where('id', '=', userId).execute();
   }
 
   async updateUser(id: string, patch: Partial<Pick<UserRecord, 'isAdmin' | 'active' | 'preferences'>>) {

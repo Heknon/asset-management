@@ -196,7 +196,9 @@ export function PeoplePage() {
   const providers = useProviders();
   // Manual accounts (passwords kept here) are on when the "local" sign-in method is.
   const manual = !!providers.data?.some((p) => p.id === 'local');
-  const directory = !!providers.data?.some((p) => p.id !== 'local');
+  const directory = !!providers.data?.some((p) => p.id === 'ldap' || p.id === 'oidc');
+  // With Google sign-in, people are added here by email (Google accounts are never created on their own).
+  const google = !!providers.data?.some((p) => p.id === 'google');
   const [adding, setAdding] = useState(false);
   const [settingPassword, setSettingPassword] = useState<User | null>(null);
   const update = useSave((v: { id: string; patch: Partial<Pick<User, 'isAdmin' | 'active'>> }) => api.patch(`/api/identity/users/${v.id}`, v.patch), [['users']], t('User updated'));
@@ -206,14 +208,16 @@ export function PeoplePage() {
       <PageHeader
         title={t('People & groups')}
         description={
-          manual && !directory
+          google && !directory
+            ? t('Add the people who use Assets with their Google email. Groups gather people for access.')
+            : manual && !directory
             ? t('Add the people who use Assets; each gets a sign-in name and a password you give them. Groups gather people for access.')
             : manual
               ? t('People from the company directory appear on first sign-in; you can also add people with their own password here. Directory groups sync automatically.')
               : t('People are provisioned on first sign-in through LDAP or ADFS. Directory groups sync automatically and can be granted access.')
         }
         actions={
-          manual && (
+          (manual || google) && (
             <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setAdding(true)}>
               {t('Add person')}
             </Button>
@@ -315,7 +319,7 @@ export function PeoplePage() {
         )}
       </div>
       {group && <GroupDialog group={group === 'new' ? null : group} onClose={() => setGroup(null)} />}
-      <AddPersonDialog open={adding} onOpenChange={setAdding} />
+      <AddPersonDialog open={adding} onOpenChange={setAdding} google={google} passwords={manual} />
       <SetPasswordDialog user={settingPassword} onClose={() => setSettingPassword(null)} />
     </>
   );
@@ -547,13 +551,16 @@ function MyTeams() {
   );
 }
 
-/** An admin adds someone with a manual account: a sign-in name and a first password to pass on. */
-function AddPersonDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+/**
+ * An admin adds someone with a manual account: a sign-in name and a first password to pass on.
+ * With Google sign-in, their Google email is enough and the password is optional.
+ */
+function AddPersonDialog({ open, onOpenChange, google, passwords }: { open: boolean; onOpenChange: (o: boolean) => void; google: boolean; passwords: boolean }) {
   const blank = { displayName: '', username: '', email: '', password: '', isAdmin: false };
   const [form, setForm] = useState(blank);
   const [touchedUsername, setTouchedUsername] = useState(false);
   const create = useSave(
-    () => api.post('/api/identity/users', { displayName: form.displayName.trim(), username: form.username.trim(), email: form.email.trim() || null, password: form.password, isAdmin: form.isAdmin }),
+    () => api.post('/api/identity/users', { displayName: form.displayName.trim(), username: form.username.trim(), email: form.email.trim() || null, password: form.password || null, isAdmin: form.isAdmin }),
     [['users']],
     form.displayName ? t('{name} added', { name: form.displayName }) : t('Person added'),
     () => {
@@ -563,13 +570,15 @@ function AddPersonDialog({ open, onOpenChange }: { open: boolean; onOpenChange: 
     },
   );
   const suggestUsername = (name: string) => name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '.').replace(/^\.|\.$/g, '');
-  const ok = form.displayName.trim() && /^[a-zA-Z0-9._-]{2,64}$/.test(form.username) && form.password.length >= 12;
+  const email = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim());
+  const passwordOk = google ? !form.password || form.password.length >= 12 : form.password.length >= 12;
+  const ok = form.displayName.trim() && /^[a-zA-Z0-9._-]{2,64}$/.test(form.username) && passwordOk && (!google || email);
   return (
     <Dialog
       open={open}
       onOpenChange={onOpenChange}
       title={t('Add a person')}
-      description={t('They sign in with this name and password, and can change the password on their profile.')}
+      description={google ? t('They sign in with Google at this email.') : t('They sign in with this name and password, and can change the password on their profile.')}
       footer={
         <>
           <Button onClick={() => onOpenChange(false)}>{t('Cancel')}</Button>
@@ -592,12 +601,14 @@ function AddPersonDialog({ open, onOpenChange }: { open: boolean; onOpenChange: 
         <Field label={t('Sign-in name')} required hint={t('Letters, digits, dots, dashes')}>
           {(id) => <Input id={id} value={form.username} autoComplete="off" onChange={(e) => (setTouchedUsername(true), setForm((f) => ({ ...f, username: e.target.value })))} />}
         </Field>
-        <Field label={t('Email')} hint={t('For reminders')}>
+        <Field label={t('Email')} required={google} hint={google ? t('Their Google address; also for reminders') : t('For reminders')}>
           {(id) => <Input id={id} type="email" value={form.email} placeholder="dana@company.com" onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />}
         </Field>
-        <Field label={t('First password')} required hint={t('At least 12 characters; they can change it')} className="sm:col-span-2">
-          {(id) => <PasswordInput id={id} value={form.password} onChange={(password) => setForm((f) => ({ ...f, password }))} />}
-        </Field>
+        {passwords && (
+          <Field label={t('First password')} required={!google} hint={google ? t('Optional: to sign in without Google. At least 12 characters') : t('At least 12 characters; they can change it')} className="sm:col-span-2">
+            {(id) => <PasswordInput id={id} value={form.password} onChange={(password) => setForm((f) => ({ ...f, password }))} />}
+          </Field>
+        )}
         <div className="sm:col-span-2">
           <Switch checked={form.isAdmin} onChange={(isAdmin) => setForm((f) => ({ ...f, isAdmin }))} label={t('Administrator')} description={t('Full control: templates, the organization, access and every item')} />
         </div>

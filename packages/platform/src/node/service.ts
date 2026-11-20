@@ -71,7 +71,9 @@ export async function runService<DB extends OutboxTable, S extends z.ZodRawShape
     collectedGauge('am_outbox_pending', 'Committed events not yet relayed to the bus (should stay near 0)', async (set) => set({}, await outboxBacklog(database.db as never)));
   }
 
-  const app = createHttpServer({ logger, verifier, readiness: database.ping, bodyLimit: def.bodyLimit, metrics: config.METRICS_ENABLED });
+  // Signed cookies (sign-in state) use the service's COOKIE_SECRET when it has one.
+  const cookieSecret = (config as { COOKIE_SECRET?: string }).COOKIE_SECRET;
+  const app = createHttpServer({ logger, verifier, readiness: database.ping, bodyLimit: def.bodyLimit, metrics: config.METRICS_ENABLED, cookieSecret });
   await def.register({ name: def.name, config, logger, database, bus, app, onClose });
   await app.listen({ host: config.HOST, port: config.PORT });
 

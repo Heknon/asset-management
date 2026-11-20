@@ -1,21 +1,20 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { defineFilesService } from '@am/files/service';
-import { nodeFilesAdapters, type NodeFilesOptions } from '@am/files/node';
-import { defineIdentityService } from '@am/identity/service';
-import { nodeIdentityAdapters } from '@am/identity/node';
+import type { NodeFilesOptions } from '@am/files/node';
 import { createTokenVerifier, loadConfig, migrate, relayOutbox, type Database, type OutboxTable, type ServiceDefinition, type TokenVerifier } from '@am/platform';
 import { createDatabase, createHttpServer, PgBoss, type PgDatabase } from '@am/platform/node';
-import { defineMcpService } from '@am/mcp/service';
-import { registryService } from '@am/registry/service';
-import { defineSchedulerService, type Mailer } from '@am/scheduler/service';
+import type { Mailer } from '@am/scheduler/service';
 import { nodeSchedulerAdapters } from '@am/scheduler/node';
 import type { FastifyInstance, InjectOptions } from 'fastify';
 import { createLocalJWKSet, type JSONWebKeySet } from 'jose';
 import pino, { type Logger } from 'pino';
 import type { z } from 'zod';
 import { DrainEventBus } from './bus.js';
-import { browserOrigins, serverlessEnvironment } from './env.js';
+import { missingDeploymentSettings, serverlessEnvironment } from './env.js';
 import { sharedSecrets } from './secrets.js';
+import { serviceDefinitions } from './services.js';
+
+/** pg-boss's tables, shared by every service's queues. */
+export const bossOptions = (connectionString: string, migrate: boolean) => ({ connectionString, schema: 'pgboss', max: 2, supervise: false, schedule: false, migrate });
 
 export interface ServerlessOptions {
   /** S3 credentials from the platform (Vercel's OIDC role); otherwise keys or the default chain. */
@@ -50,42 +49,30 @@ export class ServerlessRuntime {
   static async start(rawEnv: Record<string, string | undefined>, opts: ServerlessOptions = {}): Promise<ServerlessRuntime> {
     const base = serverlessEnvironment(rawEnv);
     const logger = pino({ level: base.LOG_LEVEL ?? 'info', base: { runtime: 'serverless' }, redact: ['req.headers.authorization', 'req.headers.cookie', '*.password', '*.secret'] });
-    if (!base.DATABASE_URL) throw new Error('No database: connect Neon (DATABASE_URL_UNPOOLED) or set DATABASE_URL');
+    const missing = missingDeploymentSettings(rawEnv);
+    if (missing.length) throw new Error(`Missing settings: ${missing.join(', ')}`);
+    if (!base.DATABASE_URL) throw new Error('No database: set DATABASE_URL_UNPOOLED (or DATABASE_URL locally)');
 
-    // Shared secrets first: the identity service needs them before it starts.
-    const bootstrap = createDatabase<unknown>({ DATABASE_URL: base.DATABASE_URL, DATABASE_SSL: false, DATABASE_POOL_MAX: 1 }, 'serverless');
-    const env: Record<string, string | undefined> = { ...base, ...(await sharedSecrets(bootstrap.db, base)) };
-    await bootstrap.close();
+    // Shared secrets first: the identity service needs them before it starts. Locally, missing ones are kept in the database.
+    let secrets: Awaited<ReturnType<typeof sharedSecrets>>;
+    if (base.AUTH_SIGNING_KEY && base.COOKIE_SECRET) secrets = await sharedSecrets(null, base);
+    else {
+      const bootstrap = createDatabase<unknown>({ DATABASE_URL: base.DATABASE_URL, DATABASE_SSL: false, DATABASE_POOL_MAX: 1 }, 'serverless');
+      secrets = await sharedSecrets(bootstrap.db, base).finally(() => bootstrap.close());
+    }
+    const env: Record<string, string | undefined> = { ...base, ...secrets };
 
-    const boss = new PgBoss({ connectionString: base.DATABASE_URL, schema: 'pgboss', max: 2, supervise: false, schedule: false, migrate: true });
+    const boss = new PgBoss(bossOptions(base.DATABASE_URL, ['true', '1', 'yes'].includes(base.MIGRATE_ON_START ?? '')));
     boss.on('error', (err) => logger.error({ err }, 'job queue error'));
     await boss.start();
     const runtime = new ServerlessRuntime(env, boss, new DrainEventBus(boss, logger), logger);
 
-    const origins = browserOrigins(env);
-    const definitions = [
-      defineIdentityService(nodeIdentityAdapters),
-      registryService,
-      defineFilesService(
-        nodeFilesAdapters({
-          credentials: opts.s3Credentials,
-          // Files asks the registry who may see an asset: in-process here.
-          fetcher: (input, init) => runtime.fetch(input, init),
-          // Browsers upload to and preview from the bucket directly; allow this deployment's origins once.
-          onStorage: (storage) => {
-            for (const origin of origins) {
-              storage.allowBrowserOrigin(origin).then(
-                (added) => added && logger.info({ origin }, 'allowed origin in the bucket CORS'),
-                (err: unknown) => logger.warn({ err, origin }, 'could not update the bucket CORS; uploads from the browser need it (see README)'),
-              );
-            }
-          },
-        }),
-      ),
-      defineSchedulerService({ mailer: (config) => (rawEnv.SMTP_URL ? nodeSchedulerAdapters.mailer(config) : unconfiguredMailer(logger)) }),
-      // AI assistants: tool calls reach the other services in-process, with the caller's token.
-      defineMcpService({ fetcher: (input, init) => runtime.fetch(input, init) }),
-    ] as unknown as Array<ServiceDefinition<OutboxTable, z.ZodRawShape>>;
+    const definitions = serviceDefinitions({
+      s3Credentials: opts.s3Credentials,
+      // Files asks the registry who may see an asset, and MCP's tool calls reach the other services with the caller's token: in-process here.
+      fetcher: (input, init) => runtime.fetch(input, init),
+      mailer: (config) => (rawEnv.SMTP_URL ? nodeSchedulerAdapters.mailer(config) : unconfiguredMailer(logger)),
+    });
 
     let shared: TokenVerifier | null = null;
     for (const def of definitions) {
@@ -105,7 +92,7 @@ export class ServerlessRuntime {
     const logger = this.logger.child({ service: def.name });
     const verifier = def.verifier ? await def.verifier({ config, database }) : shared;
     if (!verifier) throw new Error(`${def.name} started before identity`);
-    const app = createHttpServer({ logger, verifier, readiness: database.ping, bodyLimit: def.bodyLimit });
+    const app = createHttpServer({ logger, verifier, readiness: database.ping, bodyLimit: def.bodyLimit, cookieSecret: (config as { COOKIE_SECRET?: string }).COOKIE_SECRET });
     await def.register({ name: def.name, config, logger, database, bus: this.bus, app, onClose: () => undefined });
     await app.ready();
     this.services.set(def.name, { name: def.name, app, database });
@@ -119,7 +106,8 @@ export class ServerlessRuntime {
 
   private appFor(path: string): FastifyInstance | null {
     // MCP lives at /mcp, and its sign-in discovery under /.well-known (where clients look).
-    const name = path === '/mcp' || path.startsWith('/mcp/') || path.startsWith('/.well-known/oauth-protected-resource') ? 'mcp' : path.startsWith('/.well-known/oauth-authorization-server') ? 'identity' : /^\/api\/([a-z]+)(?:\/|$)/.exec(path)?.[1];
+    // Google sign-in is at /api/auth (the kit's OAuth client), served by identity.
+    const name = path === '/mcp' || path.startsWith('/mcp/') || path.startsWith('/.well-known/oauth-protected-resource') ? 'mcp' : path.startsWith('/.well-known/oauth-authorization-server') || path.startsWith('/api/auth/') ? 'identity' : /^\/api\/([a-z]+)(?:\/|$)/.exec(path)?.[1];
     return (name && this.services.get(name)?.app) || null;
   }
 
@@ -194,7 +182,7 @@ export class ServerlessRuntime {
     return { changed: method !== 'GET' && method !== 'HEAD' && r.statusCode < 400 };
   }
 
-  /** Vercel Cron sends `Authorization: Bearer $CRON_SECRET` when the project has one. Without it, cron runs are open (they only do what is due). */
+  /** Vercel Cron sends `Authorization: Bearer $CRON_SECRET` (required in production). Without one, cron runs are open (they only do what is due). */
   private cronAllowed(req: IncomingMessage): boolean {
     const secret = this.env.CRON_SECRET;
     return !secret || req.headers.authorization === `Bearer ${secret}`;

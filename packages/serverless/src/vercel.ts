@@ -1,16 +1,17 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { waitUntil } from '@vercel/functions';
 import { attachDatabasePool } from '@vercel/functions/db-connections';
-import { awsCredentialsProvider } from '@vercel/functions/oidc';
+import { awsCredentialsProvider } from '@vercel/oidc-aws-credentials-provider';
 import { ServerlessRuntime } from './runtime.js';
 
 let runtime: Promise<ServerlessRuntime> | null = null;
 
 /** One runtime per function instance, started on its first request (a failed start is retried on the next). */
 function getRuntime(): Promise<ServerlessRuntime> {
+  const roleArn = process.env.S3_ROLE_ARN;
   runtime ??= ServerlessRuntime.start(process.env, {
-    // Vercel's AWS integration: the function assumes the bucket's role with its OIDC token; no access keys.
-    s3Credentials: process.env.STORAGE_AWS_ROLE_ARN && !process.env.S3_ACCESS_KEY_ID ? awsCredentialsProvider({ roleArn: process.env.STORAGE_AWS_ROLE_ARN }) : undefined,
+    // The function assumes the bucket's role with its Vercel OIDC token; no access keys.
+    s3Credentials: roleArn ? awsCredentialsProvider({ roleArn }) : undefined,
     onPool: (pool) => attachDatabasePool(pool),
   }).catch((err: unknown) => {
     runtime = null;
