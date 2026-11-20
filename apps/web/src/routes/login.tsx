@@ -10,6 +10,7 @@ import { api, ApiError, isUnreachable } from '@/lib/api';
 import { keys, useProviders } from '@/lib/queries';
 import { inBrowser } from '@/lib/run-mode';
 import { LocalSignIn } from '@/components/local-sign-in';
+import { LanguageLinks } from '@/components/language';
 
 export function LoginPage() {
   const providers = useProviders();
@@ -90,6 +91,7 @@ export function LoginPage() {
             </div>
           )}
         </div>
+        <LanguageLinks className="mt-6" />
       </div>
     </div>
   );

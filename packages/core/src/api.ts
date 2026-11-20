@@ -42,11 +42,17 @@ export const passwordLoginSchema = z.object({
 });
 export type PasswordLogin = z.infer<typeof passwordLoginSchema>;
 
+/** Languages of the app (Hebrew is right-to-left). */
+export const appLocales = ['en', 'he'] as const;
+export type AppLocale = (typeof appLocales)[number];
+
 export interface Preferences {
   emailReminders: boolean;
   outlookInvites: boolean;
+  /** The app's language for this person; unset follows their browser. */
+  locale?: AppLocale | null;
 }
-export const preferencesSchema = z.object({ emailReminders: z.boolean(), outlookInvites: z.boolean() }).partial();
+export const preferencesSchema = z.object({ emailReminders: z.boolean(), outlookInvites: z.boolean(), locale: z.enum(appLocales).nullable() }).partial();
 
 export interface Me extends Principal {
   preferences: Preferences;

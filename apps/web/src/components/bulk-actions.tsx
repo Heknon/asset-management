@@ -57,7 +57,7 @@ export function BulkActions({ items, onClear, onExport, extra }: { items: Asset[
 
   return (
     <>
-      <div role="toolbar" aria-label="Selected items" className="animate-panel fixed inset-x-2 flex-nowrap bottom-[calc(4rem+env(safe-area-inset-bottom))] lg:bottom-[max(0.5rem,env(safe-area-inset-bottom))] z-30 mx-auto flex max-w-3xl items-center gap-1 rounded-xl border border-border bg-surface p-1.5 shadow-pop lg:left-64">
+      <div role="toolbar" aria-label="Selected items" className="animate-panel fixed inset-x-2 flex-nowrap bottom-[calc(4rem+env(safe-area-inset-bottom))] lg:bottom-[max(0.5rem,env(safe-area-inset-bottom))] z-30 mx-auto flex max-w-3xl items-center gap-1 rounded-xl border border-border bg-surface p-1.5 shadow-pop lg:start-64">
         <span className="px-2 text-[13px] font-medium tabular-nums">{noun}</span>
         {extra}
         <span className="mx-1 h-5 w-px bg-border max-sm:hidden" />
@@ -105,7 +105,7 @@ export function BulkActions({ items, onClear, onExport, extra }: { items: Asset[
         <Button size="sm" variant="danger-ghost" icon={<Trash2 className="size-3.5" />} disabled={busy} onClick={() => setDeleting(true)} aria-label="Delete">
           <span className="max-sm:sr-only">Delete</span>
         </Button>
-        <Button size="icon" variant="ghost" className="ml-auto" aria-label="Clear selection" icon={<X className="size-4" />} onClick={onClear} loading={busy} />
+        <Button size="icon" variant="ghost" className="ms-auto" aria-label="Clear selection" icon={<X className="size-4" />} onClick={onClear} loading={busy} />
       </div>
       <ConfirmDialog
         open={deleting}

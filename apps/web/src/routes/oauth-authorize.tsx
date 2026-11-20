@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/display';
 import { api, ApiError } from '@/lib/api';
 import { useMe } from '@/lib/queries';
+import { LanguageLinks } from '@/components/language';
 
 interface OAuthRequest {
   client: { id: string; name: string };
@@ -90,6 +91,7 @@ export function OAuthAuthorizePage() {
             </>
           )}
         </div>
+        <LanguageLinks className="mt-6" />
       </div>
     </div>
   );

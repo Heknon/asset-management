@@ -62,7 +62,7 @@ export function OrganizationPage() {
     return (
       <li>
         <div
-          className={cn('group flex h-8 cursor-pointer items-center gap-1 rounded-md pr-1 text-[13px] transition-colors', selected === unit.id ? 'bg-accent-soft text-fg' : 'hover:bg-surface-2', unit.archived && 'opacity-50')}
+          className={cn('group flex h-8 cursor-pointer items-center gap-1 rounded-md pe-1 text-[13px] transition-colors', selected === unit.id ? 'bg-accent-soft text-fg' : 'hover:bg-surface-2', unit.archived && 'opacity-50')}
           style={{ paddingLeft: depth * 16 + 4 }}
           onClick={() => setSelected(unit.id)}
         >
@@ -142,8 +142,8 @@ export function OrganizationPage() {
         <Card padded={false} className="flex min-h-0 flex-col lg:max-h-[calc(100vh-180px)]">
           <div className="border-b border-border p-2">
             <div className="relative">
-              <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-subtle" />
-              <Input className="pl-8" placeholder={`Search ${units.length} units or directory links…`} value={q} onChange={(e) => setQ(e.target.value)} />
+              <Search className="pointer-events-none absolute top-1/2 start-2.5 size-3.5 -translate-y-1/2 text-subtle" />
+              <Input className="ps-8" placeholder={`Search ${units.length} units or directory links…`} value={q} onChange={(e) => setQ(e.target.value)} />
             </div>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto p-1.5">

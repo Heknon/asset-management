@@ -75,7 +75,7 @@ function SnoozeDialog({ obligation, onClose, onSnooze }: { obligation: Obligatio
     <Dialog open={!!obligation} onOpenChange={(o) => !o && onClose()} title="Snooze reminders" description={obligation ? `${obligation.label} · ${obligation.assetName}` : undefined}>
       <div className="grid grid-cols-2 gap-2">
         {presets.map((p) => (
-          <button key={p.label} type="button" onClick={() => onSnooze(p.date)} className="rounded-lg border border-border px-3 py-2.5 text-left transition-colors hover:border-border-strong hover:bg-surface-2">
+          <button key={p.label} type="button" onClick={() => onSnooze(p.date)} className="rounded-lg border border-border px-3 py-2.5 text-start transition-colors hover:border-border-strong hover:bg-surface-2">
             <div className="text-[13px] font-medium">{p.label}</div>
             <div className="text-xs text-muted">{formatDate(p.date)}</div>
           </button>
@@ -163,7 +163,7 @@ export function ObligationList({
                     </span>
                   )}
                   {showAsset && o.ownerId && (
-                    <span className="ml-1 hidden sm:inline-flex">
+                    <span className="ms-1 hidden sm:inline-flex">
                       <PersonName id={o.ownerId} />
                     </span>
                   )}

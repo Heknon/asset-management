@@ -1,6 +1,7 @@
 import { clsx, type ClassValue } from 'clsx';
-import { daysBetween, describeDuration, type Duration, type IsoDate } from '@am/core';
+import { daysBetween, type Duration, type DurationUnit, type IsoDate } from '@am/core';
 import { twMerge } from 'tailwind-merge';
+import { intlLocale, plural, t } from '@/lib/i18n';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -11,8 +12,8 @@ export function todayIso(): IsoDate {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-const dateFmt = new Intl.DateTimeFormat(undefined, { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' });
-const shortDateFmt = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
+const dateFmt = new Intl.DateTimeFormat(intlLocale(), { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' });
+const shortDateFmt = new Intl.DateTimeFormat(intlLocale(), { month: 'short', day: 'numeric', timeZone: 'UTC' });
 
 export function formatDate(iso: IsoDate | null | undefined, short = false): string {
   if (!iso) return '—';
@@ -21,11 +22,11 @@ export function formatDate(iso: IsoDate | null | undefined, short = false): stri
 }
 
 export function formatDateTime(iso: string): string {
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(iso));
+  return new Intl.DateTimeFormat(intlLocale(), { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(iso));
 }
 
 export function formatMoney(amount: number, currency = 'USD', compact = false): string {
-  return new Intl.NumberFormat(undefined, { style: 'currency', currency, maximumFractionDigits: compact ? 0 : 2, notation: compact && amount >= 100_000 ? 'compact' : 'standard' }).format(amount);
+  return new Intl.NumberFormat(intlLocale(), { style: 'currency', currency, maximumFractionDigits: compact ? 0 : 2, notation: compact && amount >= 100_000 ? 'compact' : 'standard' }).format(amount);
 }
 
 export function formatBytes(n: number): string {
@@ -34,17 +35,30 @@ export function formatBytes(n: number): string {
   return `${(n / 1024 ** 2).toFixed(1)} MB`;
 }
 
+/** "Today", "Tomorrow", "in 12 days", "3 months ago" — in the app's language. */
 export function relativeDays(iso: IsoDate): string {
   const d = daysBetween(todayIso(), iso);
-  if (d === 0) return 'Today';
-  if (d === 1) return 'Tomorrow';
-  if (d === -1) return 'Yesterday';
-  if (d > 0) return d < 60 ? `in ${d} days` : `in ${Math.round(d / 30)} months`;
-  return -d < 60 ? `${-d} days ago` : `${Math.round(-d / 30)} months ago`;
+  const rtf = new Intl.RelativeTimeFormat(intlLocale(), { numeric: 'auto' });
+  const text = Math.abs(d) < 60 ? rtf.format(d, 'day') : rtf.format(Math.round(d / 30), 'month');
+  // "today" → "Today": these labels stand on their own.
+  return text.charAt(0).toLocaleUpperCase(intlLocale()) + text.slice(1);
+}
+
+const unitForms: Record<DurationUnit, [string, string]> = {
+  day: ['{n} day', '{n} days'],
+  week: ['{n} week', '{n} weeks'],
+  month: ['{n} month', '{n} months'],
+  year: ['{n} year', '{n} years'],
+};
+
+/** "1 day", "3 months" — in the app's language. */
+export function describeDuration({ amount, unit }: Duration): string {
+  const [one, other] = unitForms[unit] ?? ['{n} ' + unit, '{n} ' + unit + 's'];
+  return plural(amount, one, other);
 }
 
 export function formatDurations(list: Duration[]): string {
-  return list.length ? list.map(describeDuration).join(', ') + ' before' : 'No reminders';
+  return list.length ? t('{list} before', { list: list.map(describeDuration).join(', ') }) : t('No reminders');
 }
 
 export function initials(name: string): string {

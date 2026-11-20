@@ -35,7 +35,7 @@ export function RuntimeGate({ children }: { children: ReactNode }) {
           <Spinner className="size-4" /> {status.step}…
         </div>
         {slow && (
-          <p className="mt-3 flex items-start gap-2 text-left text-xs leading-relaxed text-muted">
+          <p className="mt-3 flex items-start gap-2 text-start text-xs leading-relaxed text-muted">
             <Database className="mt-0.5 size-3.5 shrink-0" />
             Assets runs entirely in this browser. The first start downloads its database engine and sets it up; next time it opens in a moment.
           </p>

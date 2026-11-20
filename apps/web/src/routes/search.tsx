@@ -57,9 +57,9 @@ export function SearchPage() {
     <>
       <PageHeader title="Search" description="Every field of every asset you can see, plus requests, teams and people. Partial words and small typos are fine.">
         <div className="relative max-w-2xl">
-          <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-subtle" />
-          <Input autoFocus className="h-11 pl-10 text-[15px]" placeholder="Try “adobe”, a serial number, a person, “renews march”…" value={q} onChange={(e) => setQ(e.target.value)} />
-          {r.loading && <Spinner className="absolute top-1/2 right-3 -translate-y-1/2" />}
+          <Search className="pointer-events-none absolute top-1/2 start-3 size-4 -translate-y-1/2 text-subtle" />
+          <Input autoFocus className="h-11 ps-10 text-[15px]" placeholder="Try “adobe”, a serial number, a person, “renews march”…" value={q} onChange={(e) => setQ(e.target.value)} />
+          {r.loading && <Spinner className="absolute top-1/2 end-3 -translate-y-1/2" />}
         </div>
       </PageHeader>
       <div className="mx-auto w-full max-w-4xl space-y-6 px-4 sm:px-6 py-6">

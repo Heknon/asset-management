@@ -1,4 +1,5 @@
-import { describeDuration, durationUnits, type Duration, type DurationUnit } from '@am/core';
+import { durationUnits, type Duration, type DurationUnit } from '@am/core';
+import { describeDuration } from '@/lib/utils';
 import { Plus, X } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from './ui/button';
@@ -31,7 +32,7 @@ export function DurationListEditor({ value, onChange, emptyLabel = 'No reminders
     <div className="flex flex-wrap items-center gap-1.5">
       {sorted.length === 0 && <span className="text-xs text-subtle">{emptyLabel}</span>}
       {sorted.map((d, i) => (
-        <span key={`${d.amount}${d.unit}${i}`} className="inline-flex h-6 items-center gap-1 rounded-md bg-surface-2 pr-1 pl-2 text-xs">
+        <span key={`${d.amount}${d.unit}${i}`} className="inline-flex h-6 items-center gap-1 rounded-md bg-surface-2 pe-1 ps-2 text-xs">
           {describeDuration(d)} before
           <button type="button" aria-label="Remove" className="rounded p-0.5 text-subtle hover:bg-surface-3 hover:text-fg" onClick={() => onChange(value.filter((x) => x !== d))}>
             <X className="size-3" />

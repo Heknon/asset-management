@@ -7,6 +7,7 @@ import { formatDate, formatMoney, relativeDays } from '@/lib/utils';
 import { Badge } from './ui/display';
 import { Checkbox, Input, Select, TagInput, Textarea } from './ui/form';
 import { PersonName, PersonPicker } from './pickers';
+import { intlLocale } from '@/lib/i18n';
 
 /** Read-only rendering of any attribute value; used in tables, detail pages and previews. */
 export function AttributeValue({ field, value, compact }: { field: FieldDefinition; value: Value | undefined; compact?: boolean }) {
@@ -18,15 +19,15 @@ export function AttributeValue({ field, value, compact }: { field: FieldDefiniti
     case 'number':
       return (
         <span className="tabular-nums">
-          {(value as number).toLocaleString()}
-          {field.config.unit && <span className="ml-0.5 text-subtle">{field.config.unit}</span>}
+          {(value as number).toLocaleString(intlLocale())}
+          {field.config.unit && <span className="ms-0.5 text-subtle">{field.config.unit}</span>}
         </span>
       );
     case 'date':
       return (
         <span className="tabular-nums">
           {formatDate(value as string, compact)}
-          {!compact && <span className="ml-1.5 text-xs text-subtle">{relativeDays(value as string)}</span>}
+          {!compact && <span className="ms-1.5 text-xs text-subtle">{relativeDays(value as string)}</span>}
         </span>
       );
     case 'boolean':
@@ -140,11 +141,11 @@ export function AttributeInput({ field, value, onChange, id, invalid }: { field:
             {...common}
             type="number"
             step={field.kind === 'currency' ? '0.01' : field.config.integer ? '1' : 'any'}
-            className={field.kind === 'currency' ? 'pl-12' : undefined}
+            className={field.kind === 'currency' ? 'ps-12' : undefined}
             value={value === undefined || value === null ? '' : String(value)}
             onChange={(e) => onChange(e.target.value === '' ? undefined : Number(e.target.value))}
           />
-          {field.kind === 'currency' && <span className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-xs text-subtle">{field.config.currency}</span>}
+          {field.kind === 'currency' && <span className="pointer-events-none absolute top-1/2 start-2.5 -translate-y-1/2 text-xs text-subtle">{field.config.currency}</span>}
         </div>
       );
     case 'date':
@@ -214,7 +215,7 @@ function AssetRefsInput({ id, typeId, value, onChange }: { id: string; typeId?: 
       {value.length > 0 && (
         <ul className="flex flex-wrap gap-1.5">
           {value.map((v) => (
-            <li key={v} className="inline-flex items-center gap-1 rounded-md bg-surface-2 py-0.5 pr-1 pl-2 text-xs">
+            <li key={v} className="inline-flex items-center gap-1 rounded-md bg-surface-2 py-0.5 pe-1 ps-2 text-xs">
               {byId.get(v)?.name ?? '…'}
               <button type="button" aria-label="Remove" className="text-subtle hover:text-fg" onClick={() => onChange(value.filter((x) => x !== v))}>
                 ×

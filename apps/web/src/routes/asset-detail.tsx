@@ -290,10 +290,10 @@ function Activity({ assetId, type }: { assetId: string; type: AssetType }) {
   return (
     <Card>
       <SectionTitle aside={<History className="size-4 text-subtle" />}>Activity</SectionTitle>
-      <ol className="relative space-y-4 border-l border-border pl-4">
+      <ol className="relative space-y-4 border-s border-border ps-4">
         {(activity.data ?? []).map((e) => (
           <li key={e.id} className="text-[13px]">
-            <span className="absolute -left-[4.5px] mt-1.5 size-2 rounded-full border-2 border-surface bg-border-strong" />
+            <span className="absolute -start-[4.5px] mt-1.5 size-2 rounded-full border-2 border-surface bg-border-strong" />
             <p>
               <span className="font-medium">{e.actorName}</span> <span className="text-muted">{actionLabels[e.action]}</span>
             </p>
@@ -356,7 +356,7 @@ function InlineEdit({
       <button
         type="button"
         onClick={() => (setValue(initial), setEditing(true))}
-        className="group/edit -mx-1.5 -my-1 flex w-[calc(100%+0.75rem)] min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-surface-2"
+        className="group/edit -mx-1.5 -my-1 flex w-[calc(100%+0.75rem)] min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-start transition-colors hover:bg-surface-2"
         title={`Edit ${label}`}
         aria-label={`Edit ${label}`}
       >

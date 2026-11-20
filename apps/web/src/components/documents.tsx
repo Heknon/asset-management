@@ -90,7 +90,7 @@ export function Documents({ assetId, canEdit, canManage, currentUserId }: { asse
                 <span className="flex size-8 items-center justify-center rounded-lg bg-surface-2 text-muted">
                   <Icon className="size-4" />
                 </span>
-                <button type="button" className="min-w-0 flex-1 text-left" onClick={() => (f.preview === 'none' ? void download(f) : setPreview(f))}>
+                <button type="button" className="min-w-0 flex-1 text-start" onClick={() => (f.preview === 'none' ? void download(f) : setPreview(f))}>
                   <div className="truncate text-[13px] font-medium hover:underline">{f.filename}</div>
                   <div className="text-xs text-muted">
                     {formatBytes(f.size)} · {f.uploadedByName} · {formatDateTime(f.createdAt)}

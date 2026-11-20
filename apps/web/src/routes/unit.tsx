@@ -21,6 +21,7 @@ import { useMyOrg } from '@/lib/org';
 import { keys, useAssets, useCatalogs, useLookups, useObligations, useRequests, useRollup, useSummary, useUnitPeople } from '@/lib/queries';
 import { formatMoney, relativeDays, todayIso } from '@/lib/utils';
 import { useRemember } from '@/lib/recent';
+import { intlLocale } from '@/lib/i18n';
 
 const money = (list: Array<{ currency: string; amount: number }> | undefined) => (list?.length ? list.map((s) => formatMoney(s.amount, s.currency, true)).join(' + ') : '—');
 
@@ -72,7 +73,7 @@ export function UnitPage() {
         actions={
           <>
             {managers.length > 0 && (
-              <span className="mr-2 flex -space-x-1.5" title={`Managed by ${managers.map((m) => m.displayName).join(', ')}`}>
+              <span className="me-2 flex -space-x-1.5" title={`Managed by ${managers.map((m) => m.displayName).join(', ')}`}>
                 {managers.slice(0, 4).map((m) => (
                   <Avatar key={m.id} name={m.displayName} size={26} className="ring-2 ring-bg" />
                 ))}
@@ -102,7 +103,7 @@ export function UnitPage() {
       {tab === 'overview' && (
         <div className="mx-auto w-full max-w-5xl space-y-6 px-4 sm:px-6 py-6">
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <Stat label="Assets" value={assets.data?.total.toLocaleString() ?? '–'} hint="Including sub-teams" />
+            <Stat label="Assets" value={assets.data?.total.toLocaleString(intlLocale()) ?? '–'} hint="Including sub-teams" />
             <Stat label="Renewing in 12 months" value={money(spend)} hint="Recurring spend" />
             <Stat label="Overdue" value={summary.data?.overdue ?? '–'} tone={summary.data?.overdue ? 'danger' : undefined} />
             <Stat label="Open requests" value={openRequests.data?.total ?? '–'} />
@@ -169,7 +170,7 @@ function TemplatesTab({ unitId }: { unitId: string }) {
                   )}
                 </div>
                 {vs.length > 0 && (
-                  <ul className="mt-2 ml-10 space-y-1">
+                  <ul className="mt-2 ms-10 space-y-1">
                     {vs.map((v) => (
                       <li key={v.id}>
                         <Link to="/templates/$typeId/variants/$variantId" params={{ typeId: t.id, variantId: v.id }} search={{ unit: undefined }} className="flex items-center gap-2 text-[13px] hover:underline">

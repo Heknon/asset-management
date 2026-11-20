@@ -22,6 +22,7 @@ import { useMediaQuery } from '@/lib/hooks';
 import { EmptyState } from './ui/display';
 import { Checkbox, Field, Input, Select } from './ui/form';
 import { Dialog, Popover } from './ui/overlay';
+import { intlLocale } from '@/lib/i18n';
 
 const PAGE = 50;
 /** Above this, act on a narrower search instead (and the export covers any size). */
@@ -298,10 +299,10 @@ export function AssetExplorer({
     <>
       <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 sm:px-6 py-3">
         <div className="relative w-full max-w-md min-w-72 flex-1">
-          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-subtle" />
-          <Input className="h-9 pl-8 text-[14px]" placeholder="Search name, vendor, serial…" title="Searches every field: name, vendor, serial, person, team…" value={query.q} onChange={(e) => update({ q: e.target.value, sort: undefined })} />
+          <Search className="pointer-events-none absolute top-1/2 start-2.5 size-3.5 -translate-y-1/2 text-subtle" />
+          <Input className="h-9 ps-8 text-[14px]" placeholder="Search name, vendor, serial…" title="Searches every field: name, vendor, serial, person, team…" value={query.q} onChange={(e) => update({ q: e.target.value, sort: undefined })} />
           {query.q && (
-            <button type="button" aria-label="Clear search" className="absolute top-1/2 right-2 -translate-y-1/2 text-subtle hover:text-fg" onClick={() => update({ q: '' })}>
+            <button type="button" aria-label="Clear search" className="absolute top-1/2 end-2 -translate-y-1/2 text-subtle hover:text-fg" onClick={() => update({ q: '' })}>
               <X className="size-3.5" />
             </button>
           )}
@@ -338,8 +339,8 @@ export function AssetExplorer({
           </Select>
         )}
         <FilterBar type={type && variant ? { ...type, fields: [...type.fields, ...variant.fields] } : type} value={query.filters} onChange={(filters) => update({ filters })} />
-        <span className="ml-auto flex flex-wrap items-center justify-end gap-2">
-          <span className="text-xs text-subtle">{assets.data ? `${assets.data.total.toLocaleString()} ${assets.data.total === 1 ? 'result' : 'results'}` : ''}</span>
+        <span className="ms-auto flex flex-wrap items-center justify-end gap-2">
+          <span className="text-xs text-subtle">{assets.data ? `${assets.data.total.toLocaleString(intlLocale())} ${assets.data.total === 1 ? 'result' : 'results'}` : ''}</span>
           <ColumnsMenu all={layout.all} shown={columns.map((c) => c.id!)} defaults={layout.defaults} onChange={setColumns} />
           <ExportButton disabled={!assets.data?.total} onExport={() => downloadUrl(withQuery('/api/registry/assets/export.csv', { ...listQuery, title: exportTitle }))} />
           {(hasQuery || view) && (view ? dirty : true) && (
@@ -381,7 +382,7 @@ export function AssetExplorer({
         extra={
           assets.data && assets.data.total > picked.size && pageItems.every((a) => picked.has(a.id)) && assets.data.total <= SELECT_ALL_MAX ? (
             <Button size="sm" variant="ghost" loading={selectingAll} onClick={() => void selectAll()}>
-              Select all {assets.data.total.toLocaleString()}
+              Select all {assets.data.total.toLocaleString(intlLocale())}
             </Button>
           ) : null
         } onExport={() =>

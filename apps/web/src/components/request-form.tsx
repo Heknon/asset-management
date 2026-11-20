@@ -125,7 +125,7 @@ export function RequestFormSheet({ open, onOpenChange, request }: { open: boolea
                     type="button"
                     onClick={() => setD({ ...d, unitId: unit.id })}
                     className={cn(
-                      'rounded-lg border px-2.5 py-1.5 text-left transition-colors',
+                      'rounded-lg border px-2.5 py-1.5 text-start transition-colors',
                       d.unitId === unit.id ? 'border-accent bg-accent-soft' : 'border-border hover:border-border-strong hover:bg-surface-2',
                     )}
                   >

@@ -41,10 +41,10 @@ function Panel({ open, onOpenChange, title, description, children, footer, class
             // Phones: dialogs rise from the bottom, sheets take the whole screen.
             placement === 'drawer'
               ? // Editors next to a list: rise from the bottom on phones (the list stays visible above), slide in from the side on tablets.
-                'animate-dialog inset-x-0 bottom-0 max-h-[85dvh] rounded-t-2xl pb-[env(safe-area-inset-bottom)] sm:animate-sheet sm:inset-x-auto sm:inset-y-2 sm:right-2 sm:max-h-none sm:w-[min(28rem,calc(100vw-1rem))] sm:rounded-xl sm:pb-0'
+                'animate-dialog inset-x-0 bottom-0 max-h-[85dvh] rounded-t-2xl pb-[env(safe-area-inset-bottom)] sm:animate-sheet sm:inset-x-auto sm:inset-y-2 sm:end-2 sm:max-h-none sm:w-[min(28rem,calc(100vw-1rem))] sm:rounded-xl sm:pb-0'
               : placement === 'center'
               ? 'animate-dialog inset-x-0 bottom-0 max-h-[92dvh] rounded-t-2xl pb-[env(safe-area-inset-bottom)] sm:inset-x-auto sm:top-[12vh] sm:bottom-auto sm:left-1/2 sm:max-h-[76vh] sm:w-[calc(100vw-2rem)] sm:max-w-lg sm:-translate-x-1/2 sm:rounded-xl sm:pb-0'
-              : 'animate-sheet inset-0 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] sm:inset-y-2 sm:right-2 sm:left-auto sm:w-[calc(100vw-1rem)] sm:max-w-xl sm:rounded-xl sm:pt-0 sm:pb-0',
+              : 'animate-sheet inset-0 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] sm:inset-y-2 sm:end-2 sm:start-auto sm:w-[calc(100vw-1rem)] sm:max-w-xl sm:rounded-xl sm:pt-0 sm:pb-0',
             className,
           )}
         >

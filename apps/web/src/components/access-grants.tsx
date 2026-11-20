@@ -80,7 +80,7 @@ export function GrantsEditor({ unitId }: { unitId: string | null }) {
                     <span className="block text-xs text-muted">Managers of {unit?.name}</span>
                   </span>
                   <Badge tone="accent">
-                    <Crown className="mr-1 size-3" />
+                    <Crown className="me-1 size-3" />
                     Admin
                   </Badge>
                 </li>

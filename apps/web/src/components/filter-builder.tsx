@@ -244,7 +244,7 @@ export function FilterBar({ type, value, onChange }: { type: AssetType | undefin
           open={editing === i}
           onOpenChange={(o) => setEditing(o ? i : null)}
           trigger={
-            <span className="inline-flex h-8 items-center gap-1 rounded-lg border border-accent/30 bg-accent-soft/60 pr-1 pl-2.5 text-[13px]">
+            <span className="inline-flex h-8 items-center gap-1 rounded-lg border border-accent/30 bg-accent-soft/60 pe-1 ps-2.5 text-[13px]">
               <button type="button" className="max-w-72 truncate">
                 {describe(f, fields, people)}
               </button>

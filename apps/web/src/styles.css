@@ -1,4 +1,6 @@
 @import '@fontsource-variable/inter';
+/* Hebrew: Heebo pairs with Inter (similar proportions); bundled, so air-gapped installs need no font CDN. */
+@import '@fontsource-variable/heebo';
 @import 'tailwindcss';
 
 @custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
@@ -57,7 +59,7 @@
 }
 
 @theme inline {
-  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-sans: 'Inter Variable', 'Heebo Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --color-bg: var(--bg);
   --color-surface: var(--surface);
   --color-surface-2: var(--surface-2);
@@ -145,4 +147,13 @@
 
 @media (prefers-reduced-motion: reduce) {
   .animate-overlay, .animate-panel, .animate-dialog, .animate-sheet, .animate-drawer { animation: none; }
+}
+
+/* Right-to-left: arrows and chevrons point the way the text reads. */
+[dir='rtl'] :is(.lucide-chevron-right, .lucide-chevron-left, .lucide-arrow-right, .lucide-arrow-left, .lucide-chevrons-right, .lucide-chevrons-left, .lucide-arrow-up-right, .lucide-corner-down-left, .lucide-undo-2, .lucide-redo-2, .lucide-log-out, .lucide-external-link) {
+  transform: scaleX(-1);
+}
+/* Hebrew reads best a touch larger and looser than Latin at the same size. */
+:root[lang='he'] body {
+  line-height: 1.55;
 }

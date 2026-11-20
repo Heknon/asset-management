@@ -151,7 +151,7 @@ export function Stat({ label, value, hint, tone, onClick }: { label: string; val
     </>
   );
   return onClick ? (
-    <button type="button" onClick={onClick} className="rounded-xl border border-border bg-surface p-4 text-left transition-colors hover:border-border-strong focus-visible:ring-2 focus-visible:ring-accent">
+    <button type="button" onClick={onClick} className="rounded-xl border border-border bg-surface p-4 text-start transition-colors hover:border-border-strong focus-visible:ring-2 focus-visible:ring-accent">
       {body}
     </button>
   ) : (

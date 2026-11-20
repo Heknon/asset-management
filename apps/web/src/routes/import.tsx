@@ -36,6 +36,7 @@ import { downloadCsv } from '@/lib/download';
 import { useMyOrg } from '@/lib/org';
 import { keys, useLookups } from '@/lib/queries';
 import { cn, formatDateTime } from '@/lib/utils';
+import { intlLocale } from '@/lib/i18n';
 
 type Step = 'source' | 'destination' | 'columns' | 'review' | 'done';
 const steps: Array<{ key: Step; label: string }> = [
@@ -208,7 +209,7 @@ function Nav({ onBack, onNext, nextLabel = 'Continue', disabled, hint }: { onBac
         {onNext && (
           <Button variant="primary" disabled={disabled} onClick={onNext}>
             {nextLabel}
-            <ArrowRight className="ml-1 size-3.5" />
+            <ArrowRight className="ms-1 size-3.5" />
           </Button>
         )}
       </span>
@@ -220,7 +221,7 @@ function Preview({ table, rows = 6 }: { table: ParsedTable; rows?: number }) {
   return (
     <div className="overflow-auto rounded-lg border border-border">
       <table className="w-full text-xs">
-        <thead className="bg-surface-2 text-left">
+        <thead className="bg-surface-2 text-start">
           <tr>
             {table.headers.map((h, i) => (
               <th key={i} className="px-2 py-1.5 font-medium whitespace-nowrap">
@@ -331,7 +332,7 @@ function SourceStep({
           <p className="mb-2 text-[13px] font-medium">{tables.length} tables in {fileName} — which one?</p>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             {tables.map((t, i) => (
-              <button key={i} type="button" onClick={() => onPick(i)} className={cn('rounded-lg border px-3 py-2 text-left', i === tableIndex ? 'border-accent bg-accent-soft' : 'border-border hover:border-border-strong')}>
+              <button key={i} type="button" onClick={() => onPick(i)} className={cn('rounded-lg border px-3 py-2 text-start', i === tableIndex ? 'border-accent bg-accent-soft' : 'border-border hover:border-border-strong')}>
                 <span className="block text-[13px] font-medium">{t.name}</span>
                 <span className="block text-xs text-muted">
                   {t.rows.length} rows · {t.headers.slice(0, 3).join(', ')}
@@ -350,13 +351,13 @@ function SourceStep({
               <FileSpreadsheet className="size-4 text-muted" />
               <span className="font-medium">{fileName}</span>
               <span className="text-muted">
-                · {table.rows.length.toLocaleString()} rows · {table.headers.length} columns · {raw(table.format)}
+                · {table.rows.length.toLocaleString(intlLocale())} rows · {table.headers.length} columns · {raw(table.format)}
               </span>
             </p>
             <Segmented value={headerRow ? 'yes' : 'no'} onChange={(v) => onHeaderRow(v === 'yes')} options={[{ value: 'yes', label: 'First row is column names' }, { value: 'no', label: 'No header row' }]} />
           </div>
           <Preview table={table} />
-          {table.rows.length > MAX_ROWS && <p className="text-xs text-danger">Only the first {MAX_ROWS.toLocaleString()} rows are imported at a time; split larger files.</p>}
+          {table.rows.length > MAX_ROWS && <p className="text-xs text-danger">Only the first {MAX_ROWS.toLocaleString(intlLocale())} rows are imported at a time; split larger files.</p>}
         </Card>
       )}
       <Nav onNext={onNext} disabled={!table || !table.rows.length} />
@@ -510,7 +511,7 @@ function DestinationStep({
               key={t.id}
               type="button"
               onClick={() => setDest((d) => ({ ...d, typeId: t.id, variantId: null }))}
-              className={cn('flex items-start gap-3 rounded-lg border px-3 py-2.5 text-left', dest.typeId === t.id ? 'border-accent bg-accent-soft' : 'border-border hover:border-border-strong')}
+              className={cn('flex items-start gap-3 rounded-lg border px-3 py-2.5 text-start', dest.typeId === t.id ? 'border-accent bg-accent-soft' : 'border-border hover:border-border-strong')}
             >
               <TypeIcon icon={t.icon} color={t.color} size={28} />
               <span className="min-w-0">
@@ -521,7 +522,7 @@ function DestinationStep({
             </button>
           ))}
           {canManageOrganization && (
-            <button type="button" onClick={() => newTemplate.mutate()} disabled={newTemplate.isPending} className="flex items-start gap-3 rounded-lg border border-dashed border-border px-3 py-2.5 text-left hover:border-border-strong">
+            <button type="button" onClick={() => newTemplate.mutate()} disabled={newTemplate.isPending} className="flex items-start gap-3 rounded-lg border border-dashed border-border px-3 py-2.5 text-start hover:border-border-strong">
               <span className="flex size-7 items-center justify-center rounded-md bg-surface-2 text-muted">
                 <Wand2 className="size-4" />
               </span>
@@ -802,7 +803,7 @@ function ColumnCheck({ field, target, values, dateFormat, optionMap, type }: { f
   if (field?.kind === 'assetRef') return <p className="text-xs text-muted">Items are matched by ID (HW-12) or exact name in the next step.</p>;
   return (
     <p className={cn('text-xs', stats.bad ? 'text-warning' : 'text-muted')}>
-      {stats.ok.toLocaleString()} ok{stats.bad ? ` · ${stats.bad} won’t fit — e.g. ${stats.example}` : ''}
+      {stats.ok.toLocaleString(intlLocale())} ok{stats.bad ? ` · ${stats.bad} won’t fit — e.g. ${stats.example}` : ''}
     </p>
   );
 }
@@ -1072,7 +1073,7 @@ function ReviewStep(props: {
       <Card className="space-y-4">
         {!ready || running === 'check' || !review ? (
           <div className="space-y-2">
-            <p className="text-[13px] font-medium">{!ready ? 'Matching people and linked items…' : `Checking every row — ${progress.toLocaleString()} of ${rows.length.toLocaleString()}`}</p>
+            <p className="text-[13px] font-medium">{!ready ? 'Matching people and linked items…' : `Checking every row — ${progress.toLocaleString(intlLocale())} of ${rows.length.toLocaleString(intlLocale())}`}</p>
             <div className="h-1.5 overflow-hidden rounded-full bg-surface-2">
               <div className="h-full bg-accent transition-all" style={{ width: `${rows.length ? (progress / rows.length) * 100 : 5}%` }} />
             </div>
@@ -1090,7 +1091,7 @@ function ReviewStep(props: {
               <>
                 <div className="max-h-80 overflow-auto rounded-lg border border-border">
                   <table className="w-full text-[13px]">
-                    <thead className="sticky top-0 bg-surface-2 text-left text-xs text-muted">
+                    <thead className="sticky top-0 bg-surface-2 text-start text-xs text-muted">
                       <tr>
                         <th className="px-3 py-1.5 font-medium">Row</th>
                         <th className="px-3 py-1.5 font-medium">Name</th>
@@ -1120,7 +1121,7 @@ function ReviewStep(props: {
                     value={skipProblems ? 'skip' : 'stop'}
                     onChange={(v) => setSkipProblems(v === 'skip')}
                     options={[
-                      { value: 'skip', label: `Import the ${good.toLocaleString()} good rows` },
+                      { value: 'skip', label: `Import the ${good.toLocaleString(intlLocale())} good rows` },
                       { value: 'stop', label: 'Fix the file first' },
                     ]}
                   />
@@ -1142,7 +1143,7 @@ function ReviewStep(props: {
             )}
             {running === 'import' && (
               <div className="space-y-1">
-                <p className="text-[13px] font-medium">Importing — {progress.toLocaleString()} rows done</p>
+                <p className="text-[13px] font-medium">Importing — {progress.toLocaleString(intlLocale())} rows done</p>
                 <div className="h-1.5 overflow-hidden rounded-full bg-surface-2">
                   <div className="h-full bg-success transition-all" style={{ width: `${(progress / Math.max(1, skipProblems ? good : rows.length)) * 100}%` }} />
                 </div>
@@ -1154,7 +1155,7 @@ function ReviewStep(props: {
       <Nav
         onBack={running ? undefined : onBack}
         onNext={review && (good > 0 || (!skipProblems && rows.length)) && !running ? (skipProblems || !problems.length ? run : undefined) : undefined}
-        nextLabel={`Import ${(skipProblems ? good : rows.length).toLocaleString()} ${type.name.toLowerCase()}${good === 1 ? '' : 's'}`}
+        nextLabel={`Import ${(skipProblems ? good : rows.length).toLocaleString(intlLocale())} ${type.name.toLowerCase()}${good === 1 ? '' : 's'}`}
         hint={review ? `Into ${schema.name}${dest.catalogId ? ', in the chosen catalog' : ''}` : undefined}
       />
     </>
@@ -1164,7 +1165,7 @@ function ReviewStep(props: {
 function Summary({ value, label, tone }: { value: number; label: string; tone?: 'success' | 'accent' | 'warning' }) {
   return (
     <div className="rounded-lg border border-border px-3 py-2">
-      <p className={cn('text-xl font-semibold tabular-nums', tone === 'success' && 'text-success', tone === 'accent' && 'text-accent', tone === 'warning' && 'text-warning')}>{value.toLocaleString()}</p>
+      <p className={cn('text-xl font-semibold tabular-nums', tone === 'success' && 'text-success', tone === 'accent' && 'text-accent', tone === 'warning' && 'text-warning')}>{value.toLocaleString(intlLocale())}</p>
       <p className="text-xs text-muted">{label}</p>
     </div>
   );
@@ -1192,7 +1193,7 @@ function DoneStep({ result, type, onAgain }: { result: ImportResult; type: Asset
       <div>
         <p className="text-[15px] font-semibold">{undone ? 'Import undone' : 'Imported'}</p>
         <p className="text-[13px] text-muted">
-          {result.counts.create.toLocaleString()} added · {result.counts.update.toLocaleString()} updated · {result.counts.unchanged.toLocaleString()} unchanged
+          {result.counts.create.toLocaleString(intlLocale())} added · {result.counts.update.toLocaleString(intlLocale())} updated · {result.counts.unchanged.toLocaleString(intlLocale())} unchanged
           {result.counts.error ? ` · ${result.counts.error} skipped` : ''}
         </p>
         <p className="mt-1 text-xs text-muted">Their dates are being picked up for reminders now. Each item’s history shows it came from this import.</p>

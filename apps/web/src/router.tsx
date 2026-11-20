@@ -3,6 +3,7 @@ import type { QueryClient } from '@tanstack/react-query';
 import { createRootRouteWithContext, createRoute, createRouter, Link, Outlet, redirect, useNavigate, useRouterState } from '@tanstack/react-router';
 import { useEffect } from 'react';
 import { AppShell } from './components/app-shell';
+import { useProfileLocale } from './components/language';
 import { ErrorScreen } from './components/error-screen';
 import { EmptyState, Spinner } from './components/ui/display';
 import { Lock } from 'lucide-react';
@@ -29,6 +30,7 @@ import { UpcomingPage } from './routes/upcoming';
 
 function Authenticated() {
   const me = useMe();
+  useProfileLocale(me.data?.preferences.locale);
   const lookups = useLookups();
   const navigate = useNavigate();
   const href = useRouterState({ select: (s) => s.location.href });

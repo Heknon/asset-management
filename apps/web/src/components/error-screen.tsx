@@ -21,7 +21,7 @@ export function ErrorScreen({ error, reset }: { error: unknown; reset?: () => vo
             ? 'The page loaded, but the services it talks to aren’t answering. They may be restarting, or this address serves only the web app without its API.'
             : 'The page couldn’t be shown. Try again; if it keeps happening, tell whoever runs Assets.'}
         </p>
-        {!unreachable && error instanceof Error && <p className="mt-3 rounded-lg bg-surface-2 px-3 py-2 text-left font-mono text-xs break-words text-muted">{error.message}</p>}
+        {!unreachable && error instanceof Error && <p className="mt-3 rounded-lg bg-surface-2 px-3 py-2 text-start font-mono text-xs break-words text-muted">{error.message}</p>}
         <Button variant="primary" className="mt-5" icon={<RefreshCw className="size-3.5" />} onClick={() => (reset ? reset() : window.location.reload())}>
           Try again
         </Button>

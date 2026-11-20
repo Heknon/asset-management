@@ -66,7 +66,7 @@ export function Conversation({ assetId, permissions }: { assetId: string; permis
                       {c.editedAt && !c.deleted && ' · edited'}
                     </span>
                     {!c.deleted && (c.authorId === me.userId || permissions.includes('delete')) && (
-                      <span className="ml-auto opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 touch:opacity-100">
+                      <span className="ms-auto opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 touch:opacity-100">
                         <Menu trigger={<Button size="icon" variant="ghost" aria-label="Message actions" icon={<MoreHorizontal className="size-3.5" />} />}>
                           {c.authorId === me.userId && (
                             <MenuItem icon={<Pencil />} onSelect={() => setEditing(c.id)}>
@@ -213,7 +213,7 @@ function Composer({
         aria-label="Message"
       />
       {options.length > 0 && (
-        <ul role="listbox" className="absolute bottom-full left-0 z-20 mb-1 w-72 overflow-hidden rounded-lg border border-border bg-surface py-1 shadow-lg">
+        <ul role="listbox" className="absolute bottom-full start-0 z-20 mb-1 w-72 overflow-hidden rounded-lg border border-border bg-surface py-1 shadow-lg">
           {options.map((p, i) => (
             <li key={p.id}>
               <button
@@ -221,11 +221,11 @@ function Composer({
                 role="option"
                 aria-selected={i === highlight}
                 onMouseDown={(e) => (e.preventDefault(), pick(p))}
-                className={cn('flex w-full items-center gap-2 px-3 py-1.5 text-left text-[13px]', i === highlight && 'bg-surface-2')}
+                className={cn('flex w-full items-center gap-2 px-3 py-1.5 text-start text-[13px]', i === highlight && 'bg-surface-2')}
               >
                 <Avatar name={p.displayName} size={20} />
                 <span className="truncate">{p.displayName}</span>
-                <span className="ml-auto truncate text-xs text-subtle">{p.username}</span>
+                <span className="ms-auto truncate text-xs text-subtle">{p.username}</span>
               </button>
             </li>
           ))}

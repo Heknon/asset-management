@@ -11,7 +11,7 @@ import { Popover } from './ui/overlay';
 import { typeIcons } from './type-icon';
 
 const triggerClass =
-  'flex h-8 w-full items-center gap-2 rounded-lg border border-border bg-surface px-2.5 text-left text-[13px] transition-colors hover:border-border-strong focus:border-accent focus:outline-none';
+  'flex h-8 w-full items-center gap-2 rounded-lg border border-border bg-surface px-2.5 text-start text-[13px] transition-colors hover:border-border-strong focus:border-accent focus:outline-none';
 
 /** Searchable picker for a directory person. */
 export function PersonPicker({ value, onChange, id, placeholder = 'Select a person', allowClear = true }: { value: string | null; onChange: (id: string | null) => void; id?: string; placeholder?: string; allowClear?: boolean }) {
@@ -34,7 +34,7 @@ export function PersonPicker({ value, onChange, id, placeholder = 'Select a pers
           ) : (
             <span className="text-subtle">{value ? 'Loading…' : placeholder}</span>
           )}
-          <span className="ml-auto flex items-center gap-1 text-subtle">
+          <span className="ms-auto flex items-center gap-1 text-subtle">
             {allowClear && value && (
               <X
                 className="size-3.5 hover:text-fg"
@@ -66,7 +66,7 @@ export function PersonPicker({ value, onChange, id, placeholder = 'Select a pers
               <Avatar name={p.displayName} size={20} />
               <span className="min-w-0 flex-1 truncate">
                 {p.displayName}
-                <span className="ml-1.5 text-xs text-subtle">{p.email ?? p.username}</span>
+                <span className="ms-1.5 text-xs text-subtle">{p.email ?? p.username}</span>
               </span>
               {value === p.id && <Check className="size-3.5 text-accent" />}
             </Command.Item>
@@ -164,7 +164,7 @@ export function UnitPicker({
       trigger={
         <button id={id} type="button" className={triggerClass}>
           {value ? <UnitPath id={value} /> : <span className="text-subtle">{allowClear ? clearLabel : placeholder}</span>}
-          <span className="ml-auto flex items-center gap-1 text-subtle">
+          <span className="ms-auto flex items-center gap-1 text-subtle">
             {allowClear && value && (
               <X
                 className="size-3.5 hover:text-fg"

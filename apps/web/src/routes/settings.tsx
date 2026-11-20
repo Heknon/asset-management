@@ -17,6 +17,7 @@ import { Link } from '@tanstack/react-router';
 import { useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { accessLabel } from '@/components/access';
+import { LanguageSetting } from '@/components/language';
 import { GrantsEditor } from '@/components/access-grants';
 import { DurationInput, DurationListEditor } from '@/components/duration-editor';
 import { ColorPicker, PersonName, PersonPicker, UnitPath } from '@/components/pickers';
@@ -30,6 +31,7 @@ import { api, ApiError } from '@/lib/api';
 import { keys, useOrgWorkflow, useDateKinds, useGroupMembers, useGroups, useLookups, useMe, useProviders, useUsers } from '@/lib/queries';
 import { useMyOrg } from '@/lib/org';
 import { formatDateTime, formatDurations, slugKey } from '@/lib/utils';
+import { intlLocale } from '@/lib/i18n';
 
 /** Mutation with toast + invalidation; every settings screen saves through this. */
 function useSave<TVars, TOut = unknown>(fn: (v: TVars) => Promise<TOut>, invalidate: QueryKey[], success: string, onDone?: () => void) {
@@ -341,7 +343,7 @@ function GroupDialog({ group, onClose }: { group: Group | null; onClose: () => v
       footer={
         <>
           {group && (
-            <Button variant="danger-ghost" className="mr-auto" icon={<Trash2 className="size-3.5" />} onClick={() => setConfirm(true)}>
+            <Button variant="danger-ghost" className="me-auto" icon={<Trash2 className="size-3.5" />} onClick={() => setConfirm(true)}>
               Delete
             </Button>
           )}
@@ -452,6 +454,9 @@ export function ProfilePage() {
     <>
       <PageHeader title="Profile & notifications" icon={<Avatar name={me.displayName} size={40} />} description={me.email ?? me.username} />
       <div className="mx-auto w-full max-w-2xl space-y-6 px-4 sm:px-6 py-6">
+        <Card>
+          <LanguageSetting />
+        </Card>
         <Card className="space-y-4">
           <h2 className="text-[13px] font-semibold">Notifications</h2>
           <Switch
@@ -633,7 +638,7 @@ function ago(iso: string): string {
   if (min < 60) return `${min} min ago`;
   if (min < 24 * 60) return `${Math.round(min / 60)} h ago`;
   if (min < 48 * 60) return 'yesterday';
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(iso));
+  return new Intl.DateTimeFormat(intlLocale(), { dateStyle: 'medium' }).format(new Date(iso));
 }
 
 /** "Chrome on macOS" from a user agent; connected apps keep their own name. */
@@ -738,8 +743,8 @@ function PasswordInput({ id, value, onChange, autoComplete = 'new-password' }: {
   const [shown, setShown] = useState(false);
   return (
     <div className="relative">
-      <Input id={id} type={shown ? 'text' : 'password'} autoComplete={autoComplete} value={value} onChange={(e) => onChange(e.target.value)} className="pr-16" />
-      <button type="button" onClick={() => setShown((x) => !x)} className="absolute top-1/2 right-2 -translate-y-1/2 rounded px-1.5 text-xs text-accent-fg">
+      <Input id={id} type={shown ? 'text' : 'password'} autoComplete={autoComplete} value={value} onChange={(e) => onChange(e.target.value)} className="pe-16" />
+      <button type="button" onClick={() => setShown((x) => !x)} className="absolute top-1/2 end-2 -translate-y-1/2 rounded px-1.5 text-xs text-accent-fg">
         {shown ? 'Hide' : 'Show'}
       </button>
     </div>

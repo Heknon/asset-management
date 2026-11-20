@@ -147,7 +147,7 @@ function Sidebar({ me, onSearch, onNavigate }: { me: Me; onSearch: () => void; o
         <button type="button" onClick={() => (onNavigate?.(), onSearch())} className="flex h-9 w-full lg:h-8 items-center gap-2 rounded-lg border border-border bg-surface px-2.5 text-[13px] text-subtle transition-colors hover:border-border-strong">
           <Search className="size-3.5" />
           Search anything
-          <span className="ml-auto hidden gap-0.5 [@media(hover:hover)]:flex">
+          <span className="ms-auto hidden gap-0.5 [@media(hover:hover)]:flex">
             <Kbd>⌘</Kbd>
             <Kbd>K</Kbd>
           </span>
@@ -244,7 +244,7 @@ function Sidebar({ me, onSearch, onNavigate }: { me: Me; onSearch: () => void; o
         <Menu
           align="start"
           trigger={
-            <button type="button" className="flex w-full items-center gap-2 rounded-lg p-1.5 text-left transition-colors hover:bg-surface-2">
+            <button type="button" className="flex w-full items-center gap-2 rounded-lg p-1.5 text-start transition-colors hover:bg-surface-2">
               <Avatar name={me.displayName} size={26} />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[13px] font-medium">{me.displayName}</span>
@@ -328,7 +328,7 @@ export function AppShell({ me }: { me: Me }) {
     <NewRequestProvider>
       <div className="flex h-full flex-col lg:flex-row">
         {/* Desktop and tablet landscape: the sidebar stays; smaller screens get a top bar and a drawer. */}
-        <aside className="hidden w-64 shrink-0 border-r border-border bg-surface/60 lg:block">
+        <aside className="hidden w-64 shrink-0 border-e border-border bg-surface/60 lg:block">
           <Sidebar me={me} onSearch={() => setPaletteOpen(true)} />
         </aside>
         <TopBar me={me} onSearch={() => setPaletteOpen(true)} />
@@ -358,10 +358,10 @@ function TopBar({ me, onSearch }: { me: Me; onSearch: () => void }) {
         </RDialog.Trigger>
         <RDialog.Portal>
           <RDialog.Overlay className="animate-overlay fixed inset-0 z-40 bg-black/30 dark:bg-black/60" />
-          <RDialog.Content className="animate-drawer fixed inset-y-0 left-0 z-50 w-[min(18rem,86vw)] border-r border-border bg-surface pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] shadow-pop outline-none">
+          <RDialog.Content className="animate-drawer fixed inset-y-0 start-0 z-50 w-[min(18rem,86vw)] border-e border-border bg-surface pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] shadow-pop outline-none">
             <RDialog.Title className="sr-only">Navigation</RDialog.Title>
             <RDialog.Description className="sr-only">Pages, teams and asset types</RDialog.Description>
-            <RDialog.Close className={cn(icon, 'absolute top-2 right-2 z-10')} aria-label="Close menu" style={{ marginTop: 'env(safe-area-inset-top)' }}>
+            <RDialog.Close className={cn(icon, 'absolute top-2 end-2 z-10')} aria-label="Close menu" style={{ marginTop: 'env(safe-area-inset-top)' }}>
               <X />
             </RDialog.Close>
             <Sidebar me={me} onSearch={onSearch} onNavigate={() => setOpen(false)} />
@@ -560,7 +560,7 @@ function recentLink(x: RecentItem) {
 function Keys({ keys }: { keys: string[] }) {
   if (!keys.length) return null;
   return (
-    <span className="ml-auto flex items-center gap-1 touch:hidden">
+    <span className="ms-auto flex items-center gap-1 touch:hidden">
       {keys.map((k, i) => (
         <Kbd key={i}>{k}</Kbd>
       ))}
@@ -631,7 +631,7 @@ function BottomNav() {
               {x.icon}
               {x.label}
               {!!('badge' in x && x.badge) && (
-                <span className={cn('absolute top-1.5 left-1/2 ml-1.5 min-w-4 rounded-full px-1 text-center text-[10px] leading-4 font-semibold text-white', 'danger' in x && x.danger ? 'bg-danger' : 'bg-accent')}>
+                <span className={cn('absolute top-1.5 left-1/2 ms-1.5 min-w-4 rounded-full px-1 text-center text-[10px] leading-4 font-semibold text-white', 'danger' in x && x.danger ? 'bg-danger' : 'bg-accent')}>
                   {x.badge! > 99 ? '99+' : x.badge}
                 </span>
               )}

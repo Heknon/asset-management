@@ -47,7 +47,7 @@ export function LocalSignIn({ onSignIn, busy }: { onSignIn: (username: string, p
                     type="button"
                     disabled={busy}
                     onClick={() => onSignIn(p.username, DEMO_PASSWORD)}
-                    className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-surface-2 disabled:opacity-50"
+                    className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-start transition-colors hover:bg-surface-2 disabled:opacity-50"
                   >
                     <Avatar name={titleCase(p.username)} size={26} />
                     <span className="min-w-0">

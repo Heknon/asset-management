@@ -101,7 +101,7 @@ export function UpcomingPage() {
               <div className="mb-2 flex items-center gap-2 px-1">
                 <h2 className={g.key === 'overdue' ? 'text-[13px] font-semibold text-danger' : 'text-[13px] font-semibold'}>{g.title}</h2>
                 <span className="text-xs text-subtle">{g.items.length}</span>
-                <span className="ml-auto hidden flex-wrap justify-end gap-1 sm:flex">
+                <span className="ms-auto hidden flex-wrap justify-end gap-1 sm:flex">
                   {[...new Map(g.items.map((o) => [o.dateKind.id, o.dateKind])).values()].slice(0, 4).map((k) => (
                     <DateKindBadge key={k.id} kind={k} />
                   ))}

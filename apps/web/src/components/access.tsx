@@ -76,7 +76,7 @@ export function RoleSelect({ value, onChange, disabled, compact }: { value: Perm
               role="option"
               aria-selected={role === r}
               onClick={() => (onChange([...roles[r].permissions]), setCustom(false), setOpen(false))}
-              className="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left hover:bg-surface-2"
+              className="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-start hover:bg-surface-2"
             >
               <Check className={cn('mt-0.5 size-3.5 shrink-0', role === r ? 'text-accent' : 'text-transparent')} />
               <span>
@@ -87,7 +87,7 @@ export function RoleSelect({ value, onChange, disabled, compact }: { value: Perm
           </li>
         ))}
         <li className="mt-1 border-t border-border pt-1">
-          <button type="button" onClick={() => setCustom((c) => !c)} className="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left hover:bg-surface-2">
+          <button type="button" onClick={() => setCustom((c) => !c)} className="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-start hover:bg-surface-2">
             <Check className={cn('mt-0.5 size-3.5 shrink-0', role === 'custom' ? 'text-accent' : 'text-transparent')} />
             <span>
               <span className="block text-[13px] font-medium">Custom…</span>
@@ -152,9 +152,9 @@ export function SubjectPicker({ value, onChange, kinds = ['user', 'unit', 'group
   }
   return (
     <div className="relative min-w-0 flex-1 basis-full sm:basis-0">
-      <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-subtle" />
+      <Search className="pointer-events-none absolute top-1/2 start-2.5 size-3.5 -translate-y-1/2 text-subtle" />
       <Input
-        className="pl-8"
+        className="ps-8"
         value={q}
         placeholder={kinds.length === 3 ? 'Add people, teams or groups…' : 'Search…'}
         onChange={(e) => (setQ(e.target.value), setOpen(true))}
@@ -163,11 +163,11 @@ export function SubjectPicker({ value, onChange, kinds = ['user', 'unit', 'group
         aria-label="Who"
       />
       {open && term && (
-        <ul role="listbox" className="absolute top-full right-0 left-0 z-30 mt-1 max-h-72 overflow-auto rounded-lg border border-border bg-surface py-1 shadow-lg">
+        <ul role="listbox" className="absolute top-full end-0 start-0 z-30 mt-1 max-h-72 overflow-auto rounded-lg border border-border bg-surface py-1 shadow-lg">
           {items.length ? (
             items.map((s) => (
               <li key={`${s.kind}:${s.id}`}>
-                <button type="button" role="option" aria-selected={false} onMouseDown={(e) => (e.preventDefault(), onChange(s), setQ(''))} className="flex w-full items-center gap-2.5 px-2.5 py-1.5 text-left hover:bg-surface-2">
+                <button type="button" role="option" aria-selected={false} onMouseDown={(e) => (e.preventDefault(), onChange(s), setQ(''))} className="flex w-full items-center gap-2.5 px-2.5 py-1.5 text-start hover:bg-surface-2">
                   <SubjectIcon kind={s.kind} className="size-6" />
                   <span className="min-w-0">
                     <span className="block truncate text-[13px]">{s.name}</span>

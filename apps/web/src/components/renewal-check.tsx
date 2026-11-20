@@ -139,7 +139,7 @@ export function AnswerDialog({ obligation, initial, onClose }: { obligation: Obl
               type="button"
               onClick={() => setDecision(c.value)}
               aria-pressed={decision === c.value}
-              className={cn('rounded-lg border px-3 py-3 text-left transition-colors hover:border-border-strong', decision === c.value ? 'border-accent bg-accent-soft' : 'border-border')}
+              className={cn('rounded-lg border px-3 py-3 text-start transition-colors hover:border-border-strong', decision === c.value ? 'border-accent bg-accent-soft' : 'border-border')}
             >
               <span className={cn('flex items-center gap-1.5 font-medium', c.tone)}>
                 {c.icon}

@@ -10,6 +10,7 @@ import { Select } from './form';
 import { useMediaQuery } from '@/lib/hooks';
 import { useShortcut } from '@/lib/shortcuts';
 import type { Table } from '@tanstack/react-table';
+import { intlLocale } from '@/lib/i18n';
 
 export interface SortState {
   sort: string;
@@ -33,7 +34,7 @@ export interface ColumnMeta<T> {
 const PHONE_DETAILS = 3;
 export type DataColumn<T> = ColumnDef<T, unknown> & { meta?: ColumnMeta<T> };
 
-const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+const collator = new Intl.Collator(intlLocale(), { numeric: true, sensitivity: 'base' });
 function compare(a: string | number | null | undefined, b: string | number | null | undefined): number {
   if (a == null || a === '') return b == null || b === '' ? 0 : 1;
   if (b == null || b === '') return -1;
@@ -124,7 +125,7 @@ export function DataTable<T>({
   const pageKeys = rows.map(rowKey);
   const allOnPage = !!selection && pageKeys.length > 0 && pageKeys.every((k) => selection.selected.has(k));
   const someOnPage = !!selection && pageKeys.some((k) => selection.selected.has(k));
-  const selectCell = 'w-10 border-b border-border px-0 pl-4 sm:pl-6';
+  const selectCell = 'w-10 border-b border-border px-0 ps-4 sm:ps-6';
 
   return (
     <div className="flex flex-col sm:min-h-0">
@@ -137,7 +138,7 @@ export function DataTable<T>({
             {table.getHeaderGroups().map((hg) => (
               <tr key={hg.id}>
                 {selection && (
-                  <th className={cn('h-9 bg-bg text-left', selectCell)}>
+                  <th className={cn('h-9 bg-bg text-start', selectCell)}>
                     <RowCheck
                       label="Select all on this page"
                       checked={allOnPage}
@@ -159,7 +160,7 @@ export function DataTable<T>({
                       key={h.id}
                       style={{ width: meta?.width }}
                       aria-sort={active ? (activeSort.order === 'asc' ? 'ascending' : 'descending') : undefined}
-                      className={cn('h-9 border-b border-border bg-bg px-3 text-left max-lg:first:sticky max-lg:first:left-0 max-lg:first:z-[1] text-xs font-medium whitespace-nowrap text-muted first:pl-4 last:pr-4 sm:first:pl-6 sm:last:pr-6', meta?.align === 'right' && 'text-right')}
+                      className={cn('h-9 border-b border-border bg-bg px-3 text-start max-lg:first:sticky max-lg:first:start-0 max-lg:first:z-[1] text-xs font-medium whitespace-nowrap text-muted first:ps-4 last:pe-4 sm:first:ps-6 sm:last:pe-6', meta?.align === 'right' && 'text-end')}
                     >
                       {sortable(meta) ? (
                         <button
@@ -186,7 +187,7 @@ export function DataTable<T>({
                   <tr key={i}>
                     {selection && <td className={selectCell} />}
                     {columns.map((_, j) => (
-                      <td key={j} className="h-11 border-b border-border px-3 first:pl-4 last:pr-4 sm:first:pl-6 sm:last:pr-6">
+                      <td key={j} className="h-11 border-b border-border px-3 first:ps-4 last:pe-4 sm:first:ps-6 sm:last:pe-6">
                         <Skeleton className="h-3.5 w-3/4" />
                       </td>
                     ))}
@@ -202,7 +203,7 @@ export function DataTable<T>({
                     {row.getVisibleCells().map((cell) => {
                       const meta = (cell.column.columnDef as DataColumn<T>).meta;
                       return (
-                        <td key={cell.id} className={cn('h-11 border-b border-border px-3 whitespace-nowrap transition-colors max-lg:first:sticky max-lg:first:left-0 max-lg:first:z-[1] max-lg:first:max-w-[62vw] max-lg:first:overflow-hidden max-lg:first:bg-bg max-lg:first:shadow-[1px_0_0_var(--border)] first:pl-4 last:pr-4 sm:first:pl-6 sm:last:pr-6 group-hover:bg-surface-2/60 group-data-[selected]:bg-accent-soft group-data-[cursor]:bg-accent-soft/50 group-data-[cursor]:first:shadow-[inset_2px_0_0_var(--accent)]', meta?.align === 'right' && 'text-right tabular-nums')}>
+                        <td key={cell.id} className={cn('h-11 border-b border-border px-3 whitespace-nowrap transition-colors max-lg:first:sticky max-lg:first:start-0 max-lg:first:z-[1] max-lg:first:max-w-[62vw] max-lg:first:overflow-hidden max-lg:first:bg-bg max-lg:first:shadow-[1px_0_0_var(--border)] first:ps-4 last:pe-4 sm:first:ps-6 sm:last:pe-6 group-hover:bg-surface-2/60 group-data-[selected]:bg-accent-soft group-data-[cursor]:bg-accent-soft/50 group-data-[cursor]:first:shadow-[inset_2px_0_0_var(--accent)]', meta?.align === 'right' && 'text-end tabular-nums')}>
                           {flexRender(cell.column.columnDef.cell, cell.getContext())}
                         </td>
                       );
@@ -292,7 +293,7 @@ function PhoneList<T>({
       {(sortColumns.length > 0 || selection) && (
         <div className="flex items-center gap-2 border-b border-border px-4 py-2 text-xs text-muted">
           {selection && rows.length > 0 && (
-            <button type="button" className="order-last ml-auto h-8 rounded-md px-2 text-[13px] font-medium text-accent-fg" onClick={() => (selecting ? (setPicking(false), selection.onChange(new Set())) : setPicking(true))}>
+            <button type="button" className="order-last ms-auto h-8 rounded-md px-2 text-[13px] font-medium text-accent-fg" onClick={() => (selecting ? (setPicking(false), selection.onChange(new Set())) : setPicking(true))}>
               {selecting ? 'Cancel' : 'Select'}
             </button>
           )}

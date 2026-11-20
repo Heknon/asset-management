@@ -28,7 +28,7 @@ export function MailboxPage() {
             <ul className="divide-y divide-border">
               {items.map((m) => (
                 <li key={m.id}>
-                  <button type="button" onClick={() => setOpenId(m.id)} className={cn('w-full px-4 py-3 text-left transition-colors hover:bg-surface-2/60', m.id === openId && 'bg-surface-2')}>
+                  <button type="button" onClick={() => setOpenId(m.id)} className={cn('w-full px-4 py-3 text-start transition-colors hover:bg-surface-2/60', m.id === openId && 'bg-surface-2')}>
                     <span className="flex items-center justify-between gap-2 text-xs text-muted">
                       <span className="truncate">To {m.to}</span>
                       <span className="shrink-0">{formatDateTime(m.at)}</span>
@@ -43,7 +43,7 @@ export function MailboxPage() {
             </ul>
           )}
         </Card>
-        {open ? <MailView mail={open} onBack={() => setOpenId(null)} /> : <Card className="hidden items-center justify-center text-[13px] text-muted lg:flex"><Mail className="mr-2 size-4" /> Pick an email to read it</Card>}
+        {open ? <MailView mail={open} onBack={() => setOpenId(null)} /> : <Card className="hidden items-center justify-center text-[13px] text-muted lg:flex"><Mail className="me-2 size-4" /> Pick an email to read it</Card>}
       </div>
     </>
   );

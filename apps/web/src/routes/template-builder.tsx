@@ -260,10 +260,10 @@ export function TemplateBuilderPage() {
       {issues.length > 0 && (
         <div className="mx-4 mt-4 rounded-lg border border-danger/30 bg-danger-soft px-4 py-3 text-[13px] text-danger sm:mx-6">
           <p className="font-medium">Fix these before saving:</p>
-          <ul className="mt-1 list-disc pl-5">
+          <ul className="mt-1 list-disc ps-5">
             {issues.map((i, n) => (
               <li key={n}>
-                <button type="button" className="text-left underline-offset-2 hover:underline" onClick={() => setTab(issueTab(i.path))}>
+                <button type="button" className="text-start underline-offset-2 hover:underline" onClick={() => setTab(issueTab(i.path))}>
                   {describeIssue(i, draft.fields)}
                 </button>
               </li>
@@ -475,7 +475,7 @@ function SchemaWorkbench({
           description={field ? fieldKindMeta[field.kind].label : undefined}
           footer={
             <>
-              <Button variant="danger-ghost" className="mr-auto" icon={<Trash2 className="size-4" />} onClick={() => field && remove(field.id)}>
+              <Button variant="danger-ghost" className="me-auto" icon={<Trash2 className="size-4" />} onClick={() => field && remove(field.id)}>
                 Remove
               </Button>
               <Button variant="primary" onClick={() => onSelect(null)}>
@@ -510,7 +510,7 @@ function SectionRow({ id, name, count, own, onRename, onRemove, addMenu }: { id:
           <Input autoFocus aria-label="Section name" className="h-7 text-xs font-semibold" value={value} onChange={(e) => setValue(e.target.value)} onBlur={() => (onRename(value), setEditing(false))} onKeyDown={(e) => e.key === 'Escape' && (setValue(name), setEditing(false))} />
         </form>
       ) : (
-        <button type="button" disabled={!own} onClick={() => (setValue(name), setEditing(true))} className="min-w-0 flex-1 truncate text-left text-[11px] font-semibold tracking-wide text-muted uppercase enabled:hover:text-fg" title={own ? 'Rename section' : 'From the template'}>
+        <button type="button" disabled={!own} onClick={() => (setValue(name), setEditing(true))} className="min-w-0 flex-1 truncate text-start text-[11px] font-semibold tracking-wide text-muted uppercase enabled:hover:text-fg" title={own ? 'Rename section' : 'From the template'}>
           {name} <span className="font-normal normal-case text-subtle">· {count}</span>
         </button>
       )}
@@ -550,7 +550,7 @@ function NewSectionRow({ existing, onAdd }: { existing: string[]; onAdd: (name: 
       </Button>
     </form>
   ) : (
-    <button type="button" onClick={() => setOpen(true)} className="flex w-full items-center gap-2 border-t border-border px-4 py-2.5 text-left text-xs text-muted transition-colors hover:bg-surface-2/50 hover:text-fg">
+    <button type="button" onClick={() => setOpen(true)} className="flex w-full items-center gap-2 border-t border-border px-4 py-2.5 text-start text-xs text-muted transition-colors hover:bg-surface-2/50 hover:text-fg">
       <Plus className="size-3.5" /> Add a section <span className="text-subtle max-sm:hidden">— groups fields on the form, e.g. Commercial, Term, Access</span>
     </button>
   );
@@ -691,7 +691,7 @@ export function VariantBuilderPage() {
       {issues.length > 0 && (
         <div className="mx-6 mt-4 rounded-lg border border-danger/30 bg-danger-soft px-4 py-3 text-[13px] text-danger">
           <p className="font-medium">Fix these before saving:</p>
-          <ul className="mt-1 list-disc pl-5">
+          <ul className="mt-1 list-disc ps-5">
             {issues.map((i, n) => (
               <li key={n}>{describeIssue(i, draft.fields)}</li>
             ))}
@@ -808,7 +808,7 @@ function AddFieldChooser({ q, onQ, taken, onAdd, onDone }: { q: string; onQ: (q:
         }}
       />
       {quick && (
-        <button type="button" onClick={() => (onAdd(guessKind(quick), quick), onDone())} className="flex w-full items-center gap-2.5 rounded-lg bg-accent-soft/60 p-2 text-left text-[13px] transition-colors hover:bg-accent-soft">
+        <button type="button" onClick={() => (onAdd(guessKind(quick), quick), onDone())} className="flex w-full items-center gap-2.5 rounded-lg bg-accent-soft/60 p-2 text-start text-[13px] transition-colors hover:bg-accent-soft">
           <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-accent text-white">
             <Plus className="size-4" />
           </span>
@@ -831,7 +831,7 @@ function AddFieldChooser({ q, onQ, taken, onAdd, onDone }: { q: string; onQ: (q:
                   type="button"
                   disabled={added}
                   onClick={() => onAdd(p)}
-                  className="flex items-center gap-2.5 rounded-lg p-2 text-left transition-colors hover:bg-surface-2 disabled:cursor-default disabled:opacity-60 disabled:hover:bg-transparent"
+                  className="flex items-center gap-2.5 rounded-lg p-2 text-start transition-colors hover:bg-surface-2 disabled:cursor-default disabled:opacity-60 disabled:hover:bg-transparent"
                 >
                   <span className={cn('flex size-7 shrink-0 items-center justify-center rounded-md', added ? 'bg-success-soft text-success' : 'bg-surface-2 text-muted')}>{added ? <Check className="size-4" /> : <Icon className="size-4" />}</span>
                   <span className="min-w-0">
@@ -858,7 +858,7 @@ function AddFieldChooser({ q, onQ, taken, onAdd, onDone }: { q: string; onQ: (q:
                     onAdd(k, quick ?? undefined);
                     onDone();
                   }}
-                  className="flex items-start gap-2.5 rounded-lg p-2 text-left transition-colors hover:bg-surface-2"
+                  className="flex items-start gap-2.5 rounded-lg p-2 text-start transition-colors hover:bg-surface-2"
                 >
                   <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-surface-2 text-muted">
                     <Icon className="size-4" />
@@ -889,7 +889,7 @@ function SuggestedFields({ taken, onAdd }: { taken: ReadonlySet<string>; onAdd: 
   if (taken.size >= 10 || !left.length) return null;
   return (
     <div className="flex flex-wrap items-center gap-1.5 border-t border-border px-4 py-3">
-      <span className="mr-1 text-xs text-muted">Quick add</span>
+      <span className="me-1 text-xs text-muted">Quick add</span>
       {left.slice(0, 8).map((p) => (
         <button key={p.label} type="button" onClick={() => onAdd(p)} className="inline-flex h-7 items-center gap-1 rounded-full border border-border px-2.5 text-xs font-medium transition-colors hover:border-border-strong hover:bg-surface-2 touch:h-8">
           <Plus className="size-3 text-subtle" />
@@ -929,7 +929,7 @@ function FieldRow({ field, kinds, active, onSelect, hasIssue }: { field: FieldDe
       <button type="button" className="cursor-grab rounded p-1 text-subtle hover:bg-surface-2 active:cursor-grabbing" aria-label="Reorder" {...attributes} {...listeners}>
         <GripVertical className="size-4" />
       </button>
-      <button type="button" onClick={onSelect} className="flex min-w-0 flex-1 items-center gap-3 text-left">
+      <button type="button" onClick={onSelect} className="flex min-w-0 flex-1 items-center gap-3 text-start">
         <span className={cn('flex size-7 shrink-0 items-center justify-center rounded-md', active ? 'bg-accent text-white' : 'bg-surface-2 text-muted')}>
           <Icon className="size-4" />
         </span>
@@ -960,7 +960,7 @@ function FieldRow({ field, kinds, active, onSelect, hasIssue }: { field: FieldDe
 function LockedFieldRow({ field, from }: { field: FieldDefinition; from: string }) {
   const Icon = kindIcons[field.kind];
   return (
-    <li className="flex items-center gap-3 bg-surface-2/40 px-2 py-2 pl-9 text-muted">
+    <li className="flex items-center gap-3 bg-surface-2/40 px-2 py-2 ps-9 text-muted">
       <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-surface-2">
         <Icon className="size-4" />
       </span>

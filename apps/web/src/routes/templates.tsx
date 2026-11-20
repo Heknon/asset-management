@@ -36,7 +36,7 @@ function TypeCard({ type }: { type: AssetType }) {
               {type.fields.length} fields · v{type.version}
             </p>
           </div>
-          {type.archived && <Badge className="ml-auto">Archived</Badge>}
+          {type.archived && <Badge className="ms-auto">Archived</Badge>}
         </div>
         {tracked.length > 0 && (
           <div className="mt-3 flex flex-wrap gap-1">
@@ -176,7 +176,7 @@ function StartTemplate({ open, onOpenChange, gallery, onStarter, starting }: { o
           <SectionTitle>Or adapt a starter</SectionTitle>
           <div className="divide-y divide-border rounded-xl border border-border">
             {gallery.map((g) => (
-              <button key={g.key} type="button" disabled={!!starting} onClick={() => onStarter(g.key)} className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors first:rounded-t-xl last:rounded-b-xl hover:bg-surface-2 disabled:opacity-60">
+              <button key={g.key} type="button" disabled={!!starting} onClick={() => onStarter(g.key)} className="flex w-full items-center gap-3 px-3 py-2.5 text-start transition-colors first:rounded-t-xl last:rounded-b-xl hover:bg-surface-2 disabled:opacity-60">
                 <TypeIcon icon={g.icon} color={g.color} size={30} />
                 <span className="min-w-0 flex-1">
                   <span className="block text-[13px] font-medium">{g.name}</span>

@@ -140,7 +140,7 @@ export function CatalogPage() {
           <>
             <Button icon={canManage ? <Share2 className="size-3.5" /> : <Users className="size-3.5" />} onClick={() => setSharing(true)}>
               {canManage ? 'Share' : 'Who has access'}
-              {c.shares.length > 0 && <span className="ml-1 text-muted">{c.shares.length}</span>}
+              {c.shares.length > 0 && <span className="ms-1 text-muted">{c.shares.length}</span>}
             </Button>
             {canAdd && !phone && (
               <Link to="/import" search={{ unit: c.unitId, catalog: c.id }}>

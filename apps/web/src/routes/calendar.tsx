@@ -9,6 +9,7 @@ import { Segmented } from '@/components/ui/form';
 import { api } from '@/lib/api';
 import { useObligations } from '@/lib/queries';
 import { cn, todayIso } from '@/lib/utils';
+import { intlLocale } from '@/lib/i18n';
 
 const iso = (y: number, m: number, d: number) => new Date(Date.UTC(y, m, d)).toISOString().slice(0, 10);
 
@@ -49,7 +50,7 @@ export function CalendarPage() {
   return (
     <>
       <PageHeader
-        title={new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(Date.UTC(cursor.y, cursor.m, 1)))}
+        title={new Intl.DateTimeFormat(intlLocale(), { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(Date.UTC(cursor.y, cursor.m, 1)))}
         description="Every tracked date you can see. Subscribe in Outlook to get your own items on your calendar."
         actions={
           <>
@@ -115,7 +116,7 @@ export function CalendarPage() {
         </div>
         <section className="mt-4 md:hidden" aria-live="polite">
           <h2 className="mb-2 px-1 text-[13px] font-semibold">
-            {new Intl.DateTimeFormat(undefined, { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' }).format(new Date(`${selected}T00:00:00Z`))}
+            {new Intl.DateTimeFormat(intlLocale(), { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' }).format(new Date(`${selected}T00:00:00Z`))}
           </h2>
           {dayItems.length ? (
             <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-surface">

@@ -19,7 +19,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSel
       ref={ref}
       className={cn(
         control,
-        'h-8 cursor-pointer appearance-none touch:h-10 bg-[url("data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20width=%2712%27%20height=%2712%27%20fill=%27none%27%20stroke=%27%238b919c%27%20stroke-width=%272%27%3E%3Cpath%20d=%27M3%204.5l3%203%203-3%27/%3E%3C/svg%3E")] bg-[position:right_8px_center] bg-no-repeat pr-7',
+        'h-8 cursor-pointer appearance-none touch:h-10 bg-[url("data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20width=%2712%27%20height=%2712%27%20fill=%27none%27%20stroke=%27%238b919c%27%20stroke-width=%272%27%3E%3Cpath%20d=%27M3%204.5l3%203%203-3%27/%3E%3C/svg%3E")] bg-[position:right_8px_center] bg-no-repeat pe-7',
         className,
       )}
       {...rest}
@@ -56,7 +56,7 @@ export function Switch({ checked, onChange, label, description, disabled }: { ch
         </span>
       )}
       <span className={cn('relative mt-0.5 inline-flex h-[18px] w-8 shrink-0 rounded-full transition-colors', checked ? 'bg-accent' : 'bg-surface-3')}>
-        <span className={cn('absolute top-[2px] size-3.5 rounded-full bg-white shadow transition-all', checked ? 'left-[16px]' : 'left-[2px]')} />
+        <span className={cn('absolute top-[2px] size-3.5 rounded-full bg-white shadow transition-all', checked ? 'start-[16px]' : 'start-[2px]')} />
       </span>
       <input type="checkbox" role="switch" className="sr-only" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
     </label>
@@ -71,7 +71,7 @@ export function Field({ label, hint, error, required, children, className, aside
       <div className="flex items-center justify-between gap-2">
         <label htmlFor={id} className="text-xs font-medium text-muted">
           {label}
-          {required && <span className="ml-0.5 text-danger">*</span>}
+          {required && <span className="ms-0.5 text-danger">*</span>}
         </label>
         {aside}
       </div>
@@ -92,7 +92,7 @@ export function Segmented<T extends string>({ value, onChange, options, classNam
           key={o.value}
           type="button"
           onClick={() => onChange(o.value)}
-          className={cn('h-6 rounded-md px-2.5 text-xs font-medium transition-colors', long && 'max-sm:h-8 max-sm:text-left', value === o.value ? 'bg-surface text-fg shadow-sm' : 'text-muted hover:text-fg')}
+          className={cn('h-6 rounded-md px-2.5 text-xs font-medium transition-colors', long && 'max-sm:h-8 max-sm:text-start', value === o.value ? 'bg-surface text-fg shadow-sm' : 'text-muted hover:text-fg')}
         >
           {o.label}
         </button>
@@ -113,7 +113,7 @@ export function TagInput({ value, onChange, placeholder, validate, id }: { value
   return (
     <div className="flex min-h-8 flex-wrap items-center gap-1 rounded-lg border border-border bg-surface px-1.5 py-1 focus-within:border-accent focus-within:ring-3 focus-within:ring-[var(--ring)]">
       {value.map((v) => (
-        <span key={v} className="inline-flex max-w-full items-center gap-1 rounded-md bg-surface-2 py-0.5 pr-1 pl-2 font-mono text-[11px]">
+        <span key={v} className="inline-flex max-w-full items-center gap-1 rounded-md bg-surface-2 py-0.5 pe-1 ps-2 font-mono text-[11px]">
           <span className="truncate">{v}</span>
           <button type="button" aria-label={`Remove ${v}`} className="rounded p-0.5 text-subtle hover:bg-surface-3 hover:text-fg" onClick={() => onChange(value.filter((x) => x !== v))}>
             <X className="size-3" />

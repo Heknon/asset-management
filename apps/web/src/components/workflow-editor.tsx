@@ -66,7 +66,7 @@ export function WorkflowEditor({ value, onChange, lockedKeys = [] }: { value: Wo
                   }}
                 />
                 {/* Phones: the meaning moves to its own line under the name. */}
-                <span className="order-last flex basis-full items-center gap-2 pl-7 sm:order-none sm:basis-auto sm:pl-0">
+                <span className="order-last flex basis-full items-center gap-2 ps-7 sm:order-none sm:basis-auto sm:ps-0">
                 <Select className="h-8 w-36" value={s.category} title={statusCategoryMeta[s.category].description} aria-label="Meaning" onChange={(e) => patch(i, { category: e.target.value as StatusCategory })}>
                   {statusCategories.map((c) => (
                     <option key={c} value={c}>
@@ -93,7 +93,7 @@ export function WorkflowEditor({ value, onChange, lockedKeys = [] }: { value: Wo
                     </MenuItem>
                   </Menu>
                 ) : (
-                  <span className="ml-auto flex items-center">
+                  <span className="ms-auto flex items-center">
                     <Button size="icon" variant="ghost" aria-label="Move up" disabled={i === 0} icon={<ArrowUp className="size-3.5" />} onClick={() => move(i, -1)} />
                     <Button size="icon" variant="ghost" aria-label="Move down" disabled={i === value.statuses.length - 1} icon={<ArrowDown className="size-3.5" />} onClick={() => move(i, 1)} />
                     <Button size="icon" variant="ghost" aria-label="Remove" disabled={value.statuses.length <= 3} icon={<Trash2 className="size-3.5" />} onClick={() => set(value.statuses.filter((_, j) => j !== i))} />
@@ -101,8 +101,8 @@ export function WorkflowEditor({ value, onChange, lockedKeys = [] }: { value: Wo
                 )}
               </div>
               {s.category !== 'done' && s.category !== 'closed' ? (
-                <div className="flex flex-wrap items-center gap-1.5 sm:pl-7">
-                  <span className="mr-1 text-xs text-muted">Can move to</span>
+                <div className="flex flex-wrap items-center gap-1.5 sm:ps-7">
+                  <span className="me-1 text-xs text-muted">Can move to</span>
                   {value.statuses
                     .filter((x) => x.key !== s.key)
                     .map((x) => {
@@ -152,10 +152,10 @@ export function WorkflowEditor({ value, onChange, lockedKeys = [] }: { value: Wo
 /** Finished statuses normally end the request; a closed one may be reopened. */
 function ReopenRow({ s, value, onChange }: { s: WorkflowStatus; value: Workflow; onChange: (w: Workflow) => void }) {
   const out = value.transitions.filter((t) => t.from === s.key);
-  if (s.category === 'done') return <p className="text-xs text-subtle sm:pl-7">Finished: a purchase got its item, a renewal rolled its date forward.</p>;
+  if (s.category === 'done') return <p className="text-xs text-subtle sm:ps-7">Finished: a purchase got its item, a renewal rolled its date forward.</p>;
   return (
-    <div className="flex flex-wrap items-center gap-1.5 sm:pl-7">
-      <span className="mr-1 text-xs text-muted">Can be reopened to</span>
+    <div className="flex flex-wrap items-center gap-1.5 sm:ps-7">
+      <span className="me-1 text-xs text-muted">Can be reopened to</span>
       {value.statuses
         .filter((x) => x.category === 'todo' || x.category === 'active')
         .map((x) => {

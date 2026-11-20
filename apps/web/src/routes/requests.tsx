@@ -60,8 +60,8 @@ export function RequestsPage() {
       </PageHeader>
       <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 sm:px-6 py-3">
         <div className="relative w-80">
-          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-subtle" />
-          <Input className="pl-8" placeholder="Search requests…" value={q} onChange={(e) => setQ(e.target.value)} />
+          <Search className="pointer-events-none absolute top-1/2 start-2.5 size-3.5 -translate-y-1/2 text-subtle" />
+          <Input className="ps-8" placeholder="Search requests…" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
         <Segmented value={status} onChange={setStatus} options={[{ value: 'open', label: 'Open' }, { value: 'closed', label: 'Closed' }, { value: 'all', label: 'All' }]} />
         <Segmented value={kind} onChange={setKind} options={[{ value: 'all', label: 'Everything' }, { value: 'purchase', label: 'Purchases' }, { value: 'renewal', label: 'Renewals' }]} />
@@ -70,7 +70,7 @@ export function RequestsPage() {
             Unassigned{counts.data?.unassigned ? ` · ${counts.data.unassigned}` : ''}
           </button>
         )}
-        <span className="ml-auto text-xs text-subtle">{requests.data ? `${requests.data.total} ${requests.data.total === 1 ? 'request' : 'requests'}` : ''}</span>
+        <span className="ms-auto text-xs text-subtle">{requests.data ? `${requests.data.total} ${requests.data.total === 1 ? 'request' : 'requests'}` : ''}</span>
       </div>
       <div className="mx-auto w-full max-w-5xl px-4 sm:px-6 py-5">
         <Card padded={false} className="overflow-hidden">
@@ -101,7 +101,7 @@ function RequestRow({ r, meId, onOpen }: { r: PurchaseRequest; meId: string; onO
   const type = r.assetTypeId ? typeById.get(r.assetTypeId) : undefined;
   return (
     <li>
-      <button type="button" onClick={onOpen} className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-surface-2/50">
+      <button type="button" onClick={onOpen} className="flex w-full items-center gap-3 px-4 py-3 text-start transition-colors hover:bg-surface-2/50">
         {r.kind === 'renewal' ? (
           <span className="flex size-[30px] items-center justify-center rounded-lg bg-accent-soft text-accent-fg" title="Renewal">
             <RefreshCw className="size-4" />
@@ -432,7 +432,7 @@ function Timeline({ events, statuses }: { events: RequestEvent[]; statuses: Requ
           <div className="min-w-0 flex-1">
             <p className="text-[13px]">
               <span className="font-medium">{e.actorName}</span> {e.kind === 'comment' ? <span className="text-subtle">commented</span> : <span className="text-muted">{line(e)}</span>}
-              <span className="ml-2 text-xs text-subtle">{formatDateTime(e.at)}</span>
+              <span className="ms-2 text-xs text-subtle">{formatDateTime(e.at)}</span>
             </p>
             {e.body && e.kind !== 'assigned' && <p className="mt-1 rounded-lg bg-surface-2 px-3 py-2 text-[13px] whitespace-pre-wrap">{e.body}</p>}
           </div>
