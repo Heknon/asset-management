@@ -332,9 +332,10 @@ export function AppShell({ me }: { me: Me }) {
           <Sidebar me={me} onSearch={() => setPaletteOpen(true)} />
         </aside>
         <TopBar me={me} onSearch={() => setPaletteOpen(true)} />
-        <main className="flex min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto pb-[env(safe-area-inset-bottom)]">
+        <main className="flex min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto pb-[calc(3.5rem+env(safe-area-inset-bottom))] sm:pb-[env(safe-area-inset-bottom)]">
           <Outlet />
         </main>
+        <BottomNav />
         <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} isAdmin={me.isAdmin || canManageOrganization} onHelp={() => setHelpOpen(true)} />
         <GlobalShortcuts isAdmin={me.isAdmin || canManageOrganization} onHelp={() => setHelpOpen(true)} />
         <ShortcutsHelp open={helpOpen} onOpenChange={setHelpOpen} isAdmin={me.isAdmin || canManageOrganization} />
@@ -601,5 +602,43 @@ function ShortcutsHelp({ open, onOpenChange, isAdmin }: { open: boolean; onOpenC
         ))}
       </div>
     </Dialog>
+  );
+}
+
+/** Phones: the main places one tap away, at the bottom where thumbs reach. The menu keeps the rest. */
+function BottomNav() {
+  const path = useRouterState({ select: (s) => s.location.pathname });
+  const summary = useSummary();
+  const counts = useRequestCounts();
+  const requestBadge = counts.data ? (counts.data.handle ? counts.data.unassigned || counts.data.handle : 0) : 0;
+  const items = [
+    { to: '/', label: 'Upcoming', icon: <Inbox />, active: path === '/', badge: summary.data?.overdue, danger: true },
+    { to: '/requests', label: 'Requests', icon: <ShoppingCart />, active: path.startsWith('/requests'), badge: requestBadge },
+    { to: '/assets', label: 'Assets', icon: <Shapes />, active: path.startsWith('/assets') || path.startsWith('/views') },
+    { to: '/catalogs', label: 'Catalogs', icon: <FolderOpen />, active: path.startsWith('/catalogs') },
+    { to: '/calendar', label: 'Calendar', icon: <CalendarDays />, active: path.startsWith('/calendar') },
+  ] as const;
+  return (
+    <nav aria-label="Main" className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur sm:hidden">
+      <ul className="grid h-14 grid-cols-5">
+        {items.map((x) => (
+          <li key={x.to}>
+            <Link
+              to={x.to}
+              aria-current={x.active ? 'page' : undefined}
+              className={cn('relative flex h-full flex-col items-center justify-center gap-0.5 text-[10px] font-medium transition-colors [&>svg]:size-5', x.active ? 'text-accent-fg' : 'text-muted active:text-fg')}
+            >
+              {x.icon}
+              {x.label}
+              {!!('badge' in x && x.badge) && (
+                <span className={cn('absolute top-1.5 left-1/2 ml-1.5 min-w-4 rounded-full px-1 text-center text-[10px] leading-4 font-semibold text-white', 'danger' in x && x.danger ? 'bg-danger' : 'bg-accent')}>
+                  {x.badge! > 99 ? '99+' : x.badge}
+                </span>
+              )}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </nav>
   );
 }

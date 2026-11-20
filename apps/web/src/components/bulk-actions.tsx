@@ -57,7 +57,7 @@ export function BulkActions({ items, onClear, onExport, extra }: { items: Asset[
 
   return (
     <>
-      <div role="toolbar" aria-label="Selected items" className="animate-panel fixed inset-x-2 flex-nowrap bottom-[max(0.5rem,env(safe-area-inset-bottom))] z-30 mx-auto flex max-w-3xl items-center gap-1 rounded-xl border border-border bg-surface p-1.5 shadow-pop lg:left-64">
+      <div role="toolbar" aria-label="Selected items" className="animate-panel fixed inset-x-2 flex-nowrap bottom-[calc(4rem+env(safe-area-inset-bottom))] sm:bottom-[max(0.5rem,env(safe-area-inset-bottom))] z-30 mx-auto flex max-w-3xl items-center gap-1 rounded-xl border border-border bg-surface p-1.5 shadow-pop lg:left-64">
         <span className="px-2 text-[13px] font-medium tabular-nums">{noun}</span>
         {extra}
         <span className="mx-1 h-5 w-px bg-border max-sm:hidden" />

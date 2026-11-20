@@ -127,7 +127,7 @@ export function DataTable<T>({
   const selectCell = 'w-10 border-b border-border px-0 pl-4 sm:pl-6';
 
   return (
-    <div className="flex min-h-0 flex-col">
+    <div className="flex flex-col sm:min-h-0">
       {phone ? (
         <PhoneList table={table} columns={columns} loading={loading} empty={empty} onRowClick={onRowClick} selection={selection} activeSort={activeSort} sortable={sortable} onSort={(key, order) => (serverMode ? onSortChange({ sort: key, order }) : setLocalSort({ sort: key, order }))} />
       ) : (
