@@ -20,6 +20,8 @@ export const filesConfig = {
   URL_TTL_SECONDS: z.coerce.number().int().min(30).max(3600).default(300),
   /** Create the bucket on start if it is missing (in-cluster MinIO; managed buckets are made by Terraform). */
   S3_CREATE_BUCKET: envBool(false),
+  /** When the nightly backup to storage runs, if an administrator switched it on: a cron expression, in UTC. */
+  BACKUP_NIGHTLY_CRON: z.string().default('0 1 * * *'),
   /** Internal URL of the registry service, used to authorise access to an asset's files. */
   REGISTRY_URL: z.string().url().default('http://registry:8080'),
 };

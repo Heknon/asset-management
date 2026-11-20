@@ -1,7 +1,21 @@
-import { CreateBucketCommand, DeleteObjectsCommand, HeadBucketCommand, GetObjectCommand, HeadObjectCommand, S3Client, type S3ClientConfig } from '@aws-sdk/client-s3';
+import {
+  AbortMultipartUploadCommand,
+  CompleteMultipartUploadCommand,
+  CreateBucketCommand,
+  CreateMultipartUploadCommand,
+  DeleteObjectsCommand,
+  GetObjectCommand,
+  HeadBucketCommand,
+  HeadObjectCommand,
+  ListObjectsV2Command,
+  PutObjectCommand,
+  S3Client,
+  UploadPartCommand,
+  type S3ClientConfig,
+} from '@aws-sdk/client-s3';
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import type { ObjectStorage, PresignedUpload } from '../application/ports.js';
+import type { BackupStorage, ObjectStorage, ObjectWriter, PresignedUpload, StoredObject } from '../application/ports.js';
 
 export interface S3Settings {
   bucket: string;
@@ -20,7 +34,10 @@ export interface S3Settings {
   credentials?: S3ClientConfig['credentials'];
 }
 
-export class S3ObjectStorage implements ObjectStorage {
+/** S3 asks for at least 5 MB per part of a multipart upload (except the last). */
+const PART_BYTES = 8 * 1_048_576;
+
+export class S3ObjectStorage implements ObjectStorage, BackupStorage {
   /** `internal` talks to S3 from the pod; `signer` produces URLs that browsers can reach. */
   private readonly internal: S3Client;
   private readonly signer: S3Client;
@@ -100,5 +117,96 @@ export class S3ObjectStorage implements ObjectStorage {
       const chunk = keys.slice(i, i + 1000);
       await this.internal.send(new DeleteObjectsCommand({ Bucket: this.s.bucket, Delete: { Objects: chunk.map((k) => ({ Key: this.key(k) })), Quiet: true } }));
     }
+  }
+
+  /** Encryption at rest for objects the service writes itself (uploads from browsers carry it in the signed form). */
+  private sseParams() {
+    if (this.s.sse === 'none') return {};
+    return { ServerSideEncryption: this.s.sse, ...(this.s.sse === 'aws:kms' && this.s.kmsKeyId && { SSEKMSKeyId: this.s.kmsKeyId }) };
+  }
+
+  async list(prefix: string): Promise<StoredObject[]> {
+    const out: StoredObject[] = [];
+    const strip = (this.s.prefix ?? '').length;
+    let token: string | undefined;
+    do {
+      const page = await this.internal.send(new ListObjectsV2Command({ Bucket: this.s.bucket, Prefix: this.key(prefix), ContinuationToken: token }));
+      for (const o of page.Contents ?? []) if (o.Key) out.push({ key: o.Key.slice(strip), size: o.Size ?? 0, modifiedAt: o.LastModified ?? new Date(0) });
+      token = page.IsTruncated ? page.NextContinuationToken : undefined;
+    } while (token);
+    return out;
+  }
+
+  async read(key: string): Promise<Uint8Array | null> {
+    try {
+      const r = await this.internal.send(new GetObjectCommand({ Bucket: this.s.bucket, Key: this.key(key) }));
+      return r.Body ? await r.Body.transformToByteArray() : new Uint8Array(0);
+    } catch (err) {
+      const e = err as { name?: string; $metadata?: { httpStatusCode?: number } };
+      if (e.name === 'NoSuchKey' || e.$metadata?.httpStatusCode === 404) return null;
+      throw err;
+    }
+  }
+
+  async put(key: string, body: string, contentType: string): Promise<void> {
+    await this.internal.send(new PutObjectCommand({ Bucket: this.s.bucket, Key: this.key(key), Body: body, ContentType: contentType, ...this.sseParams() }));
+  }
+
+  /** Small objects go up in one request; larger ones as a multipart upload, a part at a time. */
+  async writer(key: string, contentType: string): Promise<ObjectWriter> {
+    const target = { Bucket: this.s.bucket, Key: this.key(key) };
+    let uploadId: string | undefined;
+    const parts: Array<{ ETag: string | undefined; PartNumber: number }> = [];
+    let pending: Uint8Array[] = [];
+    let size = 0;
+    const take = () => {
+      const body = new Uint8Array(size);
+      let at = 0;
+      for (const p of pending) {
+        body.set(p, at);
+        at += p.length;
+      }
+      pending = [];
+      size = 0;
+      return body;
+    };
+    const uploadPart = async () => {
+      uploadId ??= (await this.internal.send(new CreateMultipartUploadCommand({ ...target, ContentType: contentType, ...this.sseParams() }))).UploadId;
+      const PartNumber = parts.length + 1;
+      const r = await this.internal.send(new UploadPartCommand({ ...target, UploadId: uploadId, PartNumber, Body: take() }));
+      parts.push({ ETag: r.ETag, PartNumber });
+    };
+    return {
+      write: async (bytes) => {
+        pending.push(bytes);
+        size += bytes.length;
+        if (size >= PART_BYTES) await uploadPart();
+      },
+      close: async () => {
+        if (!uploadId) {
+          await this.internal.send(new PutObjectCommand({ ...target, Body: take(), ContentType: contentType, ...this.sseParams() }));
+          return;
+        }
+        if (size) await uploadPart();
+        await this.internal.send(new CompleteMultipartUploadCommand({ ...target, UploadId: uploadId, MultipartUpload: { Parts: parts } }));
+      },
+      abort: async () => {
+        if (uploadId) await this.internal.send(new AbortMultipartUploadCommand({ ...target, UploadId: uploadId })).catch(() => undefined);
+      },
+    };
+  }
+
+  /** Signed against the endpoint the pods use: the other services upload with it, not browsers. */
+  async presignPrefixUpload(prefix: string, maxBytes: number, ttlSeconds: number) {
+    const keyPrefix = this.key(prefix);
+    const { url, fields } = await createPresignedPost(this.internal, {
+      Bucket: this.s.bucket,
+      // "${filename}" makes the policy accept any key under the prefix.
+      Key: `${keyPrefix}\${filename}`,
+      Fields: this.sseFields(),
+      Conditions: [['content-length-range', 0, maxBytes], ...Object.entries(this.sseFields()).map(([k, v]) => ({ [k]: v }))],
+      Expires: ttlSeconds,
+    });
+    return { url, fields, keyPrefix };
   }
 }

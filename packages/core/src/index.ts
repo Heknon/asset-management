@@ -12,5 +12,7 @@ export * from './templates.js';
 export * from './files.js';
 export * from './search.js';
 export * from './csv.js';
+export * from './backup.js';
+export * from './zip-stream.js';
 export * from './import.js';
 export * from './workflow.js';

@@ -26,6 +26,8 @@ export function serverlessEnvironment(env: Record<string, string | undefined>): 
   out.REGISTRY_URL ??= out.PUBLIC_URL;
   out.IDENTITY_URL ??= out.PUBLIC_URL;
   out.SCHEDULER_URL ??= out.PUBLIC_URL;
+  // Scheduled jobs run on the cron calls here, so that is when the nightly backup is made (once a day at most).
+  out.BACKUP_NIGHTLY_CRON ??= env.REMINDER_CRON ?? '0 6,18 * * *';
   // Without SMTP_URL mail is not sent (see the runtime's mailer).
   out.SMTP_URL ??= 'smtp://mail.invalid';
   out.MAIL_FROM ??= `Assets <assets@${new URL(out.PUBLIC_URL).hostname}>`;
