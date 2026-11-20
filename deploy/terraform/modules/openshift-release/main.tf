@@ -130,21 +130,27 @@ resource "helm_release" "app" {
               LDAP_ENABLED         = tostring(var.ldap.enabled)
               OIDC_ENABLED         = tostring(var.oidc.enabled)
             },
+            var.local_admin_email == null ? {} : { LOCAL_ADMIN_EMAIL = var.local_admin_email },
             var.ldap.enabled ? {
-              LDAP_URL             = var.ldap.url
-              LDAP_STARTTLS        = tostring(var.ldap.start_tls)
-              LDAP_BIND_DN         = var.ldap.bind_dn
-              LDAP_USER_BASE_DN    = var.ldap.user_base_dn
-              LDAP_USER_FILTER     = var.ldap.user_filter
-              LDAP_ADMIN_GROUPS    = join(",", var.ldap.admin_groups)
-              LDAP_UNIT_ATTRIBUTES = join(",", var.ldap.unit_attributes)
+              LDAP_URL                    = var.ldap.url
+              LDAP_STARTTLS               = tostring(var.ldap.start_tls)
+              LDAP_BIND_DN                = var.ldap.bind_dn
+              LDAP_USER_BASE_DN           = var.ldap.user_base_dn
+              LDAP_USER_FILTER            = var.ldap.user_filter
+              LDAP_DISPLAY_NAME_ATTRIBUTE = var.ldap.display_name_attribute
+              LDAP_EMAIL_ATTRIBUTE        = var.ldap.email_attribute
+              LDAP_NAME_ATTRIBUTES        = join(",", var.ldap.name_attributes)
+              LDAP_ADMIN_GROUPS           = join(",", var.ldap.admin_groups)
+              LDAP_UNIT_ATTRIBUTES        = join(",", var.ldap.unit_attributes)
             } : {},
             var.oidc.enabled ? {
-              OIDC_ISSUER       = var.oidc.issuer
-              OIDC_CLIENT_ID    = var.oidc.client_id
-              OIDC_GROUPS_CLAIM = var.oidc.groups_claim
-              OIDC_ADMIN_GROUPS = join(",", var.oidc.admin_groups)
-              OIDC_UNIT_CLAIMS  = join(",", var.oidc.unit_claims)
+              OIDC_ISSUER             = var.oidc.issuer
+              OIDC_CLIENT_ID          = var.oidc.client_id
+              OIDC_GROUPS_CLAIM       = var.oidc.groups_claim
+              OIDC_DISPLAY_NAME_CLAIM = var.oidc.display_name_claim
+              OIDC_NAME_CLAIMS        = join(",", var.oidc.name_claims)
+              OIDC_ADMIN_GROUPS       = join(",", var.oidc.admin_groups)
+              OIDC_UNIT_CLAIMS        = join(",", var.oidc.unit_claims)
             } : {},
           )
         }

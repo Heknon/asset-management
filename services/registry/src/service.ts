@@ -62,7 +62,7 @@ export const registryService = defineService<RegistryDB, typeof registryConfig>(
       await requests.onRenewalCheck(e);
     });
     await bus.subscribe('registry', 'user.changed', async (e) => {
-      const { renamed } = await store.upsertUserRef({ id: e.userId, displayName: e.displayName, active: e.active, groupIds: e.groupIds });
+      const { renamed } = await store.upsertUserRef({ id: e.userId, displayName: e.displayName, username: e.username, email: e.email, otherNames: e.otherNames, active: e.active, groupIds: e.groupIds });
       if (renamed) await assets.reindex({ userIds: [e.userId] });
     });
 

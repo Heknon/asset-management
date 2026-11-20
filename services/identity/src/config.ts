@@ -50,6 +50,8 @@ export const identityConfig = {
   LDAP_USER_FILTER: z.string().default('(&(objectClass=person)(|(sAMAccountName={username})(uid={username})(userPrincipalName={username})))'),
   LDAP_USERNAME_ATTRIBUTE: z.string().default('sAMAccountName'),
   LDAP_DISPLAY_NAME_ATTRIBUTE: z.string().default('displayName'),
+  /** Further name attributes people can be searched by (comma-separated); every value is kept. */
+  LDAP_NAME_ATTRIBUTES: envList.transform((v) => (v.length ? v : ['givenName', 'sn', 'cn', 'name', 'userPrincipalName'])),
   LDAP_EMAIL_ATTRIBUTE: z.string().default('mail'),
   LDAP_GROUP_MEMBERSHIP_ATTRIBUTE: z.string().default('memberOf'),
   /** Optional group search for directories without memberOf (e.g. OpenLDAP groupOfNames). `{dn}` is the user DN. */
@@ -69,6 +71,8 @@ export const identityConfig = {
   OIDC_SCOPES: z.string().default('openid profile email allatclaims'),
   OIDC_USERNAME_CLAIM: z.string().default('upn'),
   OIDC_DISPLAY_NAME_CLAIM: z.string().default('unique_name'),
+  /** Further name claims people can be searched by (comma-separated). */
+  OIDC_NAME_CLAIMS: envList.transform((v) => (v.length ? v : ['given_name', 'family_name', 'name', 'upn'])),
   OIDC_EMAIL_CLAIM: z.string().default('email'),
   OIDC_GROUPS_CLAIM: z.string().default('group'),
   OIDC_ADMIN_GROUPS: envList,

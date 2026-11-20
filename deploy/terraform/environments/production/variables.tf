@@ -134,6 +134,12 @@ variable "reminder_timezone" {
   default = "UTC"
 }
 
+variable "local_admin_email" {
+  description = "Email of the break-glass administrator (optional)."
+  type        = string
+  default     = null
+}
+
 variable "ldap" {
   type      = any
   default   = { enabled = false }

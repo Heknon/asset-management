@@ -27,6 +27,9 @@ s3 = {
 # Sign-in: manual accounts, the directory, ADFS, or a mix.
 auth_mode = "ldap,adfs"
 
+# The break-glass administrator's email (optional). Directory admins come from admin_groups below.
+# local_admin_email = "it-admin@corp.example.com"
+
 # Air-gapped: images come from Artifactory (CI pushes them there).
 # image_registry    = "artifactory.example.com/docker-local/asset-management"
 # mirror_registry   = "artifactory.example.com/docker-remote"
@@ -43,6 +46,9 @@ ldap = {
   bind_password = "CHANGE_ME"
   user_base_dn  = "OU=Users,DC=corp,DC=example,DC=com"
   admin_groups  = ["CN=Asset Admins,OU=Groups,DC=corp,DC=example,DC=com"]
+  # Shown name, and further names people can be searched by (these are the defaults).
+  # display_name_attribute = "displayName"
+  # name_attributes        = ["givenName", "sn", "cn", "name", "userPrincipalName"]
 }
 
 oidc = {

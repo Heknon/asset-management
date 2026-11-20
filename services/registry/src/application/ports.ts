@@ -111,7 +111,9 @@ export interface RegistryStore {
   upsertUnitRef(ref: UnitRef): Promise<void>;
   activeUserIds(ids: string[]): Promise<Set<string>>;
   userNames(ids: string[]): Promise<Map<string, string>>;
-  upsertUserRef(ref: { id: string; displayName: string; active: boolean; groupIds?: string[] }): Promise<{ renamed: boolean }>;
+  /** Display name plus username, email and other names, for search text. */
+  userSearchNames(ids: string[]): Promise<Map<string, string>>;
+  upsertUserRef(ref: UserRef): Promise<{ renamed: boolean }>;
 
   insertRequest(row: RequestRow, requester: { id: string; name: string }, searchText: string, status: { key: string; category: StatusCategory }): Promise<RequestState>;
   updateRequest(id: string, row: RequestRow, searchText: string): Promise<RequestState>;
@@ -175,4 +177,15 @@ export interface RegistryStore {
   deleteView(ownerId: string, id: string): Promise<void>;
 
   publish<E extends EventName>(event: E, payload: EventMap[E]): Promise<void>;
+}
+
+/** The registry's copy of a person, from identity's user.changed events. */
+export interface UserRef {
+  id: string;
+  displayName: string;
+  username?: string;
+  email?: string | null;
+  otherNames?: string[];
+  active: boolean;
+  groupIds?: string[];
 }
