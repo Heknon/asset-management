@@ -416,7 +416,7 @@ function SchemaWorkbench({
   const issueAt = (f: FieldDefinition) => issues.some((x) => x.path.startsWith(`fields.${fields.indexOf(f)}.`));
 
   return (
-    <div className="grid min-h-0 flex-1 grid-cols-1 gap-6 px-4 py-6 sm:px-6 xl:grid-cols-[minmax(0,1fr)_420px]">
+    <div className="grid flex-1 grid-cols-1 gap-6 px-4 py-6 sm:px-6 xl:grid-cols-[minmax(0,1fr)_420px]">
       <div className="min-w-0 space-y-6">
         {info}
         <Card padded={false}>
