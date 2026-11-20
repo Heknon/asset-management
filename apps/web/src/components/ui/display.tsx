@@ -2,6 +2,7 @@ import * as RTabs from '@radix-ui/react-tabs';
 import { Loader2 } from 'lucide-react';
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { cn, initials } from '@/lib/utils';
+import { t } from '@/lib/i18n';
 
 export function Card({ children, className, padded = true }: { children: ReactNode; className?: string; padded?: boolean }) {
   return <div className={cn('rounded-xl border border-border bg-surface', padded && 'p-4', className)}>{children}</div>;
@@ -124,14 +125,14 @@ export function Tabs({ value, onValueChange, tabs, children }: { value: string; 
   return (
     <RTabs.Root value={value} onValueChange={onValueChange}>
       <RTabs.List ref={scroller.ref} style={scroller.style} className="-mx-4 flex gap-4 overflow-x-auto border-b border-border px-4 [scrollbar-width:none] sm:mx-0 sm:px-0 [&::-webkit-scrollbar]:hidden">
-        {tabs.map((t) => (
+        {tabs.map((tab) => (
           <RTabs.Trigger
-            key={t.value}
-            value={t.value}
+            key={tab.value}
+            value={tab.value}
             className="-mb-px flex h-10 shrink-0 items-center gap-1.5 border-b-2 whitespace-nowrap sm:h-9 border-transparent text-[13px] font-medium text-muted transition-colors hover:text-fg data-[state=active]:border-accent data-[state=active]:text-fg"
           >
-            {t.label}
-            {t.count !== undefined && <span className="rounded bg-surface-2 px-1 text-[11px] text-muted">{t.count}</span>}
+            {tab.label}
+            {tab.count !== undefined && <span className="rounded bg-surface-2 px-1 text-[11px] text-muted">{tab.count}</span>}
           </RTabs.Trigger>
         ))}
         {/* End padding that scrolls (a flex row's own padding-right does not), so the last tab clears the fade. */}
@@ -166,7 +167,7 @@ export function CompactSteps({ index, total, label, color, done, className }: { 
     <div className={cn('space-y-1.5', className)}>
       <p className="flex items-center justify-between text-xs text-muted">
         <span>
-          {done ? 'Done' : `Step ${index + 1} of ${total}`} · <span className="font-medium text-fg">{label}</span>
+          {done ? t('Done') : t('Step {n} of {total}', { n: index + 1, total })} · <span className="font-medium text-fg">{label}</span>
         </span>
       </p>
       <div className="h-1.5 overflow-hidden rounded-full bg-surface-3" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label={label}>

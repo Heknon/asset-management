@@ -7,7 +7,7 @@ import { formatDate, formatMoney, relativeDays } from '@/lib/utils';
 import { Badge } from './ui/display';
 import { Checkbox, Input, Select, TagInput, Textarea } from './ui/form';
 import { PersonName, PersonPicker } from './pickers';
-import { intlLocale } from '@/lib/i18n';
+import { intlLocale, t } from '@/lib/i18n';
 
 /** Read-only rendering of any attribute value; used in tables, detail pages and previews. */
 export function AttributeValue({ field, value, compact }: { field: FieldDefinition; value: Value | undefined; compact?: boolean }) {
@@ -31,7 +31,7 @@ export function AttributeValue({ field, value, compact }: { field: FieldDefiniti
         </span>
       );
     case 'boolean':
-      return <span>{value ? 'Yes' : 'No'}</span>;
+      return <span>{value ? t('Yes') : t('No')}</span>;
     case 'select': {
       const o = field.config.options.find((x) => x.value === value);
       return <Badge color={o?.color ?? '#94a3b8'}>{o?.label ?? String(value)}</Badge>;
@@ -103,7 +103,7 @@ function SecretValue({ value }: { value: string }) {
   return (
     <span className="inline-flex items-center gap-1.5 font-mono text-xs">
       {shown ? value : '••••••••'}
-      <button type="button" className="text-subtle hover:text-fg" onClick={(e) => (e.stopPropagation(), setShown((s) => !s))} aria-label={shown ? 'Hide' : 'Reveal'}>
+      <button type="button" className="text-subtle hover:text-fg" onClick={(e) => (e.stopPropagation(), setShown((s) => !s))} aria-label={shown ? t('Hide') : t('Reveal')}>
         {shown ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
       </button>
     </span>
@@ -198,7 +198,7 @@ export function AttributeInput({ field, value, onChange, id, invalid }: { field:
           id={id}
           value={(value as string[]) ?? []}
           onChange={(v) => onChange(v.length ? v : undefined)}
-          placeholder={field.config.placeholder ?? 'Type and press Enter; paste several at once'}
+          placeholder={field.config.placeholder ?? t('Type and press Enter; paste several at once')}
           validate={(v) => !re || re.test(v)}
         />
       );
@@ -217,7 +217,7 @@ function AssetRefsInput({ id, typeId, value, onChange }: { id: string; typeId?: 
           {value.map((v) => (
             <li key={v} className="inline-flex items-center gap-1 rounded-md bg-surface-2 py-0.5 pe-1 ps-2 text-xs">
               {byId.get(v)?.name ?? '…'}
-              <button type="button" aria-label="Remove" className="text-subtle hover:text-fg" onClick={() => onChange(value.filter((x) => x !== v))}>
+              <button type="button" aria-label={t('Remove')} className="text-subtle hover:text-fg" onClick={() => onChange(value.filter((x) => x !== v))}>
                 ×
               </button>
             </li>
@@ -225,7 +225,7 @@ function AssetRefsInput({ id, typeId, value, onChange }: { id: string; typeId?: 
         </ul>
       )}
       <Select id={id} value="" onChange={(e) => e.target.value && onChange([...value, e.target.value])}>
-        <option value="">Add…</option>
+        <option value="">{t('Add…')}</option>
         {(assets.data?.items ?? [])
           .filter((a) => !value.includes(a.id))
           .map((a) => (

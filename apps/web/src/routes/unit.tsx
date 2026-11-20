@@ -21,7 +21,7 @@ import { useMyOrg } from '@/lib/org';
 import { keys, useAssets, useCatalogs, useLookups, useObligations, useRequests, useRollup, useSummary, useUnitPeople } from '@/lib/queries';
 import { formatMoney, relativeDays, todayIso } from '@/lib/utils';
 import { useRemember } from '@/lib/recent';
-import { intlLocale } from '@/lib/i18n';
+import { intlLocale, plural, t, tMaybe } from '@/lib/i18n';
 
 const money = (list: Array<{ currency: string; amount: number }> | undefined) => (list?.length ? list.map((s) => formatMoney(s.amount, s.currency, true)).join(' + ') : '—');
 
@@ -30,7 +30,7 @@ export function UnitPage() {
   const { unitById, childrenOf, ready } = useLookups();
   const { me, can, mine } = useMyOrg();
   const unit = unitById.get(unitId);
-  useRemember(unit ? { kind: 'unit', id: unit.id, title: unit.name, subtitle: unit.kind } : null);
+  useRemember(unit ? { kind: 'unit', id: unit.id, title: unit.name, subtitle: tMaybe(unit.kind) } : null);
   const [tab, setTab] = useState('overview');
   const summary = useSummary({ unitId });
   const assets = useAssets({ unitId, limit: 1 });
@@ -39,7 +39,7 @@ export function UnitPage() {
   const newRequest = useNewRequest();
 
   if (!ready) return <div className="flex h-full items-center justify-center"><Spinner /></div>;
-  if (!unit) return <EmptyState title="Team not found" />;
+  if (!unit) return <EmptyState title={t('Team not found')} />;
 
   const spend = summary.data?.spend.map((s) => ({ currency: s.currency, amount: s.next365 }));
   const managers = (people.data ?? []).filter((p) => p.role === 'manager');
@@ -66,21 +66,21 @@ export function UnitPage() {
                 <ChevronRight className="size-3 text-subtle" />
               </span>
             ))}
-            <Badge>{unit.kind}</Badge>
-            {myRole && <Badge tone="accent">{myRole === 'manager' ? 'You manage this' : 'Your team'}</Badge>}
+            <Badge>{tMaybe(unit.kind)}</Badge>
+            {myRole && <Badge tone="accent">{myRole === 'manager' ? t('You manage this') : t('Your team')}</Badge>}
           </span>
         }
         actions={
           <>
             {managers.length > 0 && (
-              <span className="me-2 flex -space-x-1.5" title={`Managed by ${managers.map((m) => m.displayName).join(', ')}`}>
+              <span className="me-2 flex -space-x-1.5" title={t('Managed by {names}', { names: managers.map((m) => m.displayName).join(', ') })}>
                 {managers.slice(0, 4).map((m) => (
                   <Avatar key={m.id} name={m.displayName} size={26} className="ring-2 ring-bg" />
                 ))}
               </span>
             )}
             <Button variant="primary" icon={<Plus className="size-4" />} onClick={newRequest}>
-              Request something
+              {t('Request something')}
             </Button>
           </>
         }
@@ -89,13 +89,13 @@ export function UnitPage() {
           value={tab}
           onValueChange={setTab}
           tabs={[
-            { value: 'overview', label: 'Overview' },
-            { value: 'assets', label: 'Assets', count: assets.data?.total },
-            { value: 'requests', label: 'Requests', count: openRequests.data?.total },
-            { value: 'catalogs', label: 'Catalogs', count: catalogs.data?.length },
-            { value: 'templates', label: 'Templates' },
-            { value: 'access', label: 'Access' },
-            { value: 'people', label: 'People', count: people.data ? new Set(people.data.map((p) => p.id)).size : undefined },
+            { value: 'overview', label: t('Overview') },
+            { value: 'assets', label: t('Assets'), count: assets.data?.total },
+            { value: 'requests', label: t('Requests'), count: openRequests.data?.total },
+            { value: 'catalogs', label: t('Catalogs'), count: catalogs.data?.length },
+            { value: 'templates', label: t('Templates') },
+            { value: 'access', label: t('Access') },
+            { value: 'people', label: t('People'), count: people.data ? new Set(people.data.map((p) => p.id)).size : undefined },
           ]}
         />
       </PageHeader>
@@ -103,26 +103,26 @@ export function UnitPage() {
       {tab === 'overview' && (
         <div className="mx-auto w-full max-w-5xl space-y-6 px-4 sm:px-6 py-6">
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <Stat label="Assets" value={assets.data?.total.toLocaleString(intlLocale()) ?? '–'} hint="Including sub-teams" />
-            <Stat label="Renewing in 12 months" value={money(spend)} hint="Recurring spend" />
-            <Stat label="Overdue" value={summary.data?.overdue ?? '–'} tone={summary.data?.overdue ? 'danger' : undefined} />
-            <Stat label="Open requests" value={openRequests.data?.total ?? '–'} />
+            <Stat label={t('Assets')} value={assets.data?.total.toLocaleString(intlLocale()) ?? '–'} hint={t('Including sub-teams')} />
+            <Stat label={t('Renewing in 12 months')} value={money(spend)} hint={t('Recurring spend')} />
+            <Stat label={t('Overdue')} value={summary.data?.overdue ?? '–'} tone={summary.data?.overdue ? 'danger' : undefined} />
+            <Stat label={t('Open requests')} value={openRequests.data?.total ?? '–'} />
           </div>
           <SubUnits unitId={unit.id} childIds={childrenOf(unit.id).filter((c) => !c.archived).map((c) => c.id)} />
           <UpcomingFor unitId={unit.id} canEdit={(o) => can(o.unitId, 'renew', o.assetTypeId)} />
-          {(openRequests.data?.items.length ?? 0) > 0 && <RequestList items={openRequests.data!.items.slice(0, 8)} title="Open requests" />}
+          {(openRequests.data?.items.length ?? 0) > 0 && <RequestList items={openRequests.data!.items.slice(0, 8)} title={t('Open requests')} />}
         </div>
       )}
       {tab === 'assets' && <AssetExplorer fixed={{ unitId: unit.id }} initial={{ includeSubunits: true }} />}
       {tab === 'requests' && (
         <div className="mx-auto w-full max-w-5xl px-4 sm:px-6 py-6">
-          <RequestList items={openRequests.data?.items ?? []} title="Open requests" empty="No open requests for this team." />
+          <RequestList items={openRequests.data?.items ?? []} title={t('Open requests')} empty={t('No open requests for this team.')} />
         </div>
       )}
       {tab === 'templates' && <TemplatesTab unitId={unit.id} />}
       {tab === 'access' && (
         <div className="mx-auto w-full max-w-3xl space-y-3 px-4 sm:px-6 py-6">
-          <p className="text-[13px] text-muted">Who can see and work with {unit.name}’s items — and everything in the units beneath it. Give access to people, other units or directory groups.</p>
+          <p className="text-[13px] text-muted">{t('Who can see and work with {unit}’s items — and everything in the units beneath it. Give access to people, other units or directory groups.', { unit: unit.name })}</p>
           <GrantsEditor unitId={unit.id} />
         </div>
       )}
@@ -144,27 +144,29 @@ function TemplatesTab({ unitId }: { unitId: string }) {
   return (
     <div className="mx-auto w-full max-w-4xl space-y-3 px-4 sm:px-6 py-6">
       <p className="text-[13px] text-muted">
-        Templates are shared by the whole organization. A unit can extend one with the fields it needs — a Lab’s “Design license” adds the workstation and MAC addresses — and everyone in {unit?.name} and beneath it can use it.
+        {t('Templates are shared by the whole organization. A unit can extend one with the fields it needs — a Lab’s “Design license” adds the workstation and MAC addresses — and everyone in {unit} and beneath it can use it.', { unit: unit?.name ?? '' })}
       </p>
       <Card padded={false} className="divide-y divide-border">
         {types
-          .filter((t) => !t.archived)
-          .map((t) => {
-            const vs = variantsFor(t.id, unitId);
+          .filter((type) => !type.archived)
+          .map((type) => {
+            const vs = variantsFor(type.id, unitId);
             return (
-              <div key={t.id} className="px-4 py-3">
+              <div key={type.id} className="px-4 py-3">
                 <div className="flex items-center gap-3">
-                  <TypeIcon icon={t.icon} color={t.color} size={28} />
+                  <TypeIcon icon={type.icon} color={type.color} size={28} />
                   <span className="min-w-0 flex-1">
-                    <span className="block text-[13px] font-medium">{t.name}</span>
+                    <span className="block text-[13px] font-medium">{type.name}</span>
                     <span className="block text-xs text-muted">
-                      {t.fields.length} fields{vs.length ? ` · ${vs.length} ${vs.length === 1 ? 'variant' : 'variants'} here` : ''}
+                      {vs.length
+                        ? t('{fields} · {variants} here', { fields: plural(type.fields.length, '{n} field', '{n} fields'), variants: plural(vs.length, '{n} variant', '{n} variants') })
+                        : plural(type.fields.length, '{n} field', '{n} fields')}
                     </span>
                   </span>
                   {canExtend && (
-                    <Link to="/templates/$typeId/variants/$variantId" params={{ typeId: t.id, variantId: 'new' }} search={{ unit: unitId }}>
+                    <Link to="/templates/$typeId/variants/$variantId" params={{ typeId: type.id, variantId: 'new' }} search={{ unit: unitId }}>
                       <Button size="sm" icon={<Plus className="size-3.5" />}>
-                        Extend for {unit?.name}
+                        {t('Extend for {unit}', { unit: unit?.name ?? '' })}
                       </Button>
                     </Link>
                   )}
@@ -173,11 +175,12 @@ function TemplatesTab({ unitId }: { unitId: string }) {
                   <ul className="mt-2 ms-10 space-y-1">
                     {vs.map((v) => (
                       <li key={v.id}>
-                        <Link to="/templates/$typeId/variants/$variantId" params={{ typeId: t.id, variantId: v.id }} search={{ unit: undefined }} className="flex items-center gap-2 text-[13px] hover:underline">
+                        <Link to="/templates/$typeId/variants/$variantId" params={{ typeId: type.id, variantId: v.id }} search={{ unit: undefined }} className="flex items-center gap-2 text-[13px] hover:underline">
                           <span className="font-medium">{v.name}</span>
                           <span className="text-xs text-muted">
-                            +{v.fields.length} {v.fields.length === 1 ? 'field' : 'fields'}
-                            {v.unitId !== unitId && <> · from {unitById.get(v.unitId)?.name}</>}
+                            {v.unitId !== unitId
+                              ? t('{fields} · from {unit}', { fields: plural(v.fields.length, '+{n} field', '+{n} fields'), unit: unitById.get(v.unitId)?.name ?? '' })
+                              : plural(v.fields.length, '+{n} field', '+{n} fields')}
                           </span>
                         </Link>
                       </li>
@@ -200,10 +203,10 @@ function CatalogsTab({ unitId, catalogs }: { unitId: string; catalogs: Catalog[]
   return (
     <div className="mx-auto w-full max-w-5xl space-y-4 px-4 sm:px-6 py-6">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-[13px] text-muted">Collections of this unit’s assets that it can share with other teams, divisions or people.</p>
+        <p className="text-[13px] text-muted">{t('Collections of this unit’s assets that it can share with other teams, divisions or people.')}</p>
         {canCreate && (
           <Button icon={<Plus className="size-3.5" />} onClick={() => setCreating(true)}>
-            New catalog
+            {t('New catalog')}
           </Button>
         )}
       </div>
@@ -215,7 +218,7 @@ function CatalogsTab({ unitId, catalogs }: { unitId: string; catalogs: Catalog[]
         </div>
       ) : (
         <Card>
-          <EmptyState title="No catalogs" description={canCreate ? 'Group assets — licenses, lab equipment, tools — into a catalog to share them with the teams that use them.' : 'Its managers can create catalogs to share assets with other teams.'} />
+          <EmptyState title={t('No catalogs')} description={canCreate ? t('Group assets — licenses, lab equipment, tools — into a catalog to share them with the teams that use them.') : t('Its managers can create catalogs to share assets with other teams.')} />
         </Card>
       )}
       <CatalogFormDialog open={creating} onOpenChange={setCreating} unitId={unitId} onSaved={(c) => void navigate({ to: '/catalogs/$catalogId', params: { catalogId: c.id } })} />
@@ -238,8 +241,8 @@ function SubUnits({ unitId, childIds }: { unitId: string; childIds: string[] }) 
   return (
     <Card padded={false} className="overflow-hidden">
       <div className="flex items-center justify-between border-b border-border px-4 py-1.5">
-        <span className="text-[13px] font-semibold">Sub-units</span>
-        <ExportButton onExport={() => exportRows(`${unitById.get(unitId)?.name ?? 'Unit'} sub-units`, SUB_UNIT_COLUMNS, rows)} />
+        <span className="text-[13px] font-semibold">{t('Sub-units')}</span>
+        <ExportButton onExport={() => exportRows(t('{unit} sub-units', { unit: unitById.get(unitId)?.name ?? t('Unit') }), SUB_UNIT_COLUMNS, rows)} />
       </div>
       <DataTable
         columns={SUB_UNIT_COLUMNS}
@@ -258,25 +261,25 @@ const spendTotal = (r?: UnitRollup) => r?.spendNext365.reduce((n, s) => n + s.am
 const SUB_UNIT_COLUMNS: Array<DataColumn<SubUnitRow>> = [
   {
     id: 'name',
-    header: 'Unit',
+    header: t('Unit'),
     meta: { sortKey: 'name', sortValue: (row) => row.unit.name },
     cell: ({ row: { original: { unit } } }) => (
       <span className="flex items-center gap-2 font-medium">
         <span className="size-2 rounded-full" style={{ background: unit.color }} />
         {unit.name}
-        <span className="text-xs font-normal text-subtle">{unit.kind}</span>
+        <span className="text-xs font-normal text-subtle">{tMaybe(unit.kind)}</span>
       </span>
     ),
   },
-  { id: 'open', header: 'Open items', meta: { sortKey: 'open', align: 'right', sortValue: (row) => row.r?.openItems ?? 0 }, cell: ({ row }) => row.original.r?.openItems ?? 0 },
+  { id: 'open', header: t('Open items'), meta: { sortKey: 'open', align: 'right', sortValue: (row) => row.r?.openItems ?? 0 }, cell: ({ row }) => row.original.r?.openItems ?? 0 },
   {
     id: 'overdue',
-    header: 'Overdue',
+    header: t('Overdue'),
     meta: { sortKey: 'overdue', align: 'right', sortValue: (row) => row.r?.overdue ?? 0 },
     cell: ({ row }) => (row.original.r?.overdue ? <span className="font-medium text-danger">{row.original.r.overdue}</span> : 0),
   },
-  { id: 'renewing', header: 'Renewing ≤ 90 days', meta: { sortKey: 'renewing', align: 'right', sortValue: (row) => row.r?.renewingNext90 ?? 0 }, cell: ({ row }) => row.original.r?.renewingNext90 ?? 0 },
-  { id: 'spend', header: 'Next 12 months', meta: { sortKey: 'spend', align: 'right', sortValue: (row) => spendTotal(row.r), csvValue: (row) => money(row.r?.spendNext365) }, cell: ({ row }) => money(row.original.r?.spendNext365) },
+  { id: 'renewing', header: t('Renewing ≤ 90 days'), meta: { sortKey: 'renewing', align: 'right', sortValue: (row) => row.r?.renewingNext90 ?? 0 }, cell: ({ row }) => row.original.r?.renewingNext90 ?? 0 },
+  { id: 'spend', header: t('Next 12 months'), meta: { sortKey: 'spend', align: 'right', sortValue: (row) => spendTotal(row.r), csvValue: (row) => money(row.r?.spendNext365) }, cell: ({ row }) => money(row.original.r?.spendNext365) },
 ];
 
 function UpcomingFor({ unitId, canEdit }: { unitId: string; canEdit: Parameters<typeof ObligationList>[0]['canEdit'] }) {
@@ -285,12 +288,12 @@ function UpcomingFor({ unitId, canEdit }: { unitId: string; canEdit: Parameters<
   return (
     <Card padded={false} className="overflow-hidden">
       <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
-        <span className="text-[13px] font-semibold">Coming up in the next 4 months</span>
+        <span className="text-[13px] font-semibold">{t('Coming up in the next 4 months')}</span>
         <Link to="/" className="text-xs text-accent-fg hover:underline">
-          All upcoming
+          {t('All upcoming')}
         </Link>
       </div>
-      {items.data?.items.length ? <ObligationList items={items.data.items} canEdit={canEdit} /> : <p className="px-4 py-6 text-center text-xs text-muted">{items.isLoading ? 'Loading…' : 'Nothing due soon.'}</p>}
+      {items.data?.items.length ? <ObligationList items={items.data.items} canEdit={canEdit} /> : <p className="px-4 py-6 text-center text-xs text-muted">{items.isLoading ? t('Loading…') : t('Nothing due soon.')}</p>}
     </Card>
   );
 }
@@ -316,7 +319,7 @@ export function RequestList({ items, title, empty }: { items: import('@am/core')
           ))}
         </ul>
       ) : (
-        <EmptyState icon={<Inbox />} title={empty ?? 'Nothing here'} />
+        <EmptyState icon={<Inbox />} title={empty ?? t('Nothing here')} />
       )}
     </Card>
   );
@@ -334,25 +337,25 @@ function PeopleTab({ unitId, people, editable }: { unitId: string; people: UnitP
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: keys.unitPeople(unitId) });
       void qc.invalidateQueries({ queryKey: keys.units });
-      toast.success('People updated', { description: 'Their access changes at their next sign-in or within 15 minutes.' });
+      toast.success(t('People updated'), { description: t('Their access changes at their next sign-in or within 15 minutes.') });
     },
-    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Could not update people'),
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : t('Could not update people')),
   });
-  const groups: Array<{ role: UnitRole; title: string; hint: string }> = [
-    { role: 'manager', title: 'Managers', hint: 'Manage everything in this unit and below it, and are told about its requests and orphaned renewals.' },
-    { role: 'member', title: 'Members', hint: 'See this unit’s assets and can request things for it.' },
+  const groups: Array<{ role: UnitRole; title: string; hint: string; empty: string }> = [
+    { role: 'manager', title: t('Managers'), hint: t('Manage everything in this unit and below it, and are told about its requests and orphaned renewals.'), empty: t('No managers yet') },
+    { role: 'member', title: t('Members'), hint: t('See this unit’s assets and can request things for it.'), empty: t('No members yet') },
   ];
   return (
     <div className="mx-auto w-full max-w-4xl space-y-6 px-4 sm:px-6 py-6">
       {editable && (
         <Card className="flex flex-wrap items-end gap-2">
           <div className="min-w-64 flex-1">
-            <p className="mb-1.5 text-xs font-medium text-muted">Add someone who isn’t in the directory group</p>
-            <PersonPicker value={adding} onChange={setAdding} placeholder="Search people" />
+            <p className="mb-1.5 text-xs font-medium text-muted">{t('Add someone who isn’t in the directory group')}</p>
+            <PersonPicker value={adding} onChange={setAdding} placeholder={t('Search people')} />
           </div>
           <Select className="w-32" value={role} onChange={(e) => setRole(e.target.value as UnitRole)}>
-            <option value="member">Member</option>
-            <option value="manager">Manager</option>
+            <option value="member">{t('Member')}</option>
+            <option value="manager">{t('Manager')}</option>
           </Select>
           <Button
             variant="primary"
@@ -364,7 +367,7 @@ function PeopleTab({ unitId, people, editable }: { unitId: string; people: UnitP
               setAdding(null);
             }}
           >
-            Add
+            {t('Add')}
           </Button>
         </Card>
       )}
@@ -387,15 +390,15 @@ function PeopleTab({ unitId, people, editable }: { unitId: string; people: UnitP
                       <span className="block truncate text-[13px] font-medium">{p.displayName}</span>
                       <span className="block truncate text-xs text-muted">{p.email ?? p.username}</span>
                     </span>
-                    <Badge>{p.source === 'directory' ? 'From directory' : 'Added by hand'}</Badge>
+                    <Badge>{p.source === 'directory' ? t('From directory') : t('Added by hand')}</Badge>
                     {editable && p.source === 'manual' && (
-                      <Button size="icon" variant="ghost" aria-label="Remove" icon={<Trash2 className="size-3.5" />} onClick={() => save.mutate(manual.filter((m) => !(m.id === p.id && m.role === p.role)))} />
+                      <Button size="icon" variant="ghost" aria-label={t('Remove')} icon={<Trash2 className="size-3.5" />} onClick={() => save.mutate(manual.filter((m) => !(m.id === p.id && m.role === p.role)))} />
                     )}
                   </li>
                 ))}
               </ul>
             ) : (
-              <EmptyState icon={<Users />} title={`No ${g.title.toLowerCase()} yet`} />
+              <EmptyState icon={<Users />} title={g.empty} />
             )}
           </Card>
         );

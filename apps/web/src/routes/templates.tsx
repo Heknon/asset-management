@@ -12,6 +12,7 @@ import { Dialog } from '@/components/ui/overlay';
 import { api, ApiError } from '@/lib/api';
 import { keys } from '@/lib/queries';
 import { useShortcut } from '@/lib/shortcuts';
+import { intlLocale, plural, t, tMaybe } from '@/lib/i18n';
 
 interface TemplateSummary {
   key: string;
@@ -21,6 +22,14 @@ interface TemplateSummary {
   color: string;
   fieldCount: number;
   trackedDates: string[];
+}
+
+/** "6 fields · tracks renewal date, cancellation deadline" for a starter. */
+function starterSummary(g: TemplateSummary): string {
+  const fields = plural(g.fieldCount, '{n} field', '{n} fields');
+  if (!g.trackedDates.length) return fields;
+  const dates = g.trackedDates.map((d) => tMaybe(d)).join(', ').toLocaleLowerCase(intlLocale());
+  return t('{fields} · tracks {dates}', { fields, dates });
 }
 
 function TypeCard({ type }: { type: AssetType }) {
@@ -33,10 +42,10 @@ function TypeCard({ type }: { type: AssetType }) {
           <div className="min-w-0">
             <p className="truncate font-medium">{type.name}</p>
             <p className="text-xs text-muted">
-              {type.fields.length} fields · v{type.version}
+              {t('{fields} · v{version}', { fields: plural(type.fields.length, '{n} field', '{n} fields'), version: type.version })}
             </p>
           </div>
-          {type.archived && <Badge className="ms-auto">Archived</Badge>}
+          {type.archived && <Badge className="ms-auto">{t('Archived')}</Badge>}
         </div>
         {tracked.length > 0 && (
           <div className="mt-3 flex flex-wrap gap-1">
@@ -60,49 +69,49 @@ export function TemplatesPage() {
   const navigate = useNavigate();
   const create = useMutation({
     mutationFn: (key: string) => api.post<AssetType>(`/api/registry/templates/${key}/instantiate`),
-    onSuccess: (t) => {
+    onSuccess: (created) => {
       void qc.invalidateQueries({ queryKey: keys.assetTypes });
-      toast.success(`${t.name} added`, { description: 'Adjust its fields to fit how you work.' });
-      void navigate({ to: '/templates/$typeId', params: { typeId: t.id } });
+      toast.success(t('{name} added', { name: tMaybe(created.name) }), { description: t('Adjust its fields to fit how you work.') });
+      void navigate({ to: '/templates/$typeId', params: { typeId: created.id } });
     },
-    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Could not create template'),
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : t('Could not create template')),
   });
 
   const { new: startNew } = useSearch({ strict: false }) as { new?: string };
   const [starting, setStarting] = useState(!!startNew);
   useShortcut('n', () => setStarting(true));
-  const active = (types.data ?? []).filter((t) => !t.archived);
-  const archived = (types.data ?? []).filter((t) => t.archived);
+  const active = (types.data ?? []).filter((x) => !x.archived);
+  const archived = (types.data ?? []).filter((x) => x.archived);
 
   return (
     <>
       <PageHeader
-        title="Templates"
-        description="Asset types define the fields, statuses and tracked dates of everything you manage."
+        title={t('Templates')}
+        description={t('Asset types define the fields, statuses and tracked dates of everything you manage.')}
         actions={
           <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setStarting(true)}>
-            New template
+            {t('New template')}
           </Button>
         }
       />
       <div className="mx-auto w-full max-w-5xl space-y-8 px-4 sm:px-6 py-6">
         <section>
-          <SectionTitle>Your templates</SectionTitle>
+          <SectionTitle>{t('Your templates')}</SectionTitle>
           {active.length ? (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {active.map((t) => (
-                <TypeCard key={t.id} type={t} />
+              {active.map((x) => (
+                <TypeCard key={x.id} type={x} />
               ))}
             </div>
           ) : (
             <Card>
               <EmptyState
                 icon={<LayoutTemplate />}
-                title="No templates yet"
-                description="A template says what you track about a kind of thing: its fields, statuses and the dates that need reminders."
+                title={t('No templates yet')}
+                description={t('A template says what you track about a kind of thing: its fields, statuses and the dates that need reminders.')}
                 action={
                   <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setStarting(true)}>
-                    Create your first template
+                    {t('Create your first template')}
                   </Button>
                 }
               />
@@ -111,20 +120,18 @@ export function TemplatesPage() {
         </section>
 
         <section>
-          <SectionTitle>Start from a template</SectionTitle>
+          <SectionTitle>{t('Start from a template')}</SectionTitle>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {(gallery.data ?? []).map((g) => (
               <Card key={g.key} className="flex items-start gap-3">
                 <TypeIcon icon={g.icon} color={g.color} size={36} />
                 <div className="min-w-0 flex-1">
-                  <p className="font-medium">{g.name}</p>
-                  <p className="mt-0.5 text-xs text-muted">{g.description}</p>
-                  <p className="mt-2 text-xs text-subtle">
-                    {g.fieldCount} fields{g.trackedDates.length ? ` · tracks ${g.trackedDates.join(', ').toLowerCase()}` : ''}
-                  </p>
+                  <p className="font-medium">{tMaybe(g.name)}</p>
+                  <p className="mt-0.5 text-xs text-muted">{tMaybe(g.description)}</p>
+                  <p className="mt-2 text-xs text-subtle">{starterSummary(g)}</p>
                 </div>
                 <Button size="sm" loading={create.isPending && create.variables === g.key} onClick={() => create.mutate(g.key)}>
-                  Use
+                  {t('Use')}
                 </Button>
               </Card>
             ))}
@@ -133,10 +140,10 @@ export function TemplatesPage() {
 
         {archived.length > 0 && (
           <section>
-            <SectionTitle>Archived</SectionTitle>
+            <SectionTitle>{t('Archived')}</SectionTitle>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {archived.map((t) => (
-                <TypeCard key={t.id} type={t} />
+              {archived.map((x) => (
+                <TypeCard key={x.id} type={x} />
               ))}
             </div>
           </section>
@@ -156,7 +163,7 @@ function StartTemplate({ open, onOpenChange, gallery, onStarter, starting }: { o
     void navigate({ to: '/templates/$typeId', params: { typeId: 'new' }, search: { name: name.trim() || undefined } });
   };
   return (
-    <Dialog open={open} onOpenChange={onOpenChange} title="New template" description="What kind of thing will you track?">
+    <Dialog open={open} onOpenChange={onOpenChange} title={t('New template')} description={t('What kind of thing will you track?')}>
       <div className="space-y-5">
         <form
           className="flex items-end gap-2"
@@ -165,26 +172,24 @@ function StartTemplate({ open, onOpenChange, gallery, onStarter, starting }: { o
             blank();
           }}
         >
-          <Field label="Name" className="flex-1">
-            {(id) => <Input id={id} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Laptops, Domains, Contracts" />}
+          <Field label={t('Name')} className="flex-1">
+            {(id) => <Input id={id} value={name} onChange={(e) => setName(e.target.value)} placeholder={t('e.g. Laptops, Domains, Contracts')} />}
           </Field>
           <Button type="submit" variant="primary" icon={<ArrowRight className="size-4" />}>
-            {name.trim() ? 'Build it' : 'Start blank'}
+            {name.trim() ? t('Build it') : t('Start blank')}
           </Button>
         </form>
         <div>
-          <SectionTitle>Or adapt a starter</SectionTitle>
+          <SectionTitle>{t('Or adapt a starter')}</SectionTitle>
           <div className="divide-y divide-border rounded-xl border border-border">
             {gallery.map((g) => (
               <button key={g.key} type="button" disabled={!!starting} onClick={() => onStarter(g.key)} className="flex w-full items-center gap-3 px-3 py-2.5 text-start transition-colors first:rounded-t-xl last:rounded-b-xl hover:bg-surface-2 disabled:opacity-60">
                 <TypeIcon icon={g.icon} color={g.color} size={30} />
                 <span className="min-w-0 flex-1">
-                  <span className="block text-[13px] font-medium">{g.name}</span>
-                  <span className="block truncate text-xs text-muted">
-                    {g.fieldCount} fields{g.trackedDates.length ? ` · tracks ${g.trackedDates.join(', ').toLowerCase()}` : ''}
-                  </span>
+                  <span className="block text-[13px] font-medium">{tMaybe(g.name)}</span>
+                  <span className="block truncate text-xs text-muted">{starterSummary(g)}</span>
                 </span>
-                <span className="text-xs text-accent-fg">{starting === g.key ? 'Adding…' : 'Use'}</span>
+                <span className="text-xs text-accent-fg">{starting === g.key ? t('Adding…') : t('Use')}</span>
               </button>
             ))}
           </div>
@@ -194,8 +199,8 @@ function StartTemplate({ open, onOpenChange, gallery, onStarter, starting }: { o
             <FileUp className="size-4" />
           </span>
           <span className="min-w-0 flex-1">
-            <span className="block text-[13px] font-medium">From a spreadsheet</span>
-            <span className="block text-xs text-muted">Its columns become the fields, and its rows the first items.</span>
+            <span className="block text-[13px] font-medium">{t('From a spreadsheet')}</span>
+            <span className="block text-xs text-muted">{t('Its columns become the fields, and its rows the first items.')}</span>
           </span>
           <ArrowRight className="size-4 text-subtle" />
         </Link>

@@ -67,27 +67,27 @@ export function TypeIcon({ icon, color, size = 28 }: { icon: string; color: stri
 }
 
 const iconWords: Array<[RegExp, string]> = [
-  [/laptop|notebook|macbook/, 'laptop'],
-  [/phone|mobile|sim\b|iphone|android/, 'smartphone'],
-  [/monitor|display|screen/, 'monitor'],
-  [/server|rack/, 'server'],
-  [/domain|website|dns|certificate|ssl|tls/, 'globe'],
-  [/licen[cs]e|software|saas|subscription|key/, 'key-round'],
+  [/laptop|notebook|macbook|מחשב נייד|לפטופ/, 'laptop'],
+  [/phone|mobile|sim\b|iphone|android|טלפון|נייד|סים/, 'smartphone'],
+  [/monitor|display|screen|מסך/, 'monitor'],
+  [/server|rack|שרת/, 'server'],
+  [/domain|website|dns|certificate|ssl|tls|דומיין|אתר|תעוד/, 'globe'],
+  [/licen[cs]e|software|saas|subscription|key|רישיון|רשיון|תוכנ|מנוי/, 'key-round'],
   [/cloud|aws|azure|gcp/, 'cloud'],
   [/database|db\b/, 'database'],
   [/security|compliance|policy|insurance/, 'shield'],
-  [/contract|document|agreement/, 'file-text'],
+  [/contract|document|agreement|חוז|מסמך|הסכם/, 'file-text'],
   [/card|payment|billing/, 'credit-card'],
-  [/printer/, 'printer'],
+  [/printer|מדפס/, 'printer'],
   [/router|switch|firewall/, 'router'],
   [/network|vpn/, 'network'],
   [/wi-?fi|access point/, 'wifi'],
   [/disk|drive|storage/, 'hard-drive'],
-  [/vehicle|car\b|fleet/, 'car'],
+  [/vehicle|car\b|fleet|רכב/, 'car'],
   [/ticket|event/, 'ticket'],
   [/lab|equipment|device/, 'flask'],
   [/book|library/, 'library'],
-  [/furniture|office/, 'briefcase'],
+  [/furniture|office|ריהוט|משרד/, 'briefcase'],
 ];
 
 /** An icon that fits a template's name ("Laptops" → laptop), or null. */

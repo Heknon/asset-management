@@ -16,6 +16,7 @@ import { useState, type ReactNode } from 'react';
 import { api } from '@/lib/api';
 import { useDebounced } from '@/lib/hooks';
 import { cn } from '@/lib/utils';
+import { plural, t, tMaybe } from '@/lib/i18n';
 import { AssetTypeSelect } from './pickers';
 import { Button } from './ui/button';
 import { Badge } from './ui/display';
@@ -25,7 +26,7 @@ import { Popover } from './ui/overlay';
 /** "Editor", or "Custom · 4 permissions". */
 export function accessLabel(perms: readonly Permission[]): string {
   const role = roleOf(perms);
-  return role === 'custom' ? `Custom · ${perms.length} permissions` : roles[role].label;
+  return role === 'custom' ? plural(perms.length, 'Custom · {n} permission', 'Custom · {n} permissions') : tMaybe(roles[role].label);
 }
 
 export function SubjectIcon({ kind, className }: { kind: SubjectKind; className?: string }) {
@@ -68,7 +69,7 @@ export function RoleSelect({ value, onChange, disabled, compact }: { value: Perm
         </button>
       }
     >
-      <ul role="listbox" aria-label="Role">
+      <ul role="listbox" aria-label={t('Role')}>
         {roleKeys.map((r) => (
           <li key={r}>
             <button
@@ -80,8 +81,8 @@ export function RoleSelect({ value, onChange, disabled, compact }: { value: Perm
             >
               <Check className={cn('mt-0.5 size-3.5 shrink-0', role === r ? 'text-accent' : 'text-transparent')} />
               <span>
-                <span className="block text-[13px] font-medium">{roles[r].label}</span>
-                <span className="block text-xs text-muted">{roles[r].description}</span>
+                <span className="block text-[13px] font-medium">{tMaybe(roles[r].label)}</span>
+                <span className="block text-xs text-muted">{tMaybe(roles[r].description)}</span>
               </span>
             </button>
           </li>
@@ -90,8 +91,8 @@ export function RoleSelect({ value, onChange, disabled, compact }: { value: Perm
           <button type="button" onClick={() => setCustom((c) => !c)} className="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-start hover:bg-surface-2">
             <Check className={cn('mt-0.5 size-3.5 shrink-0', role === 'custom' ? 'text-accent' : 'text-transparent')} />
             <span>
-              <span className="block text-[13px] font-medium">Custom…</span>
-              <span className="block text-xs text-muted">Choose exactly what they can do</span>
+              <span className="block text-[13px] font-medium">{t('Custom…')}</span>
+              <span className="block text-xs text-muted">{t('Choose exactly what they can do')}</span>
             </span>
           </button>
         </li>
@@ -100,19 +101,19 @@ export function RoleSelect({ value, onChange, disabled, compact }: { value: Perm
         <div className="mt-1 space-y-2.5 border-t border-border px-2 pt-2 pb-1">
           {permissionGroups.map((g) => (
             <div key={g}>
-              <p className="mb-1 text-[11px] font-semibold tracking-wide text-subtle uppercase">{g}</p>
+              <p className="mb-1 text-[11px] font-semibold tracking-wide text-subtle uppercase">{tMaybe(g)}</p>
               {permissionKeys
                 .filter((p) => permissionMeta[p].group === g)
                 .map((p) => (
-                  <div key={p} className="py-0.5" title={permissionMeta[p].description}>
+                  <div key={p} className="py-0.5" title={tMaybe(permissionMeta[p].description)}>
                     <Checkbox
                       checked={value.includes(p)}
                       disabled={p === 'view'}
                       onChange={(on) => toggle(p, on)}
                       label={
                         <span>
-                          <span className="text-[13px]">{permissionMeta[p].label}</span>
-                          <span className="block text-xs text-muted">{permissionMeta[p].description}</span>
+                          <span className="text-[13px]">{tMaybe(permissionMeta[p].label)}</span>
+                          <span className="block text-xs text-muted">{tMaybe(permissionMeta[p].description)}</span>
                         </span>
                       }
                     />
@@ -144,7 +145,7 @@ export function SubjectPicker({ value, onChange, kinds = ['user', 'unit', 'group
       <div className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-lg border border-border bg-surface px-2">
         <SubjectIcon kind={value.kind} className="size-6" />
         <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{value.name}</span>
-        <button type="button" aria-label="Clear" className="text-subtle hover:text-fg" onClick={() => onChange(null)}>
+        <button type="button" aria-label={t('Clear')} className="text-subtle hover:text-fg" onClick={() => onChange(null)}>
           <X className="size-3.5" />
         </button>
       </div>
@@ -156,11 +157,11 @@ export function SubjectPicker({ value, onChange, kinds = ['user', 'unit', 'group
       <Input
         className="ps-8"
         value={q}
-        placeholder={kinds.length === 3 ? 'Add people, teams or groups…' : 'Search…'}
+        placeholder={kinds.length === 3 ? t('Add people, teams or groups…') : t('Search…')}
         onChange={(e) => (setQ(e.target.value), setOpen(true))}
         onFocus={() => setOpen(true)}
         onBlur={() => setTimeout(() => setOpen(false), 150)}
-        aria-label="Who"
+        aria-label={t('Who')}
       />
       {open && term && (
         <ul role="listbox" className="absolute top-full end-0 start-0 z-30 mt-1 max-h-72 overflow-auto rounded-lg border border-border bg-surface py-1 shadow-lg">
@@ -177,7 +178,7 @@ export function SubjectPicker({ value, onChange, kinds = ['user', 'unit', 'group
               </li>
             ))
           ) : (
-            <li className="px-3 py-2 text-xs text-muted">{results.isFetching ? 'Searching…' : 'No people, teams or groups match'}</li>
+            <li className="px-3 py-2 text-xs text-muted">{results.isFetching ? t('Searching…') : t('No people, teams or groups match')}</li>
           )}
         </ul>
       )}
@@ -240,23 +241,23 @@ export function AccessEditor({
                 setSubject(null);
               }}
             >
-              Add
+              {t('Add')}
             </Button>
           </div>
           {allowTypeLimit &&
             (limiting ? (
               <div className="flex items-center gap-2">
-                <span className="text-xs text-muted">Only for</span>
+                <span className="text-xs text-muted">{t('Only for')}</span>
                 <div className="w-56">
-                  <AssetTypeSelect value={typeLimit} onChange={setTypeLimit} includeAll allLabel="Every type" />
+                  <AssetTypeSelect value={typeLimit} onChange={setTypeLimit} includeAll allLabel={t('Every type')} />
                 </div>
               </div>
             ) : (
               <button type="button" className="text-xs text-accent-fg hover:underline" onClick={() => setLimiting(true)}>
-                Limit to one kind of item…
+                {t('Limit to one kind of item…')}
               </button>
             ))}
-          <p className="text-xs text-muted">Units include everyone in them and in the units beneath. Directory groups follow LDAP / ADFS membership.</p>
+          <p className="text-xs text-muted">{t('Units include everyone in them and in the units beneath. Directory groups follow LDAP / ADFS membership.')}</p>
         </div>
       )}
       <ul className="divide-y divide-border rounded-lg border border-border">
@@ -273,14 +274,14 @@ export function AccessEditor({
             {canManage ? (
               <>
                 <RoleSelect compact value={e.permissions} onChange={(p) => onChange(e, p)} />
-                <Button size="icon" variant="ghost" aria-label={`Remove ${e.subject.name}`} icon={<Trash2 className="size-3.5" />} onClick={() => onRemove(e)} />
+                <Button size="icon" variant="ghost" aria-label={t('Remove {name}', { name: e.subject.name })} icon={<Trash2 className="size-3.5" />} onClick={() => onRemove(e)} />
               </>
             ) : (
               <Badge>{accessLabel(e.permissions)}</Badge>
             )}
           </li>
         ))}
-        {!entries.length && <li className="px-3 py-4 text-center text-xs text-muted">Nobody has been added here yet.</li>}
+        {!entries.length && <li className="px-3 py-4 text-center text-xs text-muted">{t('Nobody has been added here yet.')}</li>}
       </ul>
       {inherited}
     </div>
@@ -293,7 +294,7 @@ export function PermissionSummary({ permissions }: { permissions: readonly Permi
     <ul className="flex flex-wrap gap-1">
       {permissions.map((p) => (
         <li key={p}>
-          <Badge>{permissionMeta[p].label}</Badge>
+          <Badge>{tMaybe(permissionMeta[p].label)}</Badge>
         </li>
       ))}
     </ul>

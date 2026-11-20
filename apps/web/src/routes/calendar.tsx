@@ -9,14 +9,21 @@ import { Segmented } from '@/components/ui/form';
 import { api } from '@/lib/api';
 import { useObligations } from '@/lib/queries';
 import { cn, todayIso } from '@/lib/utils';
-import { intlLocale } from '@/lib/i18n';
+import { getLocale, intlLocale, plural, t, tMaybe } from '@/lib/i18n';
 
 const iso = (y: number, m: number, d: number) => new Date(Date.UTC(y, m, d)).toISOString().slice(0, 10);
 
-/** Month grid starting on Monday, covering whole weeks. */
+/** First day of the week (0 = Sunday): Sunday in Hebrew, Monday otherwise. */
+const weekStart = getLocale() === 'he' ? 0 : 1;
+
+/** Short weekday names in the page's language, in grid order (1 Jan 2023 was a Sunday). */
+const weekdayFmt = new Intl.DateTimeFormat(intlLocale(), { weekday: 'short', timeZone: 'UTC' });
+const weekdays = Array.from({ length: 7 }, (_, i) => weekdayFmt.format(new Date(Date.UTC(2023, 0, 1 + ((weekStart + i) % 7)))));
+
+/** Month grid starting on the week's first day, covering whole weeks. */
 function monthGrid(year: number, month: number) {
   const first = new Date(Date.UTC(year, month, 1));
-  const offset = (first.getUTCDay() + 6) % 7;
+  const offset = (first.getUTCDay() - weekStart + 7) % 7;
   const start = iso(year, month, 1 - offset);
   const days = Math.ceil((offset + new Date(Date.UTC(year, month + 1, 0)).getUTCDate()) / 7) * 7;
   return Array.from({ length: days }, (_, i) => addDuration(start, { amount: i, unit: 'day' }));
@@ -44,33 +51,33 @@ export function CalendarPage() {
   const copyFeed = async () => {
     const { url } = await api.get<{ url: string }>('/api/scheduler/calendar-feed');
     await navigator.clipboard.writeText(url).catch(() => undefined);
-    toast.success('Calendar link copied', { description: 'In Outlook: Add calendar → Subscribe from web, and paste the link.' });
+    toast.success(t('Calendar link copied'), { description: t('In Outlook: Add calendar → Subscribe from web, and paste the link.') });
   };
 
   return (
     <>
       <PageHeader
         title={new Intl.DateTimeFormat(intlLocale(), { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(Date.UTC(cursor.y, cursor.m, 1)))}
-        description="Every tracked date you can see. Subscribe in Outlook to get your own items on your calendar."
+        description={t('Every tracked date you can see. Subscribe in Outlook to get your own items on your calendar.')}
         actions={
           <>
-            <Segmented value={scope} onChange={setScope} options={[{ value: 'all', label: 'Everything' }, { value: 'mine', label: 'Mine' }]} />
+            <Segmented value={scope} onChange={setScope} options={[{ value: 'all', label: t('Everything') }, { value: 'mine', label: t('Mine') }]} />
             <Button icon={<Link2 className="size-3.5" />} onClick={() => void copyFeed()}>
-              Subscribe
+              {t('Subscribe')}
             </Button>
             <div className="flex items-center">
-              <Button size="icon" variant="ghost" aria-label="Previous month" icon={<ChevronLeft className="size-4" />} onClick={() => shift(-1)} />
+              <Button size="icon" variant="ghost" aria-label={t('Previous month')} icon={<ChevronLeft className="size-4" />} onClick={() => shift(-1)} />
               <Button size="sm" variant="ghost" onClick={() => setCursor({ y: now.getFullYear(), m: now.getMonth() })}>
-                Today
+                {t('Today')}
               </Button>
-              <Button size="icon" variant="ghost" aria-label="Next month" icon={<ChevronRight className="size-4" />} onClick={() => shift(1)} />
+              <Button size="icon" variant="ghost" aria-label={t('Next month')} icon={<ChevronRight className="size-4" />} onClick={() => shift(1)} />
             </div>
           </>
         }
       />
       <div className="flex min-h-0 flex-1 flex-col px-4 sm:px-6 py-4">
         <div className="grid grid-cols-7 pb-2 text-xs font-medium text-subtle">
-          {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => (
+          {weekdays.map((d) => (
             <div key={d} className="px-2">
               {d}
             </div>
@@ -89,7 +96,7 @@ export function CalendarPage() {
                   {Number(d.slice(8))}
                 </div>
                 {items.length > 0 && (
-                  <div className="flex flex-wrap justify-center gap-0.5 md:hidden" aria-label={`${items.length} dates`}>
+                  <div className="flex flex-wrap justify-center gap-0.5 md:hidden" aria-label={plural(items.length, '{n} date', '{n} dates')}>
                     {items.slice(0, 4).map((o) => (
                       <span key={o.id} className="size-1.5 rounded-full" style={{ background: o.dateKind.color }} />
                     ))}
@@ -101,14 +108,14 @@ export function CalendarPage() {
                       key={o.id}
                       to="/assets/$assetId"
                       params={{ assetId: o.assetId }}
-                      title={`${o.dateKind.name}: ${o.assetName}`}
+                      title={t('{kind}: {asset}', { kind: tMaybe(o.dateKind.name), asset: o.assetName })}
                       className={cn('tint flex items-center gap-1 truncate rounded px-1.5 py-0.5 text-[11px] font-medium transition-opacity hover:opacity-80', (o.state === 'done' || o.state === 'dismissed') && 'line-through opacity-50')}
                       style={{ ['--c' as string]: o.dateKind.color }}
                     >
                       <span className="truncate">{o.assetName}</span>
                     </Link>
                   ))}
-                  {items.length > 3 && <p className="px-1.5 text-[11px] text-subtle">+{items.length - 3} more</p>}
+                  {items.length > 3 && <p className="px-1.5 text-[11px] text-subtle">{t('+{n} more', { n: items.length - 3 })}</p>}
                 </div>
               </div>
             );
@@ -127,7 +134,7 @@ export function CalendarPage() {
                     <span className="min-w-0 flex-1">
                       <span className={cn('block truncate text-[14px] font-medium', (o.state === 'done' || o.state === 'dismissed') && 'line-through')}>{o.assetName}</span>
                       <span className="block truncate text-xs text-muted">
-                        {o.dateKind.name} · {o.label}
+                        {tMaybe(o.dateKind.name)} · {o.label}
                       </span>
                     </span>
                     <ChevronRight className="size-4 text-subtle" />
@@ -136,7 +143,7 @@ export function CalendarPage() {
               ))}
             </ul>
           ) : (
-            <p className="px-1 text-[13px] text-muted">Nothing due this day.</p>
+            <p className="px-1 text-[13px] text-muted">{t('Nothing due this day.')}</p>
           )}
         </section>
       </div>
