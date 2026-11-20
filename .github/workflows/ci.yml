@@ -9,7 +9,7 @@ jobs:
   helm:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: azure/setup-helm@v4
       - run: helm lint deploy/helm/asset-management
       - run: helm template assets deploy/helm/asset-management --kube-version 1.29.0 > /dev/null
@@ -17,7 +17,7 @@ jobs:
   terraform:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: hashicorp/setup-terraform@v3
       - run: terraform fmt -recursive -check deploy/terraform
       - run: terraform init -backend=false && terraform validate
@@ -29,7 +29,7 @@ jobs:
       matrix:
         component: [identity, registry, files, scheduler, mcp, web]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v3
       - uses: docker/build-push-action@v6
         with:
