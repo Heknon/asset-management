@@ -22,6 +22,7 @@
     "@types/nodemailer": "^7.0.12"
   },
   "exports": {
-    "./service": "./src/service.ts"
+    "./service": "./src/service.ts",
+    "./node": "./src/node.ts"
   }
 }

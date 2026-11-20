@@ -19,6 +19,26 @@ export class DirectoryService {
     });
   }
 
+  /** Admins set a manual account's password; the person is signed out everywhere. */
+  async setPassword(id: string, password: string) {
+    const user = await this.store.findUserById(id);
+    if (!user) throw AppError.notFound('Person');
+    if (user.source !== 'local') throw AppError.validation('Only manual accounts have a password here; directory accounts use their company password');
+    await this.store.transaction(async (tx) => {
+      await tx.setPasswordHash(id, await this.hasher.hash(password));
+      await tx.revokeUserSessions(id);
+    });
+  }
+
+  /** Someone with a manual account changes their own password. */
+  async changeOwnPassword(userId: string, current: string, password: string) {
+    const user = await this.store.findUserById(userId);
+    const hash = await this.store.getPasswordHash(userId);
+    if (!user || user.source !== 'local' || !hash) throw AppError.validation('Your account signs in through your company directory; change the password there');
+    if (!(await this.hasher.verify(current, hash))) throw AppError.validation('Your current password is not right');
+    await this.store.setPasswordHash(userId, await this.hasher.hash(password));
+  }
+
   listUsers(query: { q?: string; ids?: string[]; limit: number; offset: number }) {
     return this.store.listUsers(query);
   }

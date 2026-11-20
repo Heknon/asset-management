@@ -35,7 +35,8 @@ function browserRuntime(): Plugin {
 const envDir = fileURLToPath(new URL('../..', import.meta.url));
 
 export default defineConfig(({ mode }) => {
-  const runMode = loadEnv(mode, envDir, 'VITE_').VITE_RUNTIME || 'server';
+  const env = loadEnv(mode, envDir, 'VITE_');
+  const runMode = env.VITE_RUNTIME || 'server';
   if (!RUN_MODES.includes(runMode as (typeof RUN_MODES)[number])) throw new Error(`VITE_RUNTIME must be one of ${RUN_MODES.join(', ')} (got "${runMode}")`);
   const inBrowser = runMode === 'browser';
   return {
@@ -47,7 +48,12 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 5173,
       // In browser mode the service worker answers /api itself.
-      proxy: inBrowser ? undefined : Object.fromEntries(Object.entries(services).map(([name, port]) => [`/api/${name}`, { target: `http://localhost:${port}`, changeOrigin: false }])),
+      // VITE_API_URL sends all of /api to one place (the serverless runtime: `pnpm --filter @am/serverless dev`).
+      proxy: inBrowser
+        ? undefined
+        : env.VITE_API_URL
+          ? { '/api': { target: env.VITE_API_URL, changeOrigin: false } }
+          : Object.fromEntries(Object.entries(services).map(([name, port]) => [`/api/${name}`, { target: `http://localhost:${port}`, changeOrigin: false }])),
     },
     build: { sourcemap: true, chunkSizeWarningLimit: 900 },
   };

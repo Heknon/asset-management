@@ -4,7 +4,7 @@ import { normalizeUsername, type ExternalIdentity } from '../domain/model.js';
 // ─── Local (break-glass) ─────────────────────────────────────────────────────
 
 export class LocalPasswordProvider implements PasswordProvider {
-  readonly info = { id: 'local' as const, label: 'Local account', flow: 'password' as const };
+  readonly info = { id: 'local' as const, label: 'Username and password', flow: 'password' as const };
 
   constructor(
     private readonly store: IdentityStore,

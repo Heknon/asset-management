@@ -128,7 +128,7 @@ VITE_RUNTIME=browser pnpm --filter web dev      # browser mode on http://localho
 VITE_RUNTIME=browser pnpm --filter web build    # static site + service worker in apps/web/dist
 ```
 
-Vercel builds with `VITE_RUNTIME` from the project's environment variables, defaulting to `browser` (Vercel has no backend for this app). Set it to `server` there once `/api` is routed to real services.
+On Vercel, `VITE_RUNTIME=server` runs the services as a Vercel Function (next section); unset or `browser`, the deployment is the in-browser version.
 
 In browser mode the web app registers `/sw.js`, which starts the four services on first use (a few seconds the first time: it downloads Postgres and runs every migration; about a second afterwards). The service worker answers every `/api/*` request, so the web app, its links, downloads, previews and uploads are unchanged. The sign-in page offers **Continue as Administrator** and **Load the demo company** (the same seed as `pnpm seed`, run inside the browser in about half a minute), then one-click sign-in as each persona.
 
@@ -140,6 +140,36 @@ What to expect in browser mode:
 - Private windows and browsers without service workers cannot run it; the app says so.
 
 Code: `packages/browser-runtime` (PGlite dialect, router, bus, storage, mailbox, service worker), `packages/platform` (portable building blocks; `@am/platform/node` is the server runtime), each service's `src/service.ts` (its definition) and `src/main.ts` (the server entry point with Node adapters).
+
+## Serverless on Vercel (Neon + S3)
+
+With `VITE_RUNTIME=server` in the Vercel project, `scripts/build-vercel.mjs` (the project's build command) produces the web app plus **one Vercel Function serving all of `/api`**: the same four service definitions, each with its own Postgres schema, run in one process (`packages/serverless`). Nothing runs between requests:
+
+- **Events** go through the same durable pg-boss queues as the server, but are delivered right after the change that caused them (after the response is sent, with `waitUntil`) instead of by always-on workers. Anything left over, and failed deliveries' retries, run on the next change or cron call.
+- **Reminders, renewal checks and housekeeping** run from Vercel Cron, calling `/api/cron` twice a day (06:00 and 18:00 UTC; `REMINDER_CRON` changes it at build time; Hobby plans allow daily only). Reminders are kept per day and per person, so each goes out once.
+- **Signing keys** for sign-in tokens and cookies are generated on first start and kept in the database (`serverless.secrets`), unless `AUTH_SIGNING_KEY` / `COOKIE_SECRET` are set.
+
+It reads what the integrations already provide:
+
+| Variable | From | Used for |
+|---|---|---|
+| `DATABASE_URL_UNPOOLED` | Neon integration | Postgres (direct connection: each service pins its schema per connection, which the pooled endpoint does not allow) |
+| `STORAGE_S3_BUCKET_NAME`, `STORAGE_AWS_REGION`, `STORAGE_AWS_ROLE_ARN` | AWS S3 integration | Documents; the function assumes the role with Vercel's OIDC token, no access keys |
+| `VERCEL_PROJECT_PRODUCTION_URL`, `VERCEL_BRANCH_URL` | Vercel | Links in emails, sign-in redirects, the bucket's CORS (`PUBLIC_URL` overrides) |
+
+Set in the project (Settings → Environment Variables):
+
+| Variable | Example | |
+|---|---|---|
+| `VITE_RUNTIME` | `server` | Required: build the function instead of the in-browser version |
+| `LOCAL_ADMIN_PASSWORD` | 12+ characters | The first administrator, user name `admin` (or `LOCAL_ADMIN_USERNAME`); needed to sign in the first time |
+| `AUTH_MODE` | `manual`, `ldap`, `adfs`, `manual,ldap`… | Sign-in methods. `manual`: admins add people with a password (**People & groups → Add person**), people change it on their profile. Unset: `manual` |
+| `SMTP_URL`, `MAIL_FROM` | `smtps://user:pass@smtp.postmarkapp.com:465` | Email. Unset: nothing is sent and reminders wait (they go out once mail is set up) |
+| `CRON_SECRET` | random string | Vercel sends it with cron calls; `/api/cron` then refuses anyone else |
+
+LDAP and ADFS take the same `LDAP_*` / `OIDC_*` variables as the server, but the directory must be reachable from Vercel (the internet). Uploads and previews go from the browser straight to the bucket; on first start the function adds this deployment's origins to the bucket's CORS when its role allows, and logs a warning otherwise (then add a CORS rule allowing `GET`, `HEAD`, `POST` from your domain).
+
+Locally: `pnpm --filter @am/serverless dev` runs the same runtime on one port (`.env` as for the server; `PORT`, default 3000), and `VITE_API_URL=http://localhost:3000 pnpm --filter web dev` points the app at it. `GET /api/health` lists the running services.
 
 ## Deploying to OpenShift
 

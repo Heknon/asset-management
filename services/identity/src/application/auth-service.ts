@@ -89,6 +89,7 @@ export class AuthService {
       grants: await this.store.effectiveGrants(user.id),
       units: await this.store.userUnits(user.id),
       preferences: user.preferences,
+      source: user.source,
     };
   }
 

@@ -12,6 +12,8 @@ import {
   orgUnitInputSchema,
   unitPeopleSchema,
   localUserCreateSchema,
+  passwordChangeSchema,
+  passwordSetSchema,
   userUpdateSchema,
 } from '@am/core';
 import { ACCESS_COOKIE, parse, REFRESH_COOKIE, requireAdmin, requirePrincipal } from '@am/platform';
@@ -186,6 +188,16 @@ export function registerRoutes(app: FastifyInstance, o: RouteOptions): void {
   app.post(`${PREFIX}/users`, async (req) => {
     requireAdmin(req);
     return o.directory.createLocalUser(parse(localUserCreateSchema, req.body));
+  });
+  app.put(`${PREFIX}/users/:id/password`, async (req, reply) => {
+    requireAdmin(req);
+    await o.directory.setPassword(parse(idParam, req.params).id, parse(passwordSetSchema, req.body).password);
+    return reply.status(204).send();
+  });
+  app.post(`${PREFIX}/me/password`, async (req, reply) => {
+    const input = parse(passwordChangeSchema, req.body);
+    await o.directory.changeOwnPassword(requirePrincipal(req).userId, input.current, input.password);
+    return reply.status(204).send();
   });
   app.patch(`${PREFIX}/users/:id`, async (req) => {
     const actor = requireAdmin(req);

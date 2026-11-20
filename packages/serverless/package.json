@@ -1,0 +1,32 @@
+{
+  "name": "@am/serverless",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Runs the four services as one Vercel Function: Neon Postgres, S3, events drained after each change and by Vercel Cron.",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "dev": "tsx --env-file-if-exists=../../.env src/dev.ts"
+  },
+  "dependencies": {
+    "@am/core": "workspace:*",
+    "@am/files": "workspace:*",
+    "@am/identity": "workspace:*",
+    "@am/platform": "workspace:*",
+    "@am/registry": "workspace:*",
+    "@am/scheduler": "workspace:*",
+    "@aws-sdk/client-s3": "3.948.0",
+    "@vercel/functions": "^3.11.3",
+    "fastify": "~5.6.2",
+    "jose": "^6.2.18",
+    "kysely": "0.28.20",
+    "pg": "^8.23.1",
+    "pg-boss": "10.4.2",
+    "pino": "^9.14.0",
+    "zod": "3.25.76"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

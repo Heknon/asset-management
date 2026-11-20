@@ -49,6 +49,7 @@ export interface IdentityStore {
   findUserByUsername(username: string, source: AuthSource): Promise<UserRecord | null>;
   findUserByExternalId(source: AuthSource, externalId: string): Promise<UserRecord | null>;
   getPasswordHash(userId: string): Promise<string | null>;
+  setPasswordHash(userId: string, hash: string): Promise<void>;
   upsertUserFromIdentity(identity: ExternalIdentity): Promise<UserRecord>;
   createLocalUser(input: { username: string; displayName: string; email: string | null; passwordHash: string; isAdmin: boolean }): Promise<UserRecord>;
   updateUser(id: string, patch: Partial<Pick<UserRecord, 'isAdmin' | 'active' | 'preferences'>>): Promise<UserRecord>;

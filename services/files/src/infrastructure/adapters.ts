@@ -1,4 +1,4 @@
-import { DeleteObjectsCommand, GetObjectCommand, HeadObjectCommand, S3Client, type S3ClientConfig } from '@aws-sdk/client-s3';
+import { DeleteObjectsCommand, GetBucketCorsCommand, GetObjectCommand, HeadObjectCommand, PutBucketCorsCommand, S3Client, type CORSRule, type S3ClientConfig } from '@aws-sdk/client-s3';
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import type { ObjectStorage, PresignedUpload } from '../application/ports.js';
@@ -14,6 +14,8 @@ export interface S3Settings {
   sse: 'none' | 'AES256' | 'aws:kms';
   kmsKeyId?: string;
   ttlSeconds: number;
+  /** Credentials from the runtime (e.g. a role assumed with Vercel's OIDC token); otherwise the keys above or the default chain. */
+  credentials?: S3ClientConfig['credentials'];
 }
 
 export class S3ObjectStorage implements ObjectStorage {
@@ -25,11 +27,31 @@ export class S3ObjectStorage implements ObjectStorage {
     const base: S3ClientConfig = {
       region: s.region,
       forcePathStyle: s.forcePathStyle,
-      ...(s.accessKeyId && s.secretAccessKey && { credentials: { accessKeyId: s.accessKeyId, secretAccessKey: s.secretAccessKey } }),
+      ...(s.credentials
+        ? { credentials: s.credentials }
+        : s.accessKeyId && s.secretAccessKey && { credentials: { accessKeyId: s.accessKeyId, secretAccessKey: s.secretAccessKey } }),
     };
     this.internal = new S3Client({ ...base, ...(s.endpoint && { endpoint: s.endpoint }) });
     const pub = s.publicEndpoint ?? s.endpoint;
     this.signer = new S3Client({ ...base, ...(pub && { endpoint: pub }) });
+  }
+
+  /**
+   * Lets browsers on `origin` upload to the bucket and read previews from it.
+   * Adds one rule if none covers the origin yet; other rules are kept.
+   */
+  async allowBrowserOrigin(origin: string): Promise<boolean> {
+    const current = await this.internal.send(new GetBucketCorsCommand({ Bucket: this.s.bucket })).then(
+      (r) => r.CORSRules ?? [],
+      (err: { name?: string }) => {
+        if (err.name === 'NoSuchCORSConfiguration') return [] as CORSRule[];
+        throw err;
+      },
+    );
+    if (current.some((r) => r.AllowedOrigins?.includes(origin) || r.AllowedOrigins?.includes('*'))) return false;
+    const rule: CORSRule = { AllowedOrigins: [origin], AllowedMethods: ['GET', 'HEAD', 'POST'], AllowedHeaders: ['*'], ExposeHeaders: ['ETag'], MaxAgeSeconds: 3600 };
+    await this.internal.send(new PutBucketCorsCommand({ Bucket: this.s.bucket, CORSConfiguration: { CORSRules: [...current, rule] } }));
+    return true;
   }
 
   private sseFields(): Record<string, string> {

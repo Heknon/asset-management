@@ -9,6 +9,16 @@ export const identityConfig = {
   COOKIE_SECRET: z.string().min(32),
   COOKIE_SECURE: envBool(true),
 
+  /**
+   * Which sign-in methods are on, in one setting: any of `manual` (accounts and passwords kept here,
+   * created by admins), `ldap` and `adfs`, comma-separated, e.g. `manual` or `ldap,adfs`.
+   * Unset: LOCAL_AUTH_ENABLED, LDAP_ENABLED and OIDC_ENABLED decide, as before.
+   */
+  AUTH_MODE: z
+    .string()
+    .regex(/^\s*(manual|local|ldap|adfs|oidc)(\s*[,+ ]\s*(manual|local|ldap|adfs|oidc))*\s*$/i, 'AUTH_MODE is a comma-separated list of manual, ldap and adfs')
+    .optional(),
+
   /** Break-glass local administrator. Leave unset to disable local login entirely. */
   LOCAL_AUTH_ENABLED: envBool(true),
   LOCAL_ADMIN_USERNAME: z.string().optional(),
@@ -51,3 +61,10 @@ export const identityConfig = {
   /** ID-token claims that place people in units, matched as `claim=value`, e.g. department. */
   OIDC_UNIT_CLAIMS: envList,
 };
+
+/** The sign-in methods that are on: from AUTH_MODE when set, otherwise from the per-method switches. */
+export function signInMethods(config: { AUTH_MODE?: string; LOCAL_AUTH_ENABLED: boolean; LDAP_ENABLED: boolean; OIDC_ENABLED: boolean }): { manual: boolean; ldap: boolean; adfs: boolean } {
+  if (!config.AUTH_MODE) return { manual: config.LOCAL_AUTH_ENABLED, ldap: config.LDAP_ENABLED, adfs: config.OIDC_ENABLED };
+  const parts = new Set(config.AUTH_MODE.toLowerCase().split(/[\s,+]+/).filter(Boolean));
+  return { manual: parts.has('manual') || parts.has('local'), ldap: parts.has('ldap'), adfs: parts.has('adfs') || parts.has('oidc') };
+}

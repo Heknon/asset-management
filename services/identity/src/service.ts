@@ -5,7 +5,7 @@ import { AuthService } from './application/auth-service.js';
 import { DirectoryService } from './application/directory-service.js';
 import { OrgService } from './application/org-service.js';
 import type { PasswordProvider, RedirectProvider } from './application/ports.js';
-import { identityConfig } from './config.js';
+import { identityConfig, signInMethods } from './config.js';
 import { normalizeUsername } from './domain/model.js';
 import { JwtIssuer, ScryptHasher, type ScryptFn } from './infrastructure/crypto.js';
 import { PgIdentityStore } from './infrastructure/pg-identity-store.js';
@@ -40,13 +40,13 @@ export const defineIdentityService = (adapters: IdentityAdapters) => {
       });
       return createTokenVerifier((await importJWK(issuer.publicKey, 'ES256')) as CryptoKey, { issuer: config.AUTH_ISSUER, audience: config.AUTH_AUDIENCE });
     },
-    async register({ config, database, app, logger, onClose }) {
+    async register({ config, database, app, bus, logger }) {
       const store = new PgIdentityStore(database.db);
       const hasher = new ScryptHasher(adapters.scrypt);
 
       const directories = adapters.directories?.(config, logger) ?? { passwords: new Map<string, PasswordProvider>(), redirect: null };
       const passwordProviders = directories.passwords;
-      if (config.LOCAL_AUTH_ENABLED) passwordProviders.set('local', new LocalPasswordProvider(store, hasher));
+      if (signInMethods(config).manual) passwordProviders.set('local', new LocalPasswordProvider(store, hasher));
       const oidc = directories.redirect;
 
       await bootstrapLocalAdmin(store, hasher, config.LOCAL_ADMIN_USERNAME, config.LOCAL_ADMIN_PASSWORD);
@@ -63,8 +63,8 @@ export const defineIdentityService = (adapters: IdentityAdapters) => {
         accessTtlSeconds: config.ACCESS_TOKEN_TTL_SECONDS,
       });
 
-      const purge = setInterval(() => void store.purgeExpiredSessions().catch((err) => logger.warn({ err }, 'session purge failed')), 3_600_000);
-      onClose(() => clearInterval(purge));
+      // Hourly on the server; on each cron run when serverless.
+      await bus.schedule('identity.purge-sessions', '7 * * * *', () => store.purgeExpiredSessions());
       logger.info({ providers: auth.providers().map((p) => p.id) }, 'identity providers enabled');
     },
   });

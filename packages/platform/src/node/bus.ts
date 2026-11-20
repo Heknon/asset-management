@@ -7,7 +7,7 @@ import { handleEvent, runJob, type EventBus, type EventHandler } from '../events
  * Queue setup takes table locks; when every replica of every service starts at
  * once (fresh install, cluster restart) these can deadlock. Retry with jitter.
  */
-async function withDeadlockRetry<T>(fn: () => Promise<T>, attempts = 8): Promise<T> {
+export async function withDeadlockRetry<T>(fn: () => Promise<T>, attempts = 8): Promise<T> {
   for (let i = 1; ; i++) {
     try {
       return await fn();

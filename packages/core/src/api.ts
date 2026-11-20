@@ -50,6 +50,8 @@ export const preferencesSchema = z.object({ emailReminders: z.boolean(), outlook
 
 export interface Me extends Principal {
   preferences: Preferences;
+  /** How this person signs in: `local` is a manual account with a password kept here. */
+  source?: AuthSource;
 }
 
 export interface UserSummary {
@@ -78,6 +80,10 @@ export const localUserCreateSchema = z.object({
   isAdmin: z.boolean().default(false),
 });
 export type LocalUserCreate = z.infer<typeof localUserCreateSchema>;
+/** An admin setting a manual account's password (e.g. a forgotten one). */
+export const passwordSetSchema = z.object({ password: z.string().min(12).max(256) });
+/** Someone changing their own password. */
+export const passwordChangeSchema = z.object({ current: z.string().min(1).max(256), password: z.string().min(12).max(256) });
 
 export interface Group {
   id: string;

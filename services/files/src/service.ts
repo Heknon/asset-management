@@ -22,19 +22,17 @@ export const defineFilesService = (adapters: FilesAdapters) =>
     name: 'files',
     config: filesConfig,
     migrations,
-    async register({ config, database, app, bus, logger, onClose }) {
+    async register({ config, database, app, bus, logger }) {
       const files = new FileService(new PgFileStore(database.db), adapters.storage(config), adapters.assetAccess(config), config.MAX_UPLOAD_BYTES);
       registerRoutes(app, files);
 
       await bus.subscribe('files', 'asset.deleted', (e) => files.onAssetDeleted(e.assetId));
 
-      const sweep = setInterval(() => {
-        files
-          .purgeAbandoned(new Date(Date.now() - 24 * 3_600_000))
-          .then((n) => n && logger.info({ removed: n }, 'purged abandoned uploads'))
-          .catch((err) => logger.warn({ err }, 'abandoned upload purge failed'));
-      }, 3_600_000);
-      onClose(() => clearInterval(sweep));
+      // Hourly on the server; on each cron run when serverless.
+      await bus.schedule('files.purge-abandoned', '17 * * * *', async () => {
+        const n = await files.purgeAbandoned(new Date(Date.now() - 24 * 3_600_000));
+        if (n) logger.info({ removed: n }, 'purged abandoned uploads');
+      });
     },
   });
 export { RegistryAssetAccess } from './infrastructure/registry-access.js';

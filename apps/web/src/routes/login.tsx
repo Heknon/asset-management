@@ -73,7 +73,7 @@ export function LoginPage() {
               {passwordProviders.length > 1 && (
                 <Segmented className="w-full [&>button]:flex-1" value={active!} onChange={setProvider} options={passwordProviders.map((p) => ({ value: p.id, label: p.label }))} />
               )}
-              <Field label={active === 'ldap' ? 'Username' : 'Local username'}>
+              <Field label="Username">
                 {(id) => <Input id={id} autoFocus autoComplete="username" value={username} placeholder={active === 'ldap' ? 'jdoe or CORP\\jdoe' : 'admin'} onChange={(e) => setUsername(e.target.value)} />}
               </Field>
               <Field label="Password">{(id) => <Input id={id} type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />}</Field>

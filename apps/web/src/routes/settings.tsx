@@ -26,7 +26,7 @@ import { Field, Input, Segmented, Switch } from '@/components/ui/form';
 import { ConfirmDialog, Dialog, Menu, MenuItem } from '@/components/ui/overlay';
 import { useMediaQuery } from '@/lib/hooks';
 import { api, ApiError } from '@/lib/api';
-import { keys, useOrgWorkflow, useDateKinds, useGroupMembers, useGroups, useLookups, useMe, useUsers } from '@/lib/queries';
+import { keys, useOrgWorkflow, useDateKinds, useGroupMembers, useGroups, useLookups, useMe, useProviders, useUsers } from '@/lib/queries';
 import { useMyOrg } from '@/lib/org';
 import { formatDateTime, formatDurations, slugKey } from '@/lib/utils';
 
@@ -184,11 +184,33 @@ export function PeoplePage() {
   const me = useMe().data!;
   const [group, setGroup] = useState<Group | 'new' | null>(null);
   const phone = useMediaQuery('(max-width: 639px)');
+  const providers = useProviders();
+  // Manual accounts (passwords kept here) are on when the "local" sign-in method is.
+  const manual = !!providers.data?.some((p) => p.id === 'local');
+  const directory = !!providers.data?.some((p) => p.id !== 'local');
+  const [adding, setAdding] = useState(false);
+  const [settingPassword, setSettingPassword] = useState<User | null>(null);
   const update = useSave((v: { id: string; patch: Partial<Pick<User, 'isAdmin' | 'active'>> }) => api.patch(`/api/identity/users/${v.id}`, v.patch), [['users']], 'User updated');
 
   return (
     <>
-      <PageHeader title="People & groups" description="People are provisioned on first sign-in through LDAP or ADFS. Directory groups sync automatically and can be granted access.">
+      <PageHeader
+        title="People & groups"
+        description={
+          manual && !directory
+            ? 'Add the people who use Assets; each gets a sign-in name and a password you give them. Groups gather people for access.'
+            : manual
+              ? 'People from the company directory appear on first sign-in; you can also add people with their own password here. Directory groups sync automatically.'
+              : 'People are provisioned on first sign-in through LDAP or ADFS. Directory groups sync automatically and can be granted access.'
+        }
+        actions={
+          manual && (
+            <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setAdding(true)}>
+              Add person
+            </Button>
+          )
+        }
+      >
         <Tabs value={tab} onValueChange={setTab} tabs={[{ value: 'users', label: 'People', count: users.data?.total }, { value: 'groups', label: 'Groups', count: groups.data?.length }]} />
       </PageHeader>
       <div className="mx-auto w-full max-w-4xl px-4 sm:px-6 py-6">
@@ -218,12 +240,22 @@ export function PeoplePage() {
                           <MenuItem icon={<KeyRound />} onSelect={() => update.mutate({ id: u.id, patch: { isAdmin: !u.isAdmin } })}>
                             {u.isAdmin ? 'Remove admin' : 'Make admin'}
                           </MenuItem>
+                          {u.source === 'local' && (
+                            <MenuItem icon={<KeyRound />} onSelect={() => setSettingPassword(u)}>
+                              Set password
+                            </MenuItem>
+                          )}
                           <MenuItem icon={<UserX />} danger={u.active} onSelect={() => update.mutate({ id: u.id, patch: { active: !u.active } })}>
                             {u.active ? 'Disable' : 'Enable'}
                           </MenuItem>
                         </Menu>
                       ) : (
                         <>
+                          {u.source === 'local' && (
+                            <Button size="sm" variant="ghost" onClick={() => setSettingPassword(u)}>
+                              Set password
+                            </Button>
+                          )}
                           <Button size="sm" variant="ghost" onClick={() => update.mutate({ id: u.id, patch: { isAdmin: !u.isAdmin } })}>
                             {u.isAdmin ? 'Remove admin' : 'Make admin'}
                           </Button>
@@ -274,6 +306,8 @@ export function PeoplePage() {
         )}
       </div>
       {group && <GroupDialog group={group === 'new' ? null : group} onClose={() => setGroup(null)} />}
+      <AddPersonDialog open={adding} onOpenChange={setAdding} />
+      <SetPasswordDialog user={settingPassword} onClose={() => setSettingPassword(null)} />
     </>
   );
 }
@@ -417,6 +451,7 @@ export function ProfilePage() {
     <>
       <PageHeader title="Profile & notifications" icon={<Avatar name={me.displayName} size={40} />} description={me.email ?? me.username} />
       <div className="mx-auto w-full max-w-2xl space-y-6 px-4 sm:px-6 py-6">
+        {me.source === 'local' && <ChangePassword />}
         <Card className="space-y-4">
           <h2 className="text-[13px] font-semibold">Notifications</h2>
           <Switch
@@ -495,5 +530,140 @@ function MyTeams() {
         <p className="text-xs text-muted">You aren’t in any team yet. Teams come from your directory groups when you sign in; an administrator can also add you.</p>
       )}
     </Card>
+  );
+}
+
+/** An admin adds someone with a manual account: a sign-in name and a first password to pass on. */
+function AddPersonDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+  const blank = { displayName: '', username: '', email: '', password: '', isAdmin: false };
+  const [form, setForm] = useState(blank);
+  const [touchedUsername, setTouchedUsername] = useState(false);
+  const create = useSave(
+    () => api.post('/api/identity/users', { displayName: form.displayName.trim(), username: form.username.trim(), email: form.email.trim() || null, password: form.password, isAdmin: form.isAdmin }),
+    [['users']],
+    `${form.displayName || 'Person'} added`,
+    () => {
+      onOpenChange(false);
+      setForm(blank);
+      setTouchedUsername(false);
+    },
+  );
+  const suggestUsername = (name: string) => name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '.').replace(/^\.|\.$/g, '');
+  const ok = form.displayName.trim() && /^[a-zA-Z0-9._-]{2,64}$/.test(form.username) && form.password.length >= 12;
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Add a person"
+      description="They sign in with this name and password, and can change the password on their profile."
+      footer={
+        <>
+          <Button onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button variant="primary" disabled={!ok} loading={create.isPending} onClick={() => create.mutate(undefined)}>
+            Add person
+          </Button>
+        </>
+      }
+    >
+      <form
+        className="grid grid-cols-1 gap-4 sm:grid-cols-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (ok) create.mutate(undefined);
+        }}
+      >
+        <Field label="Name" required className="sm:col-span-2">
+          {(id) => <Input id={id} value={form.displayName} placeholder="e.g. Dana Cohen" onChange={(e) => setForm((f) => ({ ...f, displayName: e.target.value, ...(!touchedUsername && { username: suggestUsername(e.target.value) }) }))} />}
+        </Field>
+        <Field label="Sign-in name" required hint="Letters, digits, dots, dashes">
+          {(id) => <Input id={id} value={form.username} autoComplete="off" onChange={(e) => (setTouchedUsername(true), setForm((f) => ({ ...f, username: e.target.value })))} />}
+        </Field>
+        <Field label="Email" hint="For reminders">
+          {(id) => <Input id={id} type="email" value={form.email} placeholder="dana@company.com" onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />}
+        </Field>
+        <Field label="First password" required hint="At least 12 characters; they can change it" className="sm:col-span-2">
+          {(id) => <PasswordInput id={id} value={form.password} onChange={(password) => setForm((f) => ({ ...f, password }))} />}
+        </Field>
+        <div className="sm:col-span-2">
+          <Switch checked={form.isAdmin} onChange={(isAdmin) => setForm((f) => ({ ...f, isAdmin }))} label="Administrator" description="Full control: templates, the organization, access and every item" />
+        </div>
+        <button type="submit" className="hidden" />
+      </form>
+    </Dialog>
+  );
+}
+
+/** An admin sets a new password for someone with a manual account (e.g. a forgotten one); they are signed out everywhere. */
+function SetPasswordDialog({ user, onClose }: { user: User | null; onClose: () => void }) {
+  const [password, setPassword] = useState('');
+  const save = useSave((_: void) => api.put(`/api/identity/users/${user!.id}/password`, { password }), [], `New password set for ${user?.displayName ?? 'them'}`, () => {
+    setPassword('');
+    onClose();
+  });
+  return (
+    <Dialog
+      open={!!user}
+      onOpenChange={(o) => !o && onClose()}
+      title={`Set a password for ${user?.displayName ?? ''}`}
+      description="They are signed out everywhere and sign in again with the new password. Pass it on privately."
+      footer={
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="primary" disabled={password.length < 12} loading={save.isPending} onClick={() => save.mutate()}>
+            Set password
+          </Button>
+        </>
+      }
+    >
+      <Field label="New password" hint="At least 12 characters">
+        {(id) => <PasswordInput id={id} value={password} onChange={setPassword} />}
+      </Field>
+    </Dialog>
+  );
+}
+
+/** On the profile, for manual accounts. */
+function ChangePassword() {
+  const [current, setCurrent] = useState('');
+  const [next, setNext] = useState('');
+  const save = useSave((_: void) => api.post('/api/identity/me/password', { current, password: next }), [], 'Password changed', () => {
+    setCurrent('');
+    setNext('');
+  });
+  return (
+    <Card className="space-y-4">
+      <div>
+        <h2 className="text-[13px] font-semibold">Password</h2>
+        <p className="text-xs text-muted">Your account’s password is kept by Assets. Use at least 12 characters.</p>
+      </div>
+      <form
+        className="grid grid-cols-1 gap-4 sm:grid-cols-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (current && next.length >= 12) save.mutate();
+        }}
+      >
+        <Field label="Current password">{(id) => <PasswordInput id={id} value={current} autoComplete="current-password" onChange={setCurrent} />}</Field>
+        <Field label="New password">{(id) => <PasswordInput id={id} value={next} autoComplete="new-password" onChange={setNext} />}</Field>
+        <div className="sm:col-span-2">
+          <Button type="submit" disabled={!current || next.length < 12} loading={save.isPending}>
+            Change password
+          </Button>
+        </div>
+      </form>
+    </Card>
+  );
+}
+
+/** A password field with a show/hide toggle. */
+function PasswordInput({ id, value, onChange, autoComplete = 'new-password' }: { id: string; value: string; onChange: (v: string) => void; autoComplete?: string }) {
+  const [shown, setShown] = useState(false);
+  return (
+    <div className="relative">
+      <Input id={id} type={shown ? 'text' : 'password'} autoComplete={autoComplete} value={value} onChange={(e) => onChange(e.target.value)} className="pr-16" />
+      <button type="button" onClick={() => setShown((x) => !x)} className="absolute top-1/2 right-2 -translate-y-1/2 rounded px-1.5 text-xs text-accent-fg">
+        {shown ? 'Hide' : 'Show'}
+      </button>
+    </div>
   );
 }
