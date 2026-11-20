@@ -225,7 +225,7 @@ export class AssetService {
   }
 
   /** "Renewed" / "Paid": rolls a recurring date forward by its interval, and finishes its open renewal requests. */
-  async advance(principal: Principal, id: string, fieldKey: string, opts: { store?: RegistryStore; skipRequestId?: string } = {}): Promise<Asset> {
+  async advance(principal: Principal, id: string, fieldKey: string, opts: { store?: RegistryStore; skipRequestId?: string; until?: string } = {}): Promise<Asset> {
     const run = async (tx: RegistryStore) => {
       const current = await tx.getAsset(id, { forUpdate: true });
       if (!current) throw AppError.notFound('Asset');
@@ -233,7 +233,7 @@ export class AssetService {
       authorize(principal, 'renew', scope);
       const sch = await this.schemaOf(tx, current);
       const kinds = await this.kinds(tx);
-      const { values, from, to } = advanceRecurringDate(sch.schema, current.values, fieldKey, kinds);
+      const { values, from, to } = advanceRecurringDate(sch.schema, current.values, fieldKey, kinds, opts.until);
       const draft: AssetDraft = { ...current, typeVersion: sch.type.version, values };
       const saved = await tx.saveAsset(id, draft, principal.userId, await this.searchText(tx, sch, draft, current.refNo));
       await tx.addActivity({ assetId: id, actorId: principal.userId, actorName: principal.displayName, action: 'advanced', changes: diff(sch.schema, current, draft) });

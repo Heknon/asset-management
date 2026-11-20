@@ -20,7 +20,7 @@ import { accessLabel } from '@/components/access';
 import { LanguageSetting } from '@/components/language';
 import { GrantsEditor } from '@/components/access-grants';
 import { DurationInput, DurationListEditor } from '@/components/duration-editor';
-import { ColorPicker, PersonName, PersonPicker, UnitPath } from '@/components/pickers';
+import { ColorPicker, PersonName, PersonPicker, UnitPath, UnitPicker } from '@/components/pickers';
 import { Button } from '@/components/ui/button';
 import { Avatar, Badge, Card, EmptyState, PageHeader, Spinner, Tabs } from '@/components/ui/display';
 import { WorkflowEditor } from '@/components/workflow-editor';
@@ -28,7 +28,7 @@ import { Field, Input, Segmented, Switch } from '@/components/ui/form';
 import { ConfirmDialog, Dialog, Menu, MenuItem } from '@/components/ui/overlay';
 import { useMediaQuery } from '@/lib/hooks';
 import { api, ApiError } from '@/lib/api';
-import { keys, useOrgWorkflow, useDateKinds, useGroupMembers, useGroups, useLookups, useMe, useProviders, useUsers } from '@/lib/queries';
+import { keys, useOrgWorkflow, usePurchaseUnit, useDateKinds, useGroupMembers, useGroups, useLookups, useMe, useProviders, useUsers } from '@/lib/queries';
 import { useMyOrg } from '@/lib/org';
 import { formatDateTime, formatDurations, slugKey } from '@/lib/utils';
 import { intlLocale, plural, t, tMaybe } from '@/lib/i18n';
@@ -176,8 +176,24 @@ export function WorkflowsPage() {
           )
         }
       />
-      <div className="mx-auto w-full max-w-4xl px-4 sm:px-6 py-6">{wf ? <WorkflowEditor value={wf} onChange={setDraft} lockedKeys={saved.data?.statuses.map((s) => s.key)} /> : <Spinner />}</div>
+      <div className="mx-auto w-full max-w-4xl space-y-6 px-4 sm:px-6 py-6">
+        <PurchaseUnitCard />
+        {wf ? <WorkflowEditor value={wf} onChange={setDraft} lockedKeys={saved.data?.statuses.map((s) => s.key)} /> : <Spinner />}
+      </div>
     </>
+  );
+}
+
+/** The unit responsible for purchases: its members handle every request, and requests show it next to the purchase status. */
+function PurchaseUnitCard() {
+  const unit = usePurchaseUnit();
+  const save = useSave((unitId: string | null) => api.put('/api/registry/workflows/purchase-unit', { unitId }), [keys.purchaseUnit, keys.requests], t('Saved'));
+  return (
+    <Card className="space-y-2">
+      <Field label={t('Responsible for purchases')} hint={t('Its members handle every purchase and renewal request, besides people who may renew items. Templates and team variants can add workflows with their own responsible unit.')}>
+        {(id) => <UnitPicker id={id} value={unit.data?.unitId ?? null} onChange={(v) => save.mutate(v)} allowClear clearLabel={t('No one unit (people who may renew items)')} placeholder={t('No one unit (people who may renew items)')} />}
+      </Field>
+    </Card>
   );
 }
 

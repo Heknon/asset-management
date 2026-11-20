@@ -81,6 +81,7 @@ src/
 | **Membership** | Platform members (from `CN=platform`); R&D managers | Members get the unit's member access (view by default). Managers get manage on the whole subtree, and receive reminders when an owner is missing. |
 | **Grant** | Dana → manage the whole company; Finance → view it | For roles that cut across the tree. Grants go to users or directory groups and apply to a unit's subtree; the highest matching level wins. |
 | **Request** | REQ-1042 "10 Miro seats" for Platform; REQ-1043 "Renew Miro" | A purchase or a renewal, moving through a workflow (default: Submitted → In review → Approved → Ordered → Fulfilled, or Declined/Cancelled). Handlers have “Handle renewals” on the unit. |
+| **Added workflow** | Machine status → R&D Lab | A template's or team variant's own workflow besides the purchase, on the item or its requests, with a responsible unit. |
 | **Obligation** | "Renew GitHub Enterprise by Dec 30" | One active occurrence per asset × date field; done / snoozed / dismissed. |
 
 ## Local development
@@ -321,6 +322,22 @@ Requests follow a **workflow**: an ordered list of statuses, each with a name, a
 - A purchase for a template reaches **Done** by creating the item ("Create the item"), so the item and request stay linked. A request without a template can be marked done directly.
 - **Renewal requests** ask the buyers to renew an existing item's date. They open when an owner answers a renewal check with *renew* / *renew with changes*, or from **⋯ → Open a renewal request** on any date. One is open per date at a time. Finishing it rolls a repeating date forward; renewing on the item directly finishes the open request. The date shows the request and its status in Upcoming and on the item.
 - Email subjects use the workflow's names ("REQ-1016 is now “Under purchase”").
+- **Renewed until a date.** Renewing rolls a date forward by its term, or to a date you give (⋯ → *Renew until a date…*, or when finishing a renewal request): bought a year, got a year and 10 days. A renewal date with no fixed term asks for its new date. Reminders, the cancellation deadline and the next renewal follow the new date.
+
+## Added workflows: each unit's own part
+
+Workflows extend the way fields do. Besides the purchase, a template (for everyone) or a team variant (for its unit) can add workflows, each with a name and **the unit responsible for it**:
+
+| Workflow | Added by | Tracks | Responsible |
+|---|---|---|---|
+| Purchase (Submitted → … → Fulfilled) | Organization / template | each request | Procurement (Settings → Request workflow → *Responsible for purchases*) |
+| Machine status (Not deployed → Installing → Running → Retired) | R&D's *Lab license* variant | the item | R&D Lab |
+| Swap the new license (To install → Swapping on machines → Installed) | R&D's *Lab license* variant | each renewal, once it is bought | R&D Lab |
+
+- **Item workflows** are a lasting state of the item, shown on its page. **Request workflows** run with the purchase or start once it is done: for Procurement the renewal is finished, for the Lab the work starts now.
+- **Everyone sees every status.** A request shows one combined status ("Swap the new license: To install" once bought), and *Where it stands* lists the purchase and each workflow with its responsible unit.
+- **The responsible unit moves it**: its members, the units beneath it, and people who manage it. Moves marked for the requester can also be made by the requester (or the item's owner). *To handle* lists what waits on each person's unit; the unit's managers are emailed when their part starts and moves.
+- Workflows are edited in Templates → a template → **Workflows**, and at the bottom of a team variant. Their keys stay fixed once saved, like field keys; an added workflow never changes how the purchase runs.
 
 ## Catalogs, conversations and renewal checks
 

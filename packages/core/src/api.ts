@@ -296,6 +296,10 @@ export interface CombinedStatus {
   waitingOn: string[];
 }
 
+/** "Renew": one term later, or until a given date. */
+export const advanceSchema = z.object({ until: isoDateSchema.optional() });
+export type AdvanceInput = z.infer<typeof advanceSchema>;
+
 export const workflowMoveSchema = z.object({ status: fieldKeySchema, note: z.string().max(4000).optional() });
 export type WorkflowMove = z.infer<typeof workflowMoveSchema>;
 
@@ -721,7 +725,8 @@ export type RequestQuery = z.infer<typeof requestQuerySchema>;
 export const requestActionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('comment'), body: z.string().trim().min(1).max(4000) }),
   /** `workflow`: move an added workflow (by key) instead of the purchase. */
-  z.object({ action: z.literal('status'), status: fieldKeySchema, note: z.string().max(4000).optional(), workflow: fieldKeySchema.optional() }),
+  /** `renewedUntil`: finishing a renewal sets the item's date to this instead of one term later. */
+  z.object({ action: z.literal('status'), status: fieldKeySchema, note: z.string().max(4000).optional(), workflow: fieldKeySchema.optional(), renewedUntil: isoDateSchema.optional() }),
   z.object({ action: z.literal('assign'), assigneeId: uuid.nullable() }),
 ]);
 export type RequestAction = z.infer<typeof requestActionSchema>;

@@ -6,6 +6,7 @@ import {
   importRequestSchema,
   typeVariantInputSchema,
   workflowMoveSchema,
+  advanceSchema,
   catalogQuerySchema,
   catalogShareInputSchema,
   commentInputSchema,
@@ -187,7 +188,8 @@ export function registerRoutes(app: FastifyInstance, { types, variants, assets, 
   });
   app.post(`${PREFIX}/assets/:id/dates/:field/advance`, async (req) => {
     const p = parse(z.object({ id: z.string().uuid(), field: fieldKeySchema }), req.params);
-    return assets.advance(requirePrincipal(req), p.id, p.field);
+    const { until } = parse(advanceSchema, req.body ?? {});
+    return assets.advance(requirePrincipal(req), p.id, p.field, { until });
   });
   // One of the item's own workflows ("Machine status").
   app.post(`${PREFIX}/assets/:id/workflows/:key`, async (req) => {

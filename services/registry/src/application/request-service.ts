@@ -314,12 +314,13 @@ export class RequestService {
           if (!wf.statuses.some((s) => s.key === action.status)) throw AppError.validation(`Unknown status "${action.status}"`);
           assertMove(wf, r.status, to.key, { isHandler: handler, isRequester: r.requesterId === p.userId });
           if (to.category === 'done' && r.kind === 'purchase' && r.assetTypeId) throw AppError.validation('Finish a purchase by creating the item it asked for (“Create item”)');
-          // Finishing a renewal rolls the item's date forward (for repeating dates).
+          // Finishing a renewal rolls the item's date forward: one term (repeating dates), or to the date given.
           if (to.category === 'done' && r.renewal) {
             const asset = await tx.getAsset(r.renewal.assetId);
             const sch = asset ? await this.assets.schemaOf(tx, asset) : null;
             const field = sch?.schema.fields.find((f) => f.key === r.renewal!.fieldKey);
-            if (asset && field?.kind === 'date' && field.config.tracking?.recurrence !== undefined) await this.assets.advance(p, asset.id, field.key, { store: tx, skipRequestId: id });
+            if (asset && field?.kind === 'date' && field.config.tracking && action.renewedUntil) await this.assets.advance(p, asset.id, field.key, { store: tx, skipRequestId: id, until: action.renewedUntil });
+            else if (asset && field?.kind === 'date' && field.config.tracking?.recurrence !== undefined) await this.assets.advance(p, asset.id, field.key, { store: tx, skipRequestId: id });
             else if (asset && field?.kind === 'date' && field.config.tracking) {
               const kinds = await tx.listDateKinds();
               if (kinds.find((k) => k.id === field.config.tracking!.dateKindId)?.behavior === 'recurring') await this.assets.advance(p, asset.id, field.key, { store: tx, skipRequestId: id });

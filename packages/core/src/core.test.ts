@@ -136,6 +136,18 @@ describe('tracked dates', () => {
     expect(r.values.notice_deadline).toBe('2027-12-16');
     expect(() => advanceRecurringDate(license, values, 'notice_deadline', kindById)).toThrow(/derived/);
   });
+
+  it('renews until a given date instead of one term later', () => {
+    // Bought a year, given a year and 10 days.
+    const r = advanceRecurringDate(license, values, 'renewal_date', kindById, '2028-01-25');
+    expect(r).toMatchObject({ from: '2027-01-15', to: '2028-01-25' });
+    expect(r.values.notice_deadline).toBe('2027-12-26');
+    expect(() => advanceRecurringDate(license, values, 'renewal_date', kindById, '2027-01-01')).toThrow(/must be after/);
+    // No fixed term: the new date has to be given.
+    const { term_months: _term, ...noTerm } = values;
+    expect(() => advanceRecurringDate(license, noTerm, 'renewal_date', kindById)).toThrow(/no fixed term/);
+    expect(advanceRecurringDate(license, noTerm, 'renewal_date', kindById, '2027-06-30').to).toBe('2027-06-30');
+  });
 });
 
 describe('permissions', () => {

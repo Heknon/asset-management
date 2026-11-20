@@ -116,12 +116,13 @@ describe('added workflows', () => {
     await expect(requests.act(tom, renewal.id, { action: 'status', status: 'installed', workflow: 'swap' })).rejects.toThrow(/starts once the purchase is done/);
 
     await requests.act(dana, renewal.id, { action: 'status', status: 'approved' });
-    const done = await requests.act(dana, renewal.id, { action: 'status', status: 'fulfilled' });
+    // Given a year and 10 days this time.
+    const done = await requests.act(dana, renewal.id, { action: 'status', status: 'fulfilled', renewedUntil: '2028-01-25' });
     expect(done.statusInfo.category).toBe('done');
     expect(done.workflows[0]).toMatchObject({ started: true, statusInfo: { label: 'To install' }, canAct: false });
     expect(done.overall).toEqual({ category: 'todo', waitingOn: ['swap'] });
-    // The renewal rolled the date forward.
-    expect((await assets.get(dana, item.id)).attributes.renewal_date).toBe('2028-01-15');
+    // The renewal moved the date to what was bought.
+    expect((await assets.get(dana, item.id)).attributes.renewal_date).toBe('2028-01-25');
   });
 
   it('lists the request as waiting on whoever owns the open workflow', async () => {
