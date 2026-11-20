@@ -13,6 +13,7 @@ import { useMyOrg } from './lib/org';
 import { keys, useLookups, useMe } from './lib/queries';
 import { AssetDetailPage } from './routes/asset-detail';
 import { AssetsPage, SavedViewPage } from './routes/assets';
+import { BackupPage } from './routes/backup';
 import { CalendarPage } from './routes/calendar';
 import { CatalogPage, CatalogsPage } from './routes/catalogs';
 import { ImportPage } from './routes/import';
@@ -174,6 +175,7 @@ const routeTree = root.addChildren([
     createRoute({ getParentRoute: () => app, path: '/settings/organization', component: admin(OrganizationPage) }),
     createRoute({ getParentRoute: () => app, path: '/settings/people', component: admin(PeoplePage) }),
     createRoute({ getParentRoute: () => app, path: '/settings/access', component: orgManagers(AccessPage) }),
+    createRoute({ getParentRoute: () => app, path: '/settings/backup', component: admin(BackupPage) }),
   ]),
 ]);
 

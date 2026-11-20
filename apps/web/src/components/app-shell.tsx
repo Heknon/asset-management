@@ -7,6 +7,7 @@ import {
   Bookmark,
   Building2,
   CalendarDays,
+  DatabaseBackup,
   Check,
   ChevronDown,
   Clock,
@@ -244,6 +245,11 @@ function Sidebar({ me, onSearch, onNavigate }: { me: Me; onSearch: () => void; o
             <NavItem to="/settings/access" icon={<KeyRound />} active={path === '/settings/access'}>
               {t('Access')}
             </NavItem>
+            {me.isAdmin && (
+              <NavItem to="/settings/backup" icon={<DatabaseBackup />} active={path === '/settings/backup'}>
+                {t('Backup & restore')}
+              </NavItem>
+            )}
           </>
         )}
       </nav>

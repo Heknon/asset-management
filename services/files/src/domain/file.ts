@@ -19,6 +19,11 @@ export function objectKeyFor(assetId: string, fileId: string): string {
   return `assets/${assetId}/${fileId}`;
 }
 
+const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+const OBJECT_KEY = new RegExp(`^assets/${UUID}/${UUID}$`, 'i');
+/** Whether a key has the shape `objectKeyFor` produces (a restore may only write such keys). */
+export const isObjectKey = (key: string) => OBJECT_KEY.test(key);
+
 export function validateUpload(input: { filename: string; contentType: string; size: number }, maxBytes: number) {
   const contentType = input.contentType.toLowerCase().split(';')[0]!.trim();
   if (!isAllowedContentType(contentType)) throw AppError.validation(`Files of type ${contentType} are not allowed`);

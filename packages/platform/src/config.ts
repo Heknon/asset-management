@@ -27,6 +27,8 @@ export const baseConfigShape = {
   DATABASE_POOL_MAX: z.coerce.number().int().positive().default(10),
   /** Run migrations at startup. Disabled in clusters, where a Helm hook Job runs them. */
   MIGRATE_ON_START: envBool(false),
+  /** Administrators can download a backup of all data and restore one (Settings → Backup). */
+  BACKUP_ENABLED: envBool(true),
   /** Externally visible base URL of the web app, used in links and redirects. */
   PUBLIC_URL: z.string().url(),
   AUTH_ISSUER: z.string().default('asset-management'),

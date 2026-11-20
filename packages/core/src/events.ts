@@ -139,6 +139,22 @@ export interface RenewalCheckChanged {
   at: string;
 }
 
+/**
+ * A backup to storage was asked for (nightly, or "Back up now"). Every service
+ * uploads its own data with the form upload given here, as numbered pieces
+ * under `keyPrefix + <service>/`, then says so with `backup.part`.
+ */
+export interface BackupRequested {
+  backupId: string;
+  upload: { url: string; fields: Record<string, string>; keyPrefix: string };
+}
+
+/** A service finished uploading its part of a backup. */
+export interface BackupPartStored {
+  backupId: string;
+  service: string;
+}
+
 export interface EventMap {
   'unit.changed': UnitChanged;
   'request.changed': RequestChanged;
@@ -149,6 +165,8 @@ export interface EventMap {
   'catalog.changed': CatalogChanged;
   'asset.commented': AssetCommented;
   'renewal.check': RenewalCheckChanged;
+  'backup.requested': BackupRequested;
+  'backup.part': BackupPartStored;
 }
 
 export type EventName = keyof EventMap;
