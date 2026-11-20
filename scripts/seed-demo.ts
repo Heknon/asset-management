@@ -1,7 +1,7 @@
 #!/usr/bin/env -S npx tsx
 // Seeds the demo organisation into a running server stack through its public API.
 //
-// Usage: pnpm seed [baseUrl]   (default http://localhost:5173)
+// Usage: bun run seed [baseUrl]   (default http://localhost:5173)
 // Needs the dev stack and the local admin from .env.
 import { seedDemo, type Call } from '@am/demo-seed';
 

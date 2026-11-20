@@ -3,7 +3,7 @@ import { ServerlessRuntime } from './runtime.js';
 
 /**
  * Runs the serverless runtime locally on one port (default 3000), the way the
- * Vercel Function does: `pnpm --filter @am/serverless dev`, then point the web
+ * Vercel Function does: `bun run --filter @am/serverless dev`, then point the web
  * app at it with VITE_API_URL=http://localhost:3000.
  */
 const runtime = await ServerlessRuntime.start({ COOKIE_SECURE: 'false', ...process.env });

@@ -82,14 +82,14 @@ src/
 
 ## Local development
 
-Requirements: Node 22, pnpm 10, Docker.
+Requirements: [Bun](https://bun.sh) 1.4+, Node 22 (production runtime of the service images), Docker.
 
 ```bash
-pnpm install
+bun install
 docker compose up -d                  # Postgres, MinIO, Mailpit, OpenLDAP
 cp .env.example .env
-pnpm dev                              # services on :4001-4004, web on http://localhost:5173
-pnpm seed                             # optional demo data
+bun run dev                           # services on :4001-4004 (Bun, restarts on change), web on http://localhost:5173
+bun run seed                          # optional demo data
 ```
 
 Sign in as `admin` / `admin-change-me` (local break-glass account from `.env`). The seed builds a company of about 150 units, 60 people and 400 assets. Try it as different people (password `password-1234`):
@@ -103,7 +103,7 @@ Sign in as `admin` / `admin-change-me` (local break-glass account from `.env`). 
  Emails and Outlook invites are captured by Mailpit at http://localhost:8025. To try LDAP sign-in, set `LDAP_ENABLED=true` and the `LDAP_*` values shown in `docker-compose.yml` (users `alice`/`bob`, password `password`).
 
 ```bash
-pnpm typecheck && pnpm test           # strict TypeScript across all packages + unit tests
+bun run typecheck && bun test         # strict TypeScript across all packages + unit tests
 docker compose --profile app up -d    # the production images, on http://localhost:8080
 ```
 
@@ -124,13 +124,13 @@ The same services run in two ways. Nothing is duplicated: each service is a defi
 One environment variable switches between them: `VITE_RUNTIME` = `server` (default) or `browser`, set in the shell or in `.env`. The web app's normal `dev` and `build` commands read it; in browser mode they also build the service worker and the Postgres binaries.
 
 ```bash
-VITE_RUNTIME=browser pnpm --filter web dev      # browser mode on http://localhost:5173 (no Docker, no services)
-VITE_RUNTIME=browser pnpm --filter web build    # static site + service worker in apps/web/dist
+VITE_RUNTIME=browser bun run --filter web dev    # browser mode on http://localhost:5173 (no Docker, no services)
+VITE_RUNTIME=browser bun run --filter web build  # static site + service worker in apps/web/dist
 ```
 
 On Vercel, `VITE_RUNTIME=server` runs the services as a Vercel Function (next section); unset or `browser`, the deployment is the in-browser version.
 
-In browser mode the web app registers `/sw.js`, which starts the four services on first use (a few seconds the first time: it downloads Postgres and runs every migration; about a second afterwards). The service worker answers every `/api/*` request, so the web app, its links, downloads, previews and uploads are unchanged. The sign-in page offers **Continue as Administrator** and **Load the demo company** (the same seed as `pnpm seed`, run inside the browser in about half a minute), then one-click sign-in as each persona.
+In browser mode the web app registers `/sw.js`, which starts the four services on first use (a few seconds the first time: it downloads Postgres and runs every migration; about a second afterwards). The service worker answers every `/api/*` request, so the web app, its links, downloads, previews and uploads are unchanged. The sign-in page offers **Continue as Administrator** and **Load the demo company** (the same seed as `bun run seed`, run inside the browser in about half a minute), then one-click sign-in as each persona.
 
 What to expect in browser mode:
 
@@ -169,7 +169,7 @@ Set in the project (Settings → Environment Variables):
 
 LDAP and ADFS take the same `LDAP_*` / `OIDC_*` variables as the server, but the directory must be reachable from Vercel (the internet). Uploads and previews go from the browser straight to the bucket; on first start the function adds this deployment's origins to the bucket's CORS when its role allows, and logs a warning otherwise (then add a CORS rule allowing `GET`, `HEAD`, `POST` from your domain).
 
-Locally: `pnpm --filter @am/serverless dev` runs the same runtime on one port (`.env` as for the server; `PORT`, default 3000), and `VITE_API_URL=http://localhost:3000 pnpm --filter web dev` points the app at it. `GET /api/health` lists the running services.
+Locally: `bun run --filter @am/serverless dev` runs the same runtime on one port (`.env` as for the server; `PORT`, default 3000), and `VITE_API_URL=http://localhost:3000 bun run --filter web dev` points the app at it. `GET /api/health` lists the running services.
 
 ## Deploying to OpenShift
 
@@ -327,10 +327,11 @@ observability:
 
 ```bash
 docker compose --profile observability up -d   # Collector, Jaeger :16686, VictoriaMetrics :8428, Grafana :3000
-METRICS_ENABLED=true OTEL_ENABLED=true pnpm dev
+METRICS_ENABLED=true bun run dev                # metrics on :4001-4004/metrics
+bun run build && (cd services/registry && OTEL_ENABLED=true node --env-file=../../.env --import ./dist/telemetry.mjs dist/main.mjs)
 ```
 
-Grafana opens on the same dashboard the chart ships (`deploy/helm/asset-management/dashboards/asset-management.json`). The `pnpm dev` scripts preload `packages/platform/src/telemetry/bootstrap.ts`; production images run `node --import ./dist/telemetry.mjs`, so instrumentation is registered before any library loads. With `OTEL_ENABLED` unset, the preload does nothing and none of the OTel packages are loaded.
+Grafana opens on the same dashboard the chart ships (`deploy/helm/asset-management/dashboards/asset-management.json`). Tracing hooks Node's module loader, which Bun does not have, so traces come from the built services run with Node (above, one service at a time, or all of them with `docker compose --profile app up -d`): production images run `node --import ./dist/telemetry.mjs`, so instrumentation is registered before any library loads. With `OTEL_ENABLED` unset, the preload does nothing and none of the OTel packages are loaded.
 
 ## Security notes
 

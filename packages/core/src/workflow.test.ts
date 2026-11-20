@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { allowedMoves, defaultWorkflow, initialStatus, statusIn, validateWorkflow, type Workflow } from './workflow.js';
 
 describe('request workflows', () => {

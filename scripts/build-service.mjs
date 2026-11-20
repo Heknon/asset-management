@@ -5,7 +5,7 @@
 //                       OpenTelemetry can instrument them at runtime
 //   dist/telemetry.mjs  the tracing bootstrap, preloaded with `node --import`
 // The image ships these next to a production node_modules made by
-// `pnpm deploy --prod --legacy --config.node-linker=hoisted`.
+// `bun install --production --filter <service>` (see the Dockerfile).
 import { build } from 'esbuild';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';

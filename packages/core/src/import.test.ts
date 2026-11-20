@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { coerceCell, detectDateFormat, inferField, parseDate, parseNumber, parseTables, suggestMapping, type CoerceContext } from './import.js';
 import type { FieldDefinition } from './fields.js';
 

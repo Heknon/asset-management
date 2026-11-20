@@ -1,5 +1,5 @@
 import { parseOrgImport } from '@am/core';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { assertValidParent, planImport, unitKey } from './domain/org.js';
 import { normalizeUsername } from './domain/model.js';
 import { safeReturnTo } from './http/routes.js';

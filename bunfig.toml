@@ -1,0 +1,8 @@
+# Bun settings for the whole repository.
+[install]
+# One flat node_modules, as before (the service images copy it).
+linker = "hoisted"
+
+[test]
+# Only our sources; never dependencies or build output.
+root = "."

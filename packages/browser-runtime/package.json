@@ -8,7 +8,7 @@
   "types": "src/index.ts",
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "build": "node build.mjs"
+    "build": "bun build.mjs"
   },
   "dependencies": {
     "@am/core": "workspace:*",

@@ -1,5 +1,5 @@
 import { roles, type AccessCheck, type Permission, type Principal } from '@am/core';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { FileService } from './application/file-service.js';
 import type { AssetAccess, FileStore, ObjectStorage } from './application/ports.js';
 import { contentDisposition, type StoredFile } from './domain/file.js';

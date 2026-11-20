@@ -1,6 +1,6 @@
 # Local development.
 #   docker compose up -d                 → Postgres, MinIO (S3), Mailpit (SMTP + inbox UI), OpenLDAP
-#   pnpm dev                             → services + web on http://localhost:5173
+#   bun run dev                          → services + web on http://localhost:5173
 #   docker compose --profile app up -d   → also runs the production images (http://localhost:8080)
 #   docker compose --profile observability up -d
 #       → OTel Collector + Jaeger (http://localhost:16686), VictoriaMetrics, Grafana (http://localhost:3000)

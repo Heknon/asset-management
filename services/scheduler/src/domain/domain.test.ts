@@ -1,5 +1,5 @@
 import type { AssetChanged, TrackedDate } from '@am/core';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { feed, invite } from './calendar.js';
 import { commentMessage, reminderDigest, renewalCheckMessage, requestMessage } from './messages.js';
 import { confirmOn, dueReminderSlot, needsAutoAsk, nextReminderDate, reconcile, todayIn, urgencyOf, type ObligationRecord } from './obligation.js';

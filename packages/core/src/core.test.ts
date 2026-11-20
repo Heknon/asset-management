@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import {
   defaultRefPrefix,
   formatReference,
@@ -154,7 +154,7 @@ describe('permissions', () => {
   const perms = (scope: Parameters<typeof effectivePermissions>[1], p = principal) => permissionList(effectivePermissions(p, scope));
 
   it('applies grants to the whole subtree and adds them up', () => {
-    expect(perms({ unitPath: [root, rnd, team], assetTypeId: type })).toEqual(roles.editor.permissions);
+    expect(perms({ unitPath: [root, rnd, team], assetTypeId: type })).toEqual([...roles.editor.permissions]);
     expect(perms({ unitPath: [root, rnd, team], assetTypeId: 'other' })).toEqual(['view']);
     expect(perms({ unitPath: [root, rnd], assetTypeId: type })).toEqual(['view']);
     expect(perms({ unitPath: [root, sales], assetTypeId: type })).toEqual([]);
@@ -174,8 +174,8 @@ describe('permissions', () => {
     expect(roleOf(['view', 'comment'])).toBe('commenter');
     expect(roleOf(['export'])).toBe('custom');
     expect(normalizePermissions(['export', 'export', 'attach'])).toEqual(['view', 'attach', 'export']);
-    expect(fromMask(toMask(roles.editor.permissions))).toEqual(roles.editor.permissions);
-    expect(accessSchema.parse({ role: 'contributor' })).toEqual(roles.contributor.permissions);
+    expect(fromMask(toMask(roles.editor.permissions))).toEqual([...roles.editor.permissions]);
+    expect(accessSchema.parse({ role: 'contributor' })).toEqual([...roles.contributor.permissions]);
     expect(accessSchema.safeParse({ role: 'custom', permissions: [] }).success).toBe(false);
     expect(permissionsOfLevel('manage')).toEqual([...permissionKeys]);
   });

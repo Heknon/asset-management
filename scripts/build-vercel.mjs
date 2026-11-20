@@ -21,7 +21,7 @@ const out = `${root}/.vercel/output`;
 rmSync(out, { recursive: true, force: true });
 mkdirSync(`${out}/static`, { recursive: true });
 
-execSync('pnpm --filter web build', { cwd: root, stdio: 'inherit', env: { ...process.env, VITE_RUNTIME: mode } });
+execSync('bun run --filter web build', { cwd: root, stdio: 'inherit', env: { ...process.env, VITE_RUNTIME: mode } });
 cpSync(`${root}/apps/web/dist`, `${out}/static`, { recursive: true });
 
 if (mode === 'server') {

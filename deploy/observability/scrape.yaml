@@ -1,5 +1,5 @@
 # VictoriaMetrics scrape config for local development (Prometheus-compatible).
-# Covers both ways of running locally: `pnpm dev` on the host (ports 4001-4004)
+# Covers both ways of running locally: `bun run dev` on the host (ports 4001-4004)
 # and `docker compose --profile app` containers.
 global:
   scrape_interval: 15s

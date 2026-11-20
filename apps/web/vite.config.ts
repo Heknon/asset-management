@@ -48,7 +48,7 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 5173,
       // In browser mode the service worker answers /api itself.
-      // VITE_API_URL sends all of /api to one place (the serverless runtime: `pnpm --filter @am/serverless dev`).
+      // VITE_API_URL sends all of /api to one place (the serverless runtime: `bun run --filter @am/serverless dev`).
       proxy: inBrowser
         ? undefined
         : env.VITE_API_URL
