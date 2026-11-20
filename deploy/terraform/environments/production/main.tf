@@ -60,12 +60,13 @@ module "app" {
   image_pull_secret = var.image_pull_secret
   mirror_registry   = var.mirror_registry
 
-  managed_postgres = var.managed_postgres
-  object_storage   = var.object_storage == "in-cluster" ? "in-cluster" : "external"
-  auth_mode        = var.auth_mode
-  mcp_enabled      = var.mcp_enabled
-  smtp_url         = var.smtp_url
-  mail_from        = var.mail_from
+  managed_postgres  = var.managed_postgres
+  object_storage    = var.object_storage == "in-cluster" ? "in-cluster" : "external"
+  auth_mode         = var.auth_mode
+  local_admin_email = var.local_admin_email
+  mcp_enabled       = var.mcp_enabled
+  smtp_url          = var.smtp_url
+  mail_from         = var.mail_from
 
   reminder_timezone = var.reminder_timezone
 

@@ -17,7 +17,7 @@ export class LocalPasswordProvider implements PasswordProvider {
     // Always run a verification so response timing does not reveal whether the account exists.
     const ok = await this.hasher.verify(password, hash ?? DUMMY_HASH);
     if (!user || !hash || !ok || !user.active) return null;
-    return { source: 'local', externalId: user.username, username: user.username, displayName: user.displayName, email: user.email, groups: [], tags: [], directoryAdmin: false };
+    return { source: 'local', externalId: user.username, username: user.username, displayName: user.displayName, email: user.email, otherNames: user.otherNames, groups: [], tags: [], directoryAdmin: false };
   }
 }
 
