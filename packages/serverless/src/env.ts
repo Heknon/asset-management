@@ -29,8 +29,10 @@ export function serverlessEnvironment(env: Record<string, string | undefined>): 
   out.MIGRATE_ON_START ??= 'true';
   // Several services share one small instance; Neon's direct endpoint has a connection limit.
   out.DATABASE_POOL_MAX ??= '2';
-  // In-process here, but the files service's config asks for it.
+  // In-process here, but the files and MCP services' configs ask for them.
   out.REGISTRY_URL ??= out.PUBLIC_URL;
+  out.IDENTITY_URL ??= out.PUBLIC_URL;
+  out.SCHEDULER_URL ??= out.PUBLIC_URL;
   // Without SMTP_URL mail is logged instead of sent (see the runtime's mailer).
   out.SMTP_URL ??= 'smtp://mail.invalid';
   out.MAIL_FROM ??= `Assets <assets@${new URL(out.PUBLIC_URL).hostname}>`;

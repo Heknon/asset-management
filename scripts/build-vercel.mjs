@@ -54,10 +54,11 @@ const config = {
     { src: '^/assets/(.*)$', headers: immutable, continue: true },
     { src: '^/pglite/(.*)$', headers: immutable, continue: true },
     { src: '^/sw\\.js$', headers: { 'cache-control': 'no-cache', 'service-worker-allowed': '/' }, continue: true },
-    ...(mode === 'server' ? [{ src: '^/api(?:/.*)?$', dest: '/api' }] : []),
+    // The API, the MCP server for AI assistants, and their OAuth discovery documents.
+    ...(mode === 'server' ? [{ src: '^/(?:api|mcp)(?:/.*)?$', dest: '/api' }, { src: '^/\\.well-known/oauth-(?:authorization-server|protected-resource)(?:/.*)?$', dest: '/api' }] : []),
     { handle: 'filesystem' },
     // Everything else is a page of the app.
-    { src: '^/(?!api/).*$', dest: '/index.html' },
+    { src: '^/(?!api/|mcp(?:/|$)).*$', dest: '/index.html' },
   ],
   ...(mode === 'server' && { crons: [{ path: '/api/cron', schedule: cron }] }),
 };

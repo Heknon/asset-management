@@ -23,6 +23,8 @@ export interface ObjectStorage {
   presignDownload(key: string, opts: { contentType: string; disposition: string }): Promise<{ url: string; expiresAt: Date }>;
   head(key: string): Promise<{ size: number; contentType: string | null; etag: string | null } | null>;
   delete(keys: string[]): Promise<void>;
+  /** Creates the bucket if it does not exist yet (in-cluster storage); returns whether it did. */
+  ensureBucket?(): Promise<boolean>;
 }
 
 /** Asks the registry what the caller may do with an asset (the registry owns asset authorisation). */

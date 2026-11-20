@@ -22,6 +22,7 @@ A generic system for everything an organisation buys and has to keep track of �
                  ┌──────────── OpenShift Route (TLS) ────────────┐
                  │                                               │
 Browser ───────► web (nginx: SPA + /api/* reverse proxy, CSP)
+AI assistant ──► (/mcp) ──► mcp ──► registry · scheduler · identity, with the person's token
                  │        │            │             │
                  ▼        ▼            ▼             ▼
              identity  registry      files       scheduler
@@ -43,7 +44,8 @@ Browser ───────► web (nginx: SPA + /api/* reverse proxy, CSP)
 | **registry** | Asset types (versioned templates), date kinds, assets, activity log, requests, search index, saved views | — |
 | **files** | Document metadata; presigned S3 POST/GET | S3, registry (access check) |
 | **scheduler** | Obligations (occurrences of tracked dates), reminders, Outlook invites, calendar feeds, request emails, per-unit rollups | SMTP |
-| **web** | React SPA served by nginx, which proxies `/api/<service>/` | all |
+| **mcp** | Nothing (stateless): the Model Context Protocol server for AI assistants | registry, scheduler, identity — over HTTP, as the signed-in person |
+| **web** | React SPA served by nginx, which proxies `/api/<service>/`, `/mcp` and the OAuth discovery documents | all |
 
 **Boundaries.** Each service owns one Postgres schema; its connection's `search_path` is pinned to it, so it cannot read another service's tables. Services integrate through events written to a **transactional outbox** and relayed via **pg-boss** (`asset.changed`, `asset.deleted`, `user.changed`, `unit.changed`, `request.changed`); consumers keep small local projections and are idempotent (at-least-once delivery). The only synchronous call is files → registry to authorise document access, because the registry owns asset authorisation. Every service verifies the caller's token locally against identity's JWKS.
 
@@ -143,7 +145,7 @@ Code: `packages/browser-runtime` (PGlite dialect, router, bus, storage, mailbox,
 
 ## Serverless on Vercel (Neon + S3)
 
-With `VITE_RUNTIME=server` in the Vercel project, `scripts/build-vercel.mjs` (the project's build command) produces the web app plus **one Vercel Function serving all of `/api`**: the same four service definitions, each with its own Postgres schema, run in one process (`packages/serverless`). Nothing runs between requests:
+With `VITE_RUNTIME=server` in the Vercel project, `scripts/build-vercel.mjs` (the project's build command) produces the web app plus **one Vercel Function serving all of `/api`, `/mcp` and the OAuth discovery documents**: the same five service definitions (MCP included — connect assistants at `https://<domain>/mcp`), each with its own Postgres schema, run in one process (`packages/serverless`). Nothing runs between requests:
 
 - **Events** go through the same durable pg-boss queues as the server, but are delivered right after the change that caused them (after the response is sent, with `waitUntil`) instead of by always-on workers. Anything left over, and failed deliveries' retries, run on the next change or cron call.
 - **Reminders, renewal checks and housekeeping** run from Vercel Cron, calling `/api/cron` twice a day (06:00 and 18:00 UTC; `REMINDER_CRON` changes it at build time; Hobby plans allow daily only). Reminders are kept per day and per person, so each goes out once.
@@ -173,17 +175,46 @@ Locally: `bun run --filter @am/serverless dev` runs the same runtime on one port
 
 ## Deploying to OpenShift
 
-1. **Build and push images** (one Dockerfile, five images):
+One Helm release, **six Deployments** — `identity`, `registry`, `files`, `scheduler`, `mcp` and `web` — each with its own Service, ConfigMap, PodDisruptionBudget and (optionally) HPA, installed by Terraform. Two switches decide where data lives:
+
+| Flag (Helm / Terraform) | `true` (default) | `false` |
+|---|---|---|
+| `postgresql.managed` / `managed_postgres` | Managed PostgreSQL at `DATABASE_URL` (Crunchy, CloudNativePG, RDS, Azure…) | A PostgreSQL StatefulSet in the namespace (Red Hat's `rhel9/postgresql-16`), password generated and kept across upgrades |
+| `objectStorage.managed` / `managed_object_storage` | An S3 bucket (Terraform's `document-bucket` module on AWS, or ODF/NooBaa/Ceph via `services.files.env`) | MinIO in the namespace; the bucket is created on start and browsers reach it on its own Route (`objectStorage.inCluster.publicHost`, default `<app-host>-storage.<domain>`) |
+
+Sign-in is chosen with `AUTH_MODE` (`TF_VAR_auth_mode`): `manual`, `ldap`, `adfs`, or a comma-separated mix.
+
+### With GitLab CI, air-gapped (`.gitlab-ci.yml`)
+
+Every push runs **verify** (install, typecheck, unit tests, Helm lint in both data-store modes, Terraform validate) and **build** (six images with rootless Buildah — no Docker daemon, no privileged runner). Pushes to **main** also **deploy**: Terraform plans and applies the release, with state kept in GitLab's own Terraform state.
+
+Nothing is fetched from the internet; everything comes from Artifactory, configured with CI/CD variables (the full list with examples is at the top of `.gitlab-ci.yml`):
+
+| What | Variables |
+|---|---|
+| npm packages for `bun install` | `NPM_REGISTRY`, `NPM_AUTH_TOKEN` (passed to the image build as a Buildah secret, never stored in a layer) |
+| Base images and CI tool images | `DOCKER_MIRROR`, `QUAY_MIRROR`, `REDHAT_MIRROR`, `ARTIFACTORY_USER`, `ARTIFACTORY_TOKEN` |
+| Terraform providers | `TF_PROVIDER_MIRROR` (Artifactory's Terraform network mirror) |
+| Where images are pushed (and pulled from) | `IMAGE_REGISTRY`, `IMAGE_REGISTRY_USER`, `IMAGE_REGISTRY_PASSWORD`; OpenShift pulls with `PULL_USER`/`PULL_PASSWORD` (a pull Secret Terraform creates) |
+| In-cluster PostgreSQL / MinIO images | `THIRD_PARTY_MIRROR` |
+| The cluster | `OPENSHIFT_SERVER`, `OPENSHIFT_TOKEN`, `OPENSHIFT_CA` |
+| The app | `TF_VAR_public_url`, `TF_VAR_namespace`, `TF_VAR_auth_mode`, `TF_VAR_managed_postgres`, `TF_VAR_managed_object_storage`, `TF_VAR_database_url`, `TF_VAR_smtp_url`, `TF_VAR_ldap`, `TF_VAR_oidc` |
+
+The same Dockerfile builds by hand: `buildah bud --target service --build-arg SERVICE=mcp --build-arg NPM_REGISTRY=… --secret id=npmrc,src=.npmrc …` (every base image is a build argument: `BUN_IMAGE`, `NODE_IMAGE`, `SERVICE_BASE_IMAGE`, `WEB_BASE_IMAGE`).
+
+### By hand
+
+1. **Build and push images** (one Dockerfile, six images):
 
    ```bash
    REG=default-route-openshift-image-registry.apps.<cluster>/asset-management TAG=0.1.0
-   for s in identity registry files scheduler; do
-     docker build --target service --build-arg SERVICE=$s -t $REG/asset-management-$s:$TAG . && docker push $REG/asset-management-$s:$TAG
+   for s in identity registry files scheduler mcp; do
+     buildah bud --target service --build-arg SERVICE=$s -t $REG/asset-management-$s:$TAG . && buildah push $REG/asset-management-$s:$TAG
    done
-   docker build --target web -t $REG/asset-management-web:$TAG . && docker push $REG/asset-management-web:$TAG
+   buildah bud --target web -t $REG/asset-management-web:$TAG . && buildah push $REG/asset-management-web:$TAG
    ```
 
-2. **Provision with Terraform** (`deploy/terraform/environments/production`). This creates the S3 bucket (private, versioned, encrypted, TLS-only, CORS for the app origin, least-privilege IAM), generates the JWT signing key and cookie secret, writes the `asset-management` Secret, and installs the Helm chart:
+2. **Provision with Terraform** (`deploy/terraform/environments/production`). With managed storage this creates the S3 bucket (private, versioned, encrypted, TLS-only, CORS for the app origin, least-privilege IAM); it always generates the JWT signing key and cookie secret, writes the `asset-management` Secret (and a registry pull Secret when given), and installs the Helm chart:
 
    ```bash
    oc login ...
@@ -193,15 +224,26 @@ Locally: `bun run --filter @am/serverless dev` runs the same runtime on one port
    terraform output -raw local_admin_password
    ```
 
-   PostgreSQL is supplied as `database_url` (for example Crunchy Postgres for Kubernetes, or a managed instance). Each service creates and migrates its own schema in an init container.
+   Each service creates and migrates its own schema in an init container.
 
-3. **Or use Helm directly** with your own Secret (keys: `DATABASE_URL`, `AUTH_SIGNING_KEY`, `COOKIE_SECRET`, `SMTP_URL`, and `S3_*` / `LDAP_*` / `OIDC_*` secrets as enabled):
+3. **Or use Helm directly** with your own Secret (keys: `DATABASE_URL` unless `postgresql.managed=false`, `AUTH_SIGNING_KEY`, `COOKIE_SECRET`, `SMTP_URL`, and `S3_*` / `LDAP_*` / `OIDC_*` secrets as enabled):
 
    ```bash
-   helm upgrade --install assets deploy/helm/asset-management -f my-values.yaml
+   helm upgrade --install assets deploy/helm/asset-management -f my-values.yaml \
+     --set postgresql.managed=false --set objectStorage.managed=false   # everything in the namespace
    ```
 
-The chart works with OpenShift's `restricted-v2` SCC (no fixed UIDs, read-only root filesystem, all capabilities dropped). It ships a TLS edge Route, NetworkPolicies (only the router reaches web, only release pods reach the backends), PodDisruptionBudgets, optional HPAs, and startup/readiness/liveness probes. Each service receives only the secret keys it needs.
+The chart works with OpenShift's `restricted-v2` SCC (no fixed UIDs, read-only root filesystem, all capabilities dropped). It ships TLS edge Routes, NetworkPolicies (only the router reaches web, only release pods reach the backends and the in-cluster data stores), PodDisruptionBudgets, optional HPAs, and startup/readiness/liveness probes. Each service receives only the secret keys it needs. For air-gapped clusters set `image.registry`, `image.pullSecrets` and `image.mirrorRegistry` (third-party images).
+
+## AI assistants (MCP)
+
+People can connect Claude, an IDE or any other [Model Context Protocol](https://modelcontextprotocol.io) client to Assets and ask things like "what renews next month in my team?" or "request two more Figma seats for Design".
+
+- **Connecting:** add `https://<your-assets-url>/mcp` as a remote MCP server (in Claude: Settings → Connectors → Add custom connector). The client opens Assets; the person signs in as usual (manual, LDAP or ADFS) and presses **Accept**.
+- **What it can do:** search; list and read assets, asset types and units; see upcoming dates; list, read and create requests; comment on assets. Every call runs **as that person, with exactly their access**: the MCP server calls the same APIs as the app with the person's token.
+- **Disconnecting:** Profile → Signed-in devices lists each connected app; **Disconnect** stops it within the hour (its refresh token is revoked at once; the last access token lapses).
+
+How it works: identity is an OAuth 2.1 authorization server (RFC 8414 metadata at `/.well-known/oauth-authorization-server`, open dynamic client registration per RFC 7591, PKCE S256 only, single-use two-minute codes, rotating refresh tokens). The MCP service publishes RFC 9728 protected-resource metadata, answers `401` with `WWW-Authenticate: Bearer resource_metadata=…`, and only accepts tokens whose audience includes `<public-url>/mcp` — an ordinary app session cannot be replayed against it. Redirect URIs must be `https`, `http://localhost` / `127.0.0.1`, or a native app scheme. It speaks stateless Streamable HTTP, so any replica (or serverless instance) answers any request. Set `services.mcp.enabled=false` (Terraform: `mcp_enabled = false`) to turn it off.
 
 ## Organization and access at scale
 

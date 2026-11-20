@@ -10,6 +10,7 @@ import type {
   Group,
   Page,
   Preferences,
+  SignedInSession,
   OrgUnit,
   OrgUnitInput,
   UnitPerson,
@@ -92,6 +93,10 @@ export interface IdentityStore {
   findSessionByTokenHash(tokenHash: string): Promise<Session | null>;
   rotateSession(id: string, tokenHash: string, expiresAt: Date): Promise<void>;
   revokeSession(id: string): Promise<void>;
+  /** A person's active sessions, most recently used first. */
+  listSessions(userId: string): Promise<SignedInSession[]>;
+  /** Revokes one of the person's own sessions; false when it is not theirs or already gone. */
+  revokeOwnSession(userId: string, id: string): Promise<boolean>;
   revokeUserSessions(userId: string): Promise<void>;
 
   publishUserChanged(user: UserRecord): Promise<void>;
@@ -105,7 +110,10 @@ export interface PasswordHasher {
 }
 
 export interface TokenIssuer {
-  issueAccessToken(claims: { userId: string; username: string; displayName: string; email: string | null; isAdmin: boolean; grants: Grant[]; units: Array<{ unitId: string; role: UnitRole }> }): Promise<string>;
+  issueAccessToken(
+    claims: { userId: string; username: string; displayName: string; email: string | null; isAdmin: boolean; grants: Grant[]; units: Array<{ unitId: string; role: UnitRole }> },
+    opts?: { audience?: string[]; ttlSeconds?: number },
+  ): Promise<string>;
   jwks(): Promise<{ keys: unknown[] }>;
 }
 

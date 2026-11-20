@@ -77,6 +77,25 @@ export interface IdentityDB extends OutboxTable {
     last_used_at: Timestamp;
     revoked_at: Timestamp | null;
   };
+  /** MCP and other OAuth clients, registered by themselves (RFC 7591); users approve each one. */
+  oauth_clients: {
+    id: string;
+    name: string;
+    redirect_uris: ColumnType<string[], string, string>;
+    created_at: Timestamp;
+  };
+  /** Single-use authorization codes (PKCE), valid for two minutes. */
+  oauth_codes: {
+    code_hash: string;
+    client_id: string;
+    user_id: string;
+    redirect_uri: string;
+    code_challenge: string;
+    resource: string | null;
+    scope: string | null;
+    expires_at: Timestamp;
+    used_at: Timestamp | null;
+  };
 }
 
 export const migrations: Record<string, Migration> = {
@@ -208,6 +227,23 @@ export const migrations: Record<string, Migration> = {
       await sql`update org_units set member_role = case member_role when 'view' then 'viewer' when 'edit' then 'editor' else 'none' end`.execute(db);
       await sql`alter table org_units alter column member_role set default 'viewer'`.execute(db);
       await sql`alter table org_units add constraint org_units_member_role_check check (member_role in ('none','viewer','commenter','contributor','editor'))`.execute(db);
+    },
+  },
+  '0005_oauth': {
+    async up(db) {
+      await sql`create table oauth_clients (id text primary key, name text not null, redirect_uris jsonb not null, created_at timestamptz not null default now())`.execute(db);
+      await sql`create table oauth_codes (
+        code_hash text primary key,
+        client_id text not null references oauth_clients(id) on delete cascade,
+        user_id uuid not null references users(id) on delete cascade,
+        redirect_uri text not null,
+        code_challenge text not null,
+        resource text,
+        scope text,
+        expires_at timestamptz not null,
+        used_at timestamptz
+      )`.execute(db);
+      await sql`create index oauth_codes_expiry on oauth_codes (expires_at)`.execute(db);
     },
   },
 };

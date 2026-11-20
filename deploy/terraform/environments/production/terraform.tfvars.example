@@ -6,6 +6,18 @@ bucket_name        = "example-asset-management-documents"
 reminder_timezone  = "Europe/London"
 mail_from          = "Asset Management <assets@example.com>"
 
+# Data stores: managed services (default) or run inside the namespace.
+# managed_postgres       = false   # then database_url is not needed
+# managed_object_storage = false   # then bucket_name / AWS are not needed
+
+# Sign-in: manual accounts, the directory, ADFS, or a mix.
+auth_mode = "ldap,adfs"
+
+# Air-gapped: images come from Artifactory (CI pushes them there).
+# image_registry    = "artifactory.example.com/docker-local/asset-management"
+# mirror_registry   = "artifactory.example.com/docker-remote"
+# image_pull_secret = { server = "artifactory.example.com", username = "svc-openshift", password = "CHANGE_ME" }
+
 # Prefer TF_VAR_database_url / TF_VAR_smtp_url over writing these here.
 database_url = "postgres://assets:CHANGE_ME@postgres.example.com:5432/assets?sslmode=require"
 smtp_url     = "smtp://relay.corp.example.com:25"

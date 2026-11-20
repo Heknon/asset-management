@@ -16,6 +16,8 @@ export const filesConfig = {
   S3_KMS_KEY_ID: z.string().optional(),
   MAX_UPLOAD_BYTES: z.coerce.number().int().positive().default(50 * 1024 * 1024),
   URL_TTL_SECONDS: z.coerce.number().int().min(30).max(3600).default(300),
+  /** Create the bucket on start if it is missing (in-cluster MinIO; managed buckets are made by Terraform). */
+  S3_CREATE_BUCKET: envBool(false),
   /** Internal URL of the registry service, used to authorise access to an asset's files. */
   REGISTRY_URL: z.string().url().default('http://registry:8080'),
 };

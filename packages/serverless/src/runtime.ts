@@ -5,6 +5,7 @@ import { defineIdentityService } from '@am/identity/service';
 import { nodeIdentityAdapters } from '@am/identity/node';
 import { createTokenVerifier, loadConfig, migrate, relayOutbox, type Database, type OutboxTable, type ServiceDefinition, type TokenVerifier } from '@am/platform';
 import { createDatabase, createHttpServer, PgBoss, type PgDatabase } from '@am/platform/node';
+import { defineMcpService } from '@am/mcp/service';
 import { registryService } from '@am/registry/service';
 import { defineSchedulerService, type Mailer } from '@am/scheduler/service';
 import { nodeSchedulerAdapters } from '@am/scheduler/node';
@@ -32,7 +33,7 @@ interface Service {
 const json = (status: number, body: unknown) => ({ status, body: JSON.stringify(body) });
 
 /**
- * All four services in one process, for serverless platforms: the same
+ * All the services in one process, for serverless platforms: the same
  * definitions the server runs, each with its own Postgres schema and Fastify
  * app (called in-process), and durable pg-boss queues that are drained after
  * each change and by the cron job instead of by always-on workers.
@@ -82,6 +83,8 @@ export class ServerlessRuntime {
         }),
       ),
       defineSchedulerService({ mailer: (config) => (rawEnv.SMTP_URL ? nodeSchedulerAdapters.mailer(config) : unconfiguredMailer(logger)) }),
+      // AI assistants: tool calls reach the other services in-process, with the caller's token.
+      defineMcpService({ fetcher: (input, init) => runtime.fetch(input, init) }),
     ] as unknown as Array<ServiceDefinition<OutboxTable, z.ZodRawShape>>;
 
     let shared: TokenVerifier | null = null;
@@ -115,7 +118,8 @@ export class ServerlessRuntime {
   }
 
   private appFor(path: string): FastifyInstance | null {
-    const name = /^\/api\/([a-z]+)(?:\/|$)/.exec(path)?.[1];
+    // MCP lives at /mcp, and its sign-in discovery under /.well-known (where clients look).
+    const name = path === '/mcp' || path.startsWith('/mcp/') || path.startsWith('/.well-known/oauth-protected-resource') ? 'mcp' : path.startsWith('/.well-known/oauth-authorization-server') ? 'identity' : /^\/api\/([a-z]+)(?:\/|$)/.exec(path)?.[1];
     return (name && this.services.get(name)?.app) || null;
   }
 

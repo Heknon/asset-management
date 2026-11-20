@@ -13,7 +13,7 @@ import { buildBrowserRuntime } from '../../packages/browser-runtime/build.mjs';
 const RUN_MODES = ['server', 'browser'] as const;
 
 /** In development each API prefix is proxied to its service; in the cluster nginx does the same. */
-const services = { identity: 4001, registry: 4002, files: 4003, scheduler: 4004 };
+const services = { identity: 4001, registry: 4002, files: 4003, scheduler: 4004, mcp: 4005 };
 
 /** Browser mode: builds the service worker and PGlite next to the app (public/ while developing, the build output otherwise). */
 function browserRuntime(): Plugin {
@@ -52,8 +52,14 @@ export default defineConfig(({ mode }) => {
       proxy: inBrowser
         ? undefined
         : env.VITE_API_URL
-          ? { '/api': { target: env.VITE_API_URL, changeOrigin: false } }
-          : Object.fromEntries(Object.entries(services).map(([name, port]) => [`/api/${name}`, { target: `http://localhost:${port}`, changeOrigin: false }])),
+          ? Object.fromEntries(['/api', '/mcp', '/.well-known/oauth-'].map((p) => [p, { target: env.VITE_API_URL, changeOrigin: false }]))
+          : {
+              ...Object.fromEntries(Object.entries(services).map(([name, port]) => [`/api/${name}`, { target: `http://localhost:${port}`, changeOrigin: false }])),
+              // The MCP server for AI assistants and the OAuth discovery documents that point to it.
+              '^/mcp$': { target: `http://localhost:${services.mcp}`, changeOrigin: false },
+              '/.well-known/oauth-protected-resource': { target: `http://localhost:${services.mcp}`, changeOrigin: false },
+              '/.well-known/oauth-authorization-server': { target: `http://localhost:${services.identity}`, changeOrigin: false },
+            },
     },
     build: { sourcemap: true, chunkSizeWarningLimit: 900 },
   };

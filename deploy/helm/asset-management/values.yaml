@@ -1,11 +1,16 @@
 # ─── Images ──────────────────────────────────────────────────────────────────
 image:
-  # Images are named <registry>/<prefix><component>:<tag>, e.g. .../asset-management-registry:0.1.0
+  # Our images are named <registry>/<prefix><component>:<tag>, e.g. .../asset-management-registry:0.1.0.
+  # Air-gapped: the Artifactory Docker repository CI pushes to (IMAGE_REGISTRY in .gitlab-ci.yml).
   registry: image-registry.openshift-image-registry.svc:5000/asset-management
   prefix: asset-management-
   tag: ""                     # defaults to the chart appVersion
   pullPolicy: IfNotPresent
+  # e.g. [{ name: artifactory-pull }] — a dockerconfigjson Secret for the registries above.
   pullSecrets: []
+  # Third-party images (in-cluster Postgres and MinIO) are pulled from this mirror instead of
+  # their public registries when set, e.g. artifactory.example.com/docker-remote.
+  mirrorRegistry: ""
 
 # Externally visible URL of the app (used for links in emails, OIDC redirects, calendar feeds).
 publicUrl: https://assets.apps.example.com
@@ -25,6 +30,47 @@ ingress:
   host: assets.example.com
   annotations: {}
   tlsSecretName: ""
+
+# ─── Data stores ─────────────────────────────────────────────────────────────
+# managed: true  → an external service (Crunchy/CloudNativePG, RDS, Azure, …) — DATABASE_URL
+#                  comes from the secrets Secret.
+# managed: false → the chart runs a single PostgreSQL StatefulSet in the namespace and
+#                  generates its password (kept across upgrades). Good for small or test installs.
+postgresql:
+  managed: true
+  inCluster:
+    image:
+      registry: registry.redhat.io
+      repository: rhel9/postgresql-16
+      tag: latest
+    database: assets
+    username: assets
+    storage: 10Gi
+    storageClass: ""           # empty = cluster default
+    resources:
+      requests: { cpu: 100m, memory: 256Mi }
+      limits: { memory: 1Gi }
+
+# managed: true  → an S3 bucket (AWS, ODF/NooBaa, Ceph, …) set under services.files.env, keys in
+#                  the secrets Secret; Terraform's document-bucket module creates one on AWS.
+# managed: false → the chart runs MinIO in the namespace, generates its keys, creates the bucket,
+#                  and exposes it on its own Route so browsers can upload and preview directly.
+objectStorage:
+  managed: true
+  inCluster:
+    image:
+      registry: quay.io
+      repository: minio/minio
+      tag: RELEASE.2025-04-22T22-12-26Z
+    bucket: asset-management-documents
+    storage: 20Gi
+    storageClass: ""
+    # Host of the Route browsers use for presigned URLs; empty = cluster-generated.
+    # Set it when you need a stable value for web.s3Origin's Content-Security-Policy.
+    publicHost: ""
+    resources:
+      requests: { cpu: 50m, memory: 256Mi }
+      limits: { memory: 1Gi }
 
 # ─── Configuration ───────────────────────────────────────────────────────────
 # Non-secret settings shared by every backend service.
@@ -47,6 +93,8 @@ services:
   identity:
     replicas: 2
     env:
+      # Sign-in methods, comma-separated: manual (accounts kept here), ldap, adfs. Empty = the *_ENABLED switches below.
+      AUTH_MODE: manual
       SESSION_TTL_HOURS: "12"
       ACCESS_TOKEN_TTL_SECONDS: "900"
       LOCAL_AUTH_ENABLED: "true"
@@ -106,9 +154,21 @@ services:
       requests: { cpu: 50m, memory: 128Mi }
       limits: { memory: 384Mi }
 
+  # MCP server for AI assistants (Claude, IDEs, any MCP client) at <publicUrl>/mcp. People connect
+  # a client by signing in and pressing Accept; it then acts with exactly their access.
+  mcp:
+    enabled: true
+    replicas: 2
+    env: {}
+    secretKeys: [DATABASE_URL]
+    resources:
+      requests: { cpu: 50m, memory: 128Mi }
+      limits: { memory: 384Mi }
+
 web:
   replicas: 2
   # Origin browsers use for presigned S3 URLs (allowed by the Content-Security-Policy).
+  # With in-cluster storage this defaults to its Route (objectStorage.inCluster.publicHost).
   s3Origin: https://asset-management-documents.s3.us-east-1.amazonaws.com
   resources:
     requests: { cpu: 20m, memory: 32Mi }

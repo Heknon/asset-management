@@ -1,4 +1,4 @@
-import { AppError, consolidateGrants, normalizePermissions, roles, type AuthSource, type Grant, type GrantInput, type GrantRecord, type Group, type OrgUnit, type OrgUnitInput, type Page, type Permission, type Subject, type SubjectKind, type UnitPerson, type UnitRole, type User, type UserSummary } from '@am/core';
+import { AppError, consolidateGrants, normalizePermissions, roles, type AuthSource, type Grant, type GrantInput, type GrantRecord, type Group, type OrgUnit, type OrgUnitInput, type Page, type Permission, type SignedInSession, type Subject, type SubjectKind, type UnitPerson, type UnitRole, type User, type UserSummary } from '@am/core';
 import { enqueue } from '@am/platform';
 import { sql, type Kysely, type Selectable } from 'kysely';
 import type { IdentityStore } from '../application/ports.js';
@@ -692,6 +692,25 @@ export class PgIdentityStore implements IdentityStore {
 
   async revokeSession(id: string) {
     await this.db.updateTable('sessions').set({ revoked_at: new Date() }).where('id', '=', id).execute();
+  }
+
+  async listSessions(userId: string): Promise<SignedInSession[]> {
+    const rows = await this.db
+      .selectFrom('sessions')
+      .select(['id', 'user_agent', 'created_at', 'last_used_at', 'expires_at'])
+      .where('user_id', '=', userId)
+      .where('revoked_at', 'is', null)
+      .where('expires_at', '>', new Date())
+      .orderBy('last_used_at', 'desc')
+      .limit(100)
+      .execute();
+    const iso = (d: Date | string) => new Date(d).toISOString();
+    return rows.map((r) => ({ id: r.id, userAgent: r.user_agent, connectedApp: !!r.user_agent?.endsWith('(connected app)'), createdAt: iso(r.created_at), lastUsedAt: iso(r.last_used_at), expiresAt: iso(r.expires_at) }));
+  }
+
+  async revokeOwnSession(userId: string, id: string): Promise<boolean> {
+    const r = await this.db.updateTable('sessions').set({ revoked_at: new Date() }).where('id', '=', id).where('user_id', '=', userId).where('revoked_at', 'is', null).executeTakeFirst();
+    return Number(r.numUpdatedRows) > 0;
   }
 
   async revokeUserSessions(userId: string) {

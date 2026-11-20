@@ -65,12 +65,15 @@ NODE_ENV: production
 PORT: "8080"
 PUBLIC_URL: {{ include "am.publicUrl" . | quote }}
 AUTH_JWKS_URL: {{ printf "http://%s-identity:8080/api/identity/.well-known/jwks.json" (include "am.fullname" .) | quote }}
+IDENTITY_URL: {{ printf "http://%s-identity:8080" (include "am.fullname" .) | quote }}
 REGISTRY_URL: {{ printf "http://%s-registry:8080" (include "am.fullname" .) | quote }}
+SCHEDULER_URL: {{ printf "http://%s-scheduler:8080" (include "am.fullname" .) | quote }}
 COOKIE_SECURE: "true"
 MIGRATE_ON_START: "false"
 {{- range $k, $v := .Values.config }}
 {{ $k }}: {{ $v | quote }}
 {{- end }}
+
 {{- with .Values.observability }}
 LOG_FORMAT: {{ .logs.format | quote }}
 METRICS_ENABLED: {{ .metrics.enabled | toString | quote }}
@@ -90,4 +93,40 @@ OTEL_TRACES_SAMPLER_ARG: {{ .tracing.samplingRatio | quote }}
 OTEL_SERVICE_NAME: {{ printf "asset-management-%s" .name | quote }}
 OTEL_RESOURCE_ATTRIBUTES: {{ printf "service.namespace=asset-management,service.version=%s,deployment.environment.name=%s,k8s.namespace.name=%s" (default .root.Chart.AppVersion .root.Values.image.tag) .root.Values.observability.environment .root.Release.Namespace | quote }}
 {{- end }}
+{{- end -}}
+
+{{/* A third-party image (in-cluster Postgres / MinIO), from image.mirrorRegistry when set (air-gapped). */}}
+{{- define "am.thirdPartyImage" -}}
+{{- $img := .image -}}
+{{- printf "%s/%s:%s" (default $img.registry .root.Values.image.mirrorRegistry) $img.repository $img.tag -}}
+{{- end -}}
+
+{{/* The Secret holding DATABASE_URL: the shared secrets Secret, or the in-cluster database's own. */}}
+{{- define "am.databaseSecret" -}}
+{{- if .Values.postgresql.managed -}}
+{{- .Values.secrets.existingSecret -}}
+{{- else -}}
+{{- printf "%s-postgresql" (include "am.fullname" .) -}}
+{{- end -}}
+{{- end -}}
+
+{{/* Host browsers reach in-cluster object storage on: objectStorage.inCluster.publicHost, else "<first label>-storage.<rest of the app's host>". */}}
+{{- define "am.storageHost" -}}
+{{- if .Values.objectStorage.inCluster.publicHost -}}
+{{- .Values.objectStorage.inCluster.publicHost -}}
+{{- else -}}
+{{- $host := (urlParse (include "am.publicUrl" .)).host | splitList ":" | first -}}
+{{- $labels := splitList "." $host -}}
+{{- printf "%s-storage.%s" (first $labels) (rest $labels | join ".") | trimSuffix "." -}}
+{{- end -}}
+{{- end -}}
+
+{{/* A generated password that survives upgrades: the value already in the Secret, else a new random one. */}}
+{{- define "am.persistentSecret" -}}
+{{- $existing := lookup "v1" "Secret" .root.Release.Namespace .name -}}
+{{- if and $existing (index $existing.data .key) -}}
+{{- index $existing.data .key | b64dec -}}
+{{- else -}}
+{{- randAlphaNum 32 -}}
+{{- end -}}
 {{- end -}}

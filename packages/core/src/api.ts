@@ -54,6 +54,17 @@ export interface Me extends Principal {
   source?: AuthSource;
 }
 
+/** One place a person is signed in: a browser, or an app they connected (an MCP client). */
+export interface SignedInSession {
+  id: string;
+  /** The browser's user agent, or "<client> (connected app)". */
+  userAgent: string | null;
+  connectedApp: boolean;
+  createdAt: string;
+  lastUsedAt: string;
+  expiresAt: string;
+}
+
 export interface UserSummary {
   id: string;
   username: string;

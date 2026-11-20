@@ -30,6 +30,11 @@ server {
     location /api/scheduler/ { proxy_pass http://${SCHEDULER_UPSTREAM}; }
     location /api/           { return 404; }
 
+    # AI assistants (MCP clients) and how they find the sign-in (RFC 9728 / RFC 8414).
+    location = /mcp                                  { proxy_pass http://${MCP_UPSTREAM}; proxy_buffering off; proxy_read_timeout 120s; }
+    location /.well-known/oauth-protected-resource   { proxy_pass http://${MCP_UPSTREAM}; }
+    location /.well-known/oauth-authorization-server { proxy_pass http://${IDENTITY_UPSTREAM}; }
+
     # No add_header inside locations: it would drop the security headers above.
     location = /healthz {
         access_log off;

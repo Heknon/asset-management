@@ -1,5 +1,5 @@
 import { AppError } from '@am/core';
-import { authenticate, errorResponse, notFoundBody, type TokenVerifier } from '@am/platform';
+import { authenticate, errorResponse, notFoundBody, type RoutePolicy, type TokenVerifier } from '@am/platform';
 import type { FastifyInstance } from 'fastify';
 import type { Logger } from 'pino';
 
@@ -38,6 +38,7 @@ interface Route {
   method: string;
   segments: string[];
   handler: Handler;
+  policy: RoutePolicy;
 }
 
 interface RouteRequest {
@@ -122,9 +123,10 @@ export class Router {
   asFastify(): FastifyInstance {
     const add = (method: string) => (path: string, a: unknown, b?: unknown) => {
       const handler = (typeof a === 'function' ? a : b) as Handler;
-      this.routes.push({ method, segments: split(path), handler });
+      const policy = (typeof a === 'object' && a && (a as { config?: RoutePolicy }).config) || {};
+      this.routes.push({ method, segments: split(path), handler, policy });
     };
-    return { get: add('GET'), post: add('POST'), put: add('PUT'), patch: add('PATCH'), delete: add('DELETE') } as unknown as FastifyInstance;
+    return { get: add('GET'), post: add('POST'), put: add('PUT'), patch: add('PATCH'), delete: add('DELETE'), options: add('OPTIONS') } as unknown as FastifyInstance;
   }
 
   useVerifier(verifier: TokenVerifier) {
@@ -162,12 +164,15 @@ export class Router {
         if (input.body && input.body.length > this.bodyLimit) throw Object.assign(new Error('Request body is too large'), { statusCode: 413 });
         let body: unknown;
         if (input.body?.trim()) {
-          if (!/json/.test(input.headers['content-type'] ?? '')) throw Object.assign(new Error('Unsupported content type'), { statusCode: 415 });
-          try {
-            body = JSON.parse(input.body);
-          } catch {
-            throw Object.assign(new Error('Body is not valid JSON'), { statusCode: 400 });
-          }
+          const type = input.headers['content-type'] ?? '';
+          if (found.route.policy.publicApi && /x-www-form-urlencoded/.test(type)) body = Object.fromEntries(new URLSearchParams(input.body));
+          else if (!/json/.test(type)) throw Object.assign(new Error('Unsupported content type'), { statusCode: 415 });
+          else
+            try {
+              body = JSON.parse(input.body);
+            } catch {
+              throw Object.assign(new Error('Body is not valid JSON'), { statusCode: 400 });
+            }
         }
         if (!this.verifier) throw new AppError('unavailable', 'Service is starting');
         const req: RouteRequest = {
@@ -178,7 +183,7 @@ export class Router {
           body,
           headers: input.headers,
           cookies: input.cookies,
-          principal: await authenticate(method, input.headers, input.cookies, this.verifier),
+          principal: await authenticate(method, input.headers, input.cookies, this.verifier, found.route.policy),
           ip: '127.0.0.1',
           log,
           // Signed cookies only carry the OIDC state, and directory sign-in is not available in the browser.

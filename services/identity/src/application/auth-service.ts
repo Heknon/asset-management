@@ -1,5 +1,5 @@
 import { metrics, randomToken, sha256Hex } from '@am/platform';
-import { AppError, type AuthProviderInfo, type Me, type PasswordLogin } from '@am/core';
+import { AppError, type AuthProviderInfo, type Me, type PasswordLogin, type SignedInSession } from '@am/core';
 import { isAdministrator, type ExternalIdentity, type UserRecord } from '../domain/model.js';
 import type { IdentityStore, PasswordProvider, RedirectProvider, RedirectState, TokenIssuer } from './ports.js';
 
@@ -57,8 +57,22 @@ export class AuthService {
     return this.establish(identity, userAgent);
   }
 
+  /**
+   * A session for someone already signed in, e.g. when they let an MCP client
+   * act for them: its own refresh token (revocable like any session) and access
+   * tokens that also name `audience`.
+   */
+  async sessionFor(userId: string, userAgent: string, token: { audience?: string[]; ttlSeconds?: number } = {}): Promise<IssuedSession> {
+    const user = await this.store.findUserById(userId);
+    if (!user?.active) throw AppError.unauthenticated('Account disabled');
+    const refreshToken = randomToken(32);
+    const refreshExpiresAt = new Date(Date.now() + this.sessionTtlMs);
+    await this.store.createSession(user.id, await hashToken(refreshToken), refreshExpiresAt, userAgent);
+    return { accessToken: await this.accessTokenFor(user, token), refreshToken, refreshExpiresAt, user };
+  }
+
   /** Exchanges a refresh token for a new access token (with freshly computed grants) and rotates it. */
-  async refresh(refreshToken: string): Promise<IssuedSession> {
+  async refresh(refreshToken: string, token: { audience?: string[]; ttlSeconds?: number } = {}): Promise<IssuedSession> {
     const session = await this.store.findSessionByTokenHash(await hashToken(refreshToken));
     if (!session || session.expiresAt.getTime() < Date.now()) throw AppError.unauthenticated('Session expired');
     const user = await this.store.findUserById(session.userId);
@@ -68,13 +82,22 @@ export class AuthService {
     }
     const next = randomToken(32);
     await this.store.rotateSession(session.id, await hashToken(next), session.expiresAt);
-    return { accessToken: await this.accessTokenFor(user), refreshToken: next, refreshExpiresAt: session.expiresAt, user };
+    return { accessToken: await this.accessTokenFor(user, token), refreshToken: next, refreshExpiresAt: session.expiresAt, user };
   }
 
   async logout(refreshToken: string | undefined): Promise<void> {
     if (!refreshToken) return;
     const session = await this.store.findSessionByTokenHash(await hashToken(refreshToken));
     if (session) await this.store.revokeSession(session.id);
+  }
+
+  sessions(userId: string): Promise<SignedInSession[]> {
+    return this.store.listSessions(userId);
+  }
+
+  /** Its refresh token stops working at once; access tokens already issued run out within their lifetime. */
+  async endSession(userId: string, id: string): Promise<void> {
+    if (!(await this.store.revokeOwnSession(userId, id))) throw AppError.notFound('Session');
   }
 
   async me(userId: string): Promise<Me> {
@@ -113,8 +136,9 @@ export class AuthService {
     return { accessToken: await this.accessTokenFor(user), refreshToken, refreshExpiresAt, user };
   }
 
-  private async accessTokenFor(user: UserRecord): Promise<string> {
-    return this.tokens.issueAccessToken({
+  private async accessTokenFor(user: UserRecord, opts: { audience?: string[]; ttlSeconds?: number } = {}): Promise<string> {
+    return this.tokens.issueAccessToken(
+      {
       userId: user.id,
       username: user.username,
       displayName: user.displayName,
@@ -122,6 +146,8 @@ export class AuthService {
       isAdmin: isAdministrator(user),
       grants: await this.store.effectiveGrants(user.id),
       units: await this.store.userUnits(user.id),
-    });
+      },
+      opts,
+    );
   }
 }

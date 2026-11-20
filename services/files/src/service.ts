@@ -23,7 +23,9 @@ export const defineFilesService = (adapters: FilesAdapters) =>
     config: filesConfig,
     migrations,
     async register({ config, database, app, bus, logger }) {
-      const files = new FileService(new PgFileStore(database.db), adapters.storage(config), adapters.assetAccess(config), config.MAX_UPLOAD_BYTES);
+      const storage = adapters.storage(config);
+      if (config.S3_CREATE_BUCKET && storage.ensureBucket && (await storage.ensureBucket())) logger.info({ bucket: config.S3_BUCKET }, 'created the document bucket');
+      const files = new FileService(new PgFileStore(database.db), storage, adapters.assetAccess(config), config.MAX_UPLOAD_BYTES);
       registerRoutes(app, files);
 
       await bus.subscribe('files', 'asset.deleted', (e) => files.onAssetDeleted(e.assetId));

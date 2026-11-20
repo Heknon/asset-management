@@ -17,16 +17,24 @@ declare module 'fastify' {
   }
 }
 
+/** Per-route options, set as Fastify route `config` (`{ config: { publicApi: true } }`). */
+export interface RoutePolicy {
+  /** Called by other programs rather than the app: no session cookies, no X-Requested-With, form bodies allowed. */
+  publicApi?: boolean;
+}
+
 /**
  * CSRF defence in depth (cookies are SameSite too): browsers cannot set custom
  * headers cross-origin without a preflight, which this API never approves.
  * Then resolves the caller from the bearer token or session cookie; an invalid
  * token is anonymous (protected routes reject it via requirePrincipal()).
  */
-export async function authenticate(method: string, headers: Record<string, unknown>, cookies: Record<string, string | undefined>, verifier: TokenVerifier): Promise<Principal | null> {
+export async function authenticate(method: string, headers: Record<string, unknown>, cookies: Record<string, string | undefined>, verifier: TokenVerifier, route: RoutePolicy = {}): Promise<Principal | null> {
+  // Public endpoints for other programs (OAuth token, client registration) ignore cookies, so they need no CSRF header.
+  if (route.publicApi) cookies = {};
   const unsafe = method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS';
   const bearer = typeof headers.authorization === 'string' && headers.authorization.startsWith('Bearer ');
-  if (unsafe && !bearer && headers['x-requested-with'] !== 'asset-management') throw AppError.forbidden('Missing X-Requested-With header');
+  if (unsafe && !bearer && !route.publicApi && headers['x-requested-with'] !== 'asset-management') throw AppError.forbidden('Missing X-Requested-With header');
   const token = extractToken(headers, cookies);
   if (!token) return null;
   try {

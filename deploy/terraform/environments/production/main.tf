@@ -15,6 +15,10 @@ terraform {
 provider "aws" {
   region = var.aws_region
   default_tags { tags = var.tags }
+  # With in-cluster storage nothing is created on AWS, so it is never contacted (air-gapped clusters).
+  skip_credentials_validation = !var.managed_object_storage
+  skip_requesting_account_id  = !var.managed_object_storage
+  skip_metadata_api_check     = !var.managed_object_storage
 }
 
 # Authenticate with `oc login` first; the providers reuse that kubeconfig context.
@@ -30,7 +34,9 @@ provider "helm" {
   }
 }
 
+# The S3 bucket on AWS, unless storage runs in the cluster (managed_object_storage = false).
 module "documents" {
+  count           = var.managed_object_storage ? 1 : 0
   source          = "../../modules/document-bucket"
   bucket_name     = var.bucket_name
   allowed_origins = [var.public_url]
@@ -48,19 +54,28 @@ module "app" {
   public_url     = var.public_url
   route_host     = trimprefix(var.public_url, "https://")
   database_url   = var.database_url
-  smtp_url       = var.smtp_url
-  mail_from      = var.mail_from
+
+  # Air-gapped: images from Artifactory, pulled with these credentials.
+  image_pull_secret = var.image_pull_secret
+  mirror_registry   = var.mirror_registry
+
+  managed_postgres       = var.managed_postgres
+  managed_object_storage = var.managed_object_storage
+  auth_mode              = var.auth_mode
+  mcp_enabled            = var.mcp_enabled
+  smtp_url               = var.smtp_url
+  mail_from              = var.mail_from
 
   reminder_timezone = var.reminder_timezone
 
-  s3 = {
-    bucket            = module.documents.bucket
+  s3 = var.managed_object_storage ? {
+    bucket            = module.documents[0].bucket
     region            = var.aws_region
-    browser_origin    = module.documents.browser_origin
-    access_key_id     = module.documents.access_key_id
-    secret_access_key = module.documents.secret_access_key
+    browser_origin    = module.documents[0].browser_origin
+    access_key_id     = module.documents[0].access_key_id
+    secret_access_key = module.documents[0].secret_access_key
     kms_key_id        = var.kms_key_arn
-  }
+  } : null
   ldap = var.ldap
   oidc = var.oidc
 }

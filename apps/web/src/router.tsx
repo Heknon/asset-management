@@ -13,6 +13,7 @@ import { AssetsPage, SavedViewPage } from './routes/assets';
 import { CalendarPage } from './routes/calendar';
 import { CatalogPage, CatalogsPage } from './routes/catalogs';
 import { ImportPage } from './routes/import';
+import { OAuthAuthorizePage } from './routes/oauth-authorize';
 import { LoginPage } from './routes/login';
 import { MailboxPage } from './routes/mailbox';
 import { inBrowser } from './lib/run-mode';
@@ -99,8 +100,24 @@ const login = createRoute({
   validateSearch: (s: Record<string, unknown>) => ({ error: optionalString(s.error), returnTo: optionalString(s.returnTo) }),
 });
 
+/** Where MCP clients send people to connect: signed in, outside the app shell. */
+const oauthAuthorize = createRoute({
+  getParentRoute: () => root,
+  path: '/oauth/authorize',
+  component: OAuthAuthorizePage,
+  beforeLoad: async ({ context, location }) => {
+    try {
+      await context.queryClient.ensureQueryData({ queryKey: keys.me, queryFn: () => api.get<Me>('/api/identity/me') });
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) throw redirect({ to: '/login', search: { returnTo: location.href } });
+      throw err;
+    }
+  },
+});
+
 const routeTree = root.addChildren([
   login,
+  oauthAuthorize,
   app.addChildren([
     createRoute({ getParentRoute: () => app, path: '/', component: UpcomingPage }),
     createRoute({ getParentRoute: () => app, path: '/calendar', component: CalendarPage }),

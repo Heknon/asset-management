@@ -1,4 +1,4 @@
-import { DeleteObjectsCommand, GetBucketCorsCommand, GetObjectCommand, HeadObjectCommand, PutBucketCorsCommand, S3Client, type CORSRule, type S3ClientConfig } from '@aws-sdk/client-s3';
+import { CreateBucketCommand, DeleteObjectsCommand, HeadBucketCommand, GetBucketCorsCommand, GetObjectCommand, HeadObjectCommand, PutBucketCorsCommand, S3Client, type CORSRule, type S3ClientConfig } from '@aws-sdk/client-s3';
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import type { ObjectStorage, PresignedUpload } from '../application/ports.js';
@@ -34,6 +34,19 @@ export class S3ObjectStorage implements ObjectStorage {
     this.internal = new S3Client({ ...base, ...(s.endpoint && { endpoint: s.endpoint }) });
     const pub = s.publicEndpoint ?? s.endpoint;
     this.signer = new S3Client({ ...base, ...(pub && { endpoint: pub }) });
+  }
+
+  async ensureBucket(): Promise<boolean> {
+    const exists = await this.internal.send(new HeadBucketCommand({ Bucket: this.s.bucket })).then(
+      () => true,
+      (err: { name?: string; $metadata?: { httpStatusCode?: number } }) => {
+        if (err.name === 'NotFound' || err.name === 'NoSuchBucket' || err.$metadata?.httpStatusCode === 404) return false;
+        throw err;
+      },
+    );
+    if (exists) return false;
+    await this.internal.send(new CreateBucketCommand({ Bucket: this.s.bucket }));
+    return true;
   }
 
   /**

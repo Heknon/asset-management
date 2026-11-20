@@ -27,6 +27,53 @@ variable "image_tag" {
   type = string
 }
 
+variable "image_pull_secret" {
+  description = "Credentials for a private registry (Artifactory): a dockerconfigjson Secret every pod pulls with. Null when the cluster can already pull."
+  type = object({
+    server   = string
+    username = string
+    password = string
+  })
+  default   = null
+  sensitive = true
+}
+
+variable "mirror_registry" {
+  description = "Air-gapped: registry mirror for third-party images (in-cluster Postgres / MinIO), e.g. artifactory.example.com/docker-remote."
+  type        = string
+  default     = ""
+}
+
+variable "managed_postgres" {
+  description = "true: use database_url (managed PostgreSQL). false: the chart runs PostgreSQL in the namespace."
+  type        = bool
+  default     = true
+}
+
+variable "managed_object_storage" {
+  description = "true: use the s3 bucket settings (AWS, ODF, Ceph…). false: the chart runs MinIO in the namespace."
+  type        = bool
+  default     = true
+}
+
+variable "storage_host" {
+  description = "Route host for in-cluster object storage (browsers upload there); empty = <app-host-label>-storage.<domain>."
+  type        = string
+  default     = ""
+}
+
+variable "auth_mode" {
+  description = "Sign-in methods, comma-separated: manual, ldap, adfs (e.g. \"manual,adfs\"). Empty: decided by local_admin_enabled / ldap.enabled / oidc.enabled."
+  type        = string
+  default     = ""
+}
+
+variable "mcp_enabled" {
+  description = "Run the MCP server (<public_url>/mcp) so people can connect AI assistants that act as them."
+  type        = bool
+  default     = true
+}
+
 variable "public_url" {
   description = "External URL of the app, e.g. https://assets.apps.ocp.example.com"
   type        = string
@@ -44,8 +91,9 @@ variable "route_host" {
 }
 
 variable "database_url" {
-  description = "postgres:// URL of the application database (one database; each service owns a schema)."
+  description = "postgres:// URL of the application database (one database; each service owns a schema). Required when managed_postgres."
   type        = string
+  default     = null
   sensitive   = true
 }
 
@@ -105,6 +153,7 @@ variable "s3" {
     secret_access_key = optional(string)
     kms_key_id        = optional(string)
   })
+  default   = null
   sensitive = true
 }
 
@@ -128,12 +177,12 @@ variable "ldap" {
 variable "oidc" {
   description = "ADFS (OpenID Connect). Register <public_url>/api/identity/auth/oidc/callback as the redirect URI."
   type = object({
-    enabled         = bool
+    enabled       = bool
     issuer        = optional(string, "")
     client_id     = optional(string, "")
     client_secret = optional(string)
     groups_claim  = optional(string, "group")
-    admin_groups    = optional(list(string), [])
+    admin_groups  = optional(list(string), [])
     unit_claims   = optional(list(string), ["department"])
   })
   default   = { enabled = false }

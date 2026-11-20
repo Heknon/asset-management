@@ -89,7 +89,7 @@ spec:
 {{- if .Values.networkPolicy.enabled }}
 ---
 # Default deny for the release; only the router reaches web, and only web
-# (plus files → registry for access checks) reaches the backend services.
+# (plus files → registry and mcp → the others, with the caller's token) reaches the backend services.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -118,7 +118,7 @@ spec:
   podSelector:
     matchExpressions:
       - { key: app.kubernetes.io/instance, operator: In, values: [{{ .Release.Name | quote }}] }
-      - { key: app.kubernetes.io/component, operator: In, values: [identity, registry, files, scheduler] }
+      - { key: app.kubernetes.io/component, operator: In, values: [identity, registry, files, scheduler, mcp] }
   policyTypes: [Ingress]
   ingress:
     - from:

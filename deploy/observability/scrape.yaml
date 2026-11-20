@@ -10,4 +10,4 @@ scrape_configs:
       - targets: ['host.docker.internal:4001', 'host.docker.internal:4002', 'host.docker.internal:4003', 'host.docker.internal:4004']
   - job_name: asset-management-compose
     static_configs:
-      - targets: ['identity:8080', 'registry:8080', 'files:8080', 'scheduler:8080']
+      - targets: ['identity:8080', 'registry:8080', 'files:8080', 'scheduler:8080', 'mcp:8080']

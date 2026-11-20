@@ -101,13 +101,19 @@ services:
     environment:
       <<: *service-env
       SMTP_URL: smtp://mailpit:1025
+  # MCP server for AI assistants at http://localhost:8080/mcp.
+  mcp:
+    <<: *service
+    build: { context: ., target: service, args: { SERVICE: mcp } }
+    environment:
+      <<: *service-env
   web:
     profiles: [app]
     build: { context: ., target: web }
     environment:
       S3_ORIGIN: http://localhost:9000
     ports: ['8080:8080']
-    depends_on: [identity, registry, files, scheduler]
+    depends_on: [identity, registry, files, scheduler, mcp]
 
   # ─── Observability (opt-in profile) ────────────────────────────────────────
   otel-collector:

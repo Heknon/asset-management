@@ -13,6 +13,7 @@
     "@am/core": "workspace:*",
     "@am/files": "workspace:*",
     "@am/identity": "workspace:*",
+    "@am/mcp": "workspace:*",
     "@am/platform": "workspace:*",
     "@am/registry": "workspace:*",
     "@am/scheduler": "workspace:*",

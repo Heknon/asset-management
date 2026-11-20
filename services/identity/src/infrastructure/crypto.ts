@@ -53,14 +53,15 @@ export class JwtIssuer implements TokenIssuer {
     return new JwtIssuer(privateKey, publicJwk, opts);
   }
 
-  issueAccessToken(c: Parameters<TokenIssuer['issueAccessToken']>[0]): Promise<string> {
+  issueAccessToken(c: Parameters<TokenIssuer['issueAccessToken']>[0], opts: Parameters<TokenIssuer['issueAccessToken']>[1] = {}): Promise<string> {
     const claims = principalToClaims({ ...c });
     return new SignJWT(claims)
       .setProtectedHeader({ alg: 'ES256', kid: this.publicJwk.kid! })
       .setIssuer(this.opts.issuer)
-      .setAudience(this.opts.audience)
+      // Extra audiences (e.g. the MCP server) on top of the services' own.
+      .setAudience(opts.audience?.length ? [this.opts.audience, ...opts.audience] : this.opts.audience)
       .setIssuedAt()
-      .setExpirationTime(`${this.opts.ttlSeconds}s`)
+      .setExpirationTime(`${opts.ttlSeconds ?? this.opts.ttlSeconds}s`)
       .sign(this.privateKey);
   }
 

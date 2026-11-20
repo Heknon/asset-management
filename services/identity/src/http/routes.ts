@@ -143,6 +143,13 @@ export function registerRoutes(app: FastifyInstance, o: RouteOptions): void {
 
   app.get(`${PREFIX}/me`, async (req) => o.auth.me(requirePrincipal(req).userId));
 
+  // Where the person is signed in (browsers and connected apps such as MCP clients), and signing one out.
+  app.get(`${PREFIX}/me/sessions`, async (req) => o.auth.sessions(requirePrincipal(req).userId));
+  app.delete(`${PREFIX}/me/sessions/:id`, async (req, reply) => {
+    await o.auth.endSession(requirePrincipal(req).userId, parse(idParam, req.params).id);
+    return reply.status(204).send();
+  });
+
   app.patch(`${PREFIX}/me/preferences`, async (req) => o.directory.updatePreferences(requirePrincipal(req).userId, parse(preferencesSchema, req.body)));
 
   app.get(`${PREFIX}/people`, async (req) => {

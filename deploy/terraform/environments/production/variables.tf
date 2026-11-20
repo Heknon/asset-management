@@ -38,8 +38,50 @@ variable "image_tag" {
   type = string
 }
 
+variable "image_pull_secret" {
+  description = "Artifactory (or other private registry) credentials for pulling images: { server, username, password }."
+  type = object({
+    server   = string
+    username = string
+    password = string
+  })
+  default   = null
+  sensitive = true
+}
+
+variable "mirror_registry" {
+  description = "Registry mirror for third-party images when air-gapped, e.g. artifactory.example.com/docker-remote."
+  type        = string
+  default     = ""
+}
+
+variable "managed_postgres" {
+  description = "true: managed PostgreSQL at database_url. false: PostgreSQL runs in the namespace."
+  type        = bool
+  default     = true
+}
+
+variable "managed_object_storage" {
+  description = "true: an AWS S3 bucket (document-bucket module). false: MinIO runs in the namespace."
+  type        = bool
+  default     = true
+}
+
+variable "auth_mode" {
+  description = "Sign-in methods: manual, ldap, adfs, comma-separated. Empty = from local_admin / ldap / oidc settings."
+  type        = string
+  default     = ""
+}
+
+variable "mcp_enabled" {
+  description = "Serve the MCP endpoint (<public_url>/mcp) for AI assistants."
+  type        = bool
+  default     = true
+}
+
 variable "bucket_name" {
-  type = string
+  type    = string
+  default = "asset-management-documents"
 }
 
 variable "kms_key_arn" {
@@ -53,8 +95,10 @@ variable "create_s3_iam_user" {
 }
 
 variable "database_url" {
-  type      = string
-  sensitive = true
+  description = "Required when managed_postgres = true."
+  type        = string
+  default     = null
+  sensitive   = true
 }
 
 variable "smtp_url" {

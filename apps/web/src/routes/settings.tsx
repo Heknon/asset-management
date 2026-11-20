@@ -8,10 +8,11 @@ import {
   roleKeys,
   roles,
   type Group,
+  type SignedInSession,
   type User,
 } from '@am/core';
-import { useMutation, useQueryClient, type QueryKey } from '@tanstack/react-query';
-import { Building2, CalendarDays, KeyRound, MoreHorizontal, Pencil, Plus, RefreshCcw, Trash2, UserX, Users } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query';
+import { Bot, Building2, CalendarDays, KeyRound, Monitor, Smartphone, MoreHorizontal, Pencil, Plus, RefreshCcw, Trash2, UserX, Users } from 'lucide-react';
 import { Link } from '@tanstack/react-router';
 import { useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
@@ -452,6 +453,7 @@ export function ProfilePage() {
       <PageHeader title="Profile & notifications" icon={<Avatar name={me.displayName} size={40} />} description={me.email ?? me.username} />
       <div className="mx-auto w-full max-w-2xl space-y-6 px-4 sm:px-6 py-6">
         {me.source === 'local' && <ChangePassword />}
+        <SignedInDevices />
         <Card className="space-y-4">
           <h2 className="text-[13px] font-semibold">Notifications</h2>
           <Switch
@@ -623,6 +625,74 @@ function SetPasswordDialog({ user, onClose }: { user: User | null; onClose: () =
 }
 
 /** On the profile, for manual accounts. */
+/** "just now", "5 min ago", "3 h ago", "yesterday", then a date. */
+function ago(iso: string): string {
+  const min = Math.round((Date.now() - new Date(iso).getTime()) / 60_000);
+  if (min < 2) return 'just now';
+  if (min < 60) return `${min} min ago`;
+  if (min < 24 * 60) return `${Math.round(min / 60)} h ago`;
+  if (min < 48 * 60) return 'yesterday';
+  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(iso));
+}
+
+/** "Chrome on macOS" from a user agent; connected apps keep their own name. */
+function deviceName(s: SignedInSession): string {
+  if (s.connectedApp) return s.userAgent!.replace(/ \(connected app\)$/, '');
+  const ua = s.userAgent ?? '';
+  const browser = /Edg\//.test(ua) ? 'Edge' : /Firefox\//.test(ua) ? 'Firefox' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : null;
+  const os = /iPhone|iPad/.test(ua) ? 'iOS' : /Android/.test(ua) ? 'Android' : /Mac OS X/.test(ua) ? 'macOS' : /Windows/.test(ua) ? 'Windows' : /Linux/.test(ua) ? 'Linux' : null;
+  return browser && os ? `${browser} on ${os}` : browser ?? os ?? 'A browser';
+}
+
+/** Browsers and connected apps (AI assistants via MCP) signed in as this person; each can be signed out. */
+function SignedInDevices() {
+  const sessions = useQuery({ queryKey: ['my-sessions'], queryFn: () => api.get<SignedInSession[]>('/api/identity/me/sessions') });
+  const end = useSave((id: string) => api.delete(`/api/identity/me/sessions/${id}`), [['my-sessions']], 'Signed out');
+  const list = sessions.data ?? [];
+  const apps = list.filter((s) => s.connectedApp);
+  const browsers = list.filter((s) => !s.connectedApp);
+  const row = (s: SignedInSession) => (
+    <li key={s.id} className="flex items-center gap-3 py-2.5">
+      <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-surface-2 text-muted">
+        {s.connectedApp ? <Bot className="size-4" /> : /iPhone|iPad|Android/.test(s.userAgent ?? '') ? <Smartphone className="size-4" /> : <Monitor className="size-4" />}
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[13px] font-medium">{deviceName(s)}</p>
+        <p className="truncate text-xs text-muted" title={`${s.connectedApp ? 'Connected' : 'Signed in'} ${formatDateTime(s.createdAt)}`}>
+          Last used {ago(s.lastUsedAt)}
+        </p>
+      </div>
+      <Button size="sm" variant="ghost" disabled={end.isPending} onClick={() => end.mutate(s.id)}>
+        {s.connectedApp ? 'Disconnect' : 'Sign out'}
+      </Button>
+    </li>
+  );
+  return (
+    <Card className="space-y-2">
+      <h2 className="text-[13px] font-semibold">Signed-in devices</h2>
+      <p className="text-xs text-muted">Browsers and connected apps (such as AI assistants using MCP) that can act as you. Signing one out takes effect within the hour.</p>
+      {sessions.isPending ? (
+        <div className="flex justify-center py-4">
+          <Spinner />
+        </div>
+      ) : (
+        <>
+          {!!apps.length && (
+            <div>
+              <h3 className="pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted">Connected apps</h3>
+              <ul className="divide-y divide-border">{apps.map(row)}</ul>
+            </div>
+          )}
+          <div>
+            {!!apps.length && <h3 className="pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted">Browsers</h3>}
+            <ul className="divide-y divide-border">{browsers.map(row)}</ul>
+          </div>
+        </>
+      )}
+    </Card>
+  );
+}
+
 function ChangePassword() {
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');

@@ -12,6 +12,9 @@ import { PgIdentityStore } from './infrastructure/pg-identity-store.js';
 import { LocalPasswordProvider } from './infrastructure/local-provider.js';
 import { migrations, type IdentityDB } from './infrastructure/schema.js';
 import { registerRoutes } from './http/routes.js';
+import { registerOAuthRoutes } from './http/oauth-routes.js';
+import { OAuthService } from './application/oauth-service.js';
+import { PgOAuthStore } from './infrastructure/pg-oauth-store.js';
 import type { Logger } from 'pino';
 import type { z } from 'zod';
 
@@ -52,13 +55,16 @@ export const defineIdentityService = (adapters: IdentityAdapters) => {
       await bootstrapLocalAdmin(store, hasher, config.LOCAL_ADMIN_USERNAME, config.LOCAL_ADMIN_PASSWORD);
 
       const auth = new AuthService(store, issuer, passwordProviders, oidc, config.SESSION_TTL_HOURS * 3_600_000);
+      const publicUrl = config.PUBLIC_URL.replace(/\/$/, '');
+      // MCP clients sign people in here: they register, the person accepts on /oauth/authorize, they get tokens.
+      registerOAuthRoutes(app, new OAuthService(new PgOAuthStore(database.db), auth, publicUrl));
       registerRoutes(app, {
         auth,
         directory: new DirectoryService(store, hasher),
         org: new OrgService(store),
         access: new AccessService(store),
         jwks: () => issuer.jwks(),
-        publicUrl: config.PUBLIC_URL.replace(/\/$/, ''),
+        publicUrl,
         secureCookies: config.COOKIE_SECURE,
         accessTtlSeconds: config.ACCESS_TOKEN_TTL_SECONDS,
       });

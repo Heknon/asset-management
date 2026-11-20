@@ -3,7 +3,7 @@ import { trace } from '@opentelemetry/api';
 import Fastify, { type FastifyBaseLogger, type FastifyInstance } from 'fastify';
 import type { Logger } from 'pino';
 import type { TokenVerifier } from '../auth.js';
-import { authenticate, errorResponse, notFoundBody } from '../http.js';
+import { authenticate, errorResponse, notFoundBody, type RoutePolicy } from '../http.js';
 import { platformMetrics } from '../telemetry/metrics.js';
 import { registry } from './prom.js';
 
@@ -43,6 +43,12 @@ export function createHttpServer(opts: HttpOptions): FastifyInstance {
     }
   });
 
+  // OAuth token, revocation and registration requests are form-encoded (RFC 6749); only public routes accept them.
+  app.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string' }, (req, body, done) => {
+    if (!(req.routeOptions.config as RoutePolicy | undefined)?.publicApi) return done(Object.assign(new Error('Unsupported content type'), { statusCode: 415 }), undefined);
+    done(null, Object.fromEntries(new URLSearchParams(body as string)));
+  });
+
   app.addHook('onRequest', async (req) => {
     // Name the server span after the route template ("GET /api/registry/assets/:id"); no-op without tracing.
     const span = trace.getActiveSpan();
@@ -50,7 +56,7 @@ export function createHttpServer(opts: HttpOptions): FastifyInstance {
       span.updateName(`${req.method} ${req.routeOptions.url}`);
       span.setAttribute('http.route', req.routeOptions.url);
     }
-    req.principal = await authenticate(req.method, req.headers, req.cookies ?? {}, opts.verifier);
+    req.principal = await authenticate(req.method, req.headers, req.cookies ?? {}, opts.verifier, (req.routeOptions.config as RoutePolicy | undefined) ?? {});
   });
 
   app.addHook('onSend', async (_req, reply) => {
