@@ -3,6 +3,7 @@ import { Command } from 'cmdk';
 import { Building2, Check, ChevronRight, ChevronsUpDown, X } from 'lucide-react';
 import { useState } from 'react';
 import type { OrgUnit } from '@am/core';
+import { t, tMaybe } from '@/lib/i18n';
 import { useLookups, usePeople, usePeopleSearch, useAssetTypes } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { Avatar } from './ui/display';
@@ -14,7 +15,7 @@ const triggerClass =
   'flex h-8 w-full items-center gap-2 rounded-lg border border-border bg-surface px-2.5 text-start text-[13px] transition-colors hover:border-border-strong focus:border-accent focus:outline-none';
 
 /** Searchable picker for a directory person. */
-export function PersonPicker({ value, onChange, id, placeholder = 'Select a person', allowClear = true }: { value: string | null; onChange: (id: string | null) => void; id?: string; placeholder?: string; allowClear?: boolean }) {
+export function PersonPicker({ value, onChange, id, placeholder, allowClear = true }: { value: string | null; onChange: (id: string | null) => void; id?: string; placeholder?: string; allowClear?: boolean }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const people = usePeopleSearch(q);
@@ -32,7 +33,7 @@ export function PersonPicker({ value, onChange, id, placeholder = 'Select a pers
               <span className="truncate">{selected.displayName}</span>
             </>
           ) : (
-            <span className="text-subtle">{value ? 'Loading…' : placeholder}</span>
+            <span className="text-subtle">{value ? t('Loading…') : (placeholder ?? t('Select a person'))}</span>
           )}
           <span className="ms-auto flex items-center gap-1 text-subtle">
             {allowClear && value && (
@@ -50,9 +51,9 @@ export function PersonPicker({ value, onChange, id, placeholder = 'Select a pers
       }
     >
       <Command shouldFilter={false} className="flex flex-col">
-        <Command.Input value={q} onValueChange={setQ} placeholder="Search people…" className="h-9 border-b border-border bg-transparent px-3 text-[13px] outline-none placeholder:text-subtle" />
+        <Command.Input value={q} onValueChange={setQ} placeholder={t('Search people…')} className="h-9 border-b border-border bg-transparent px-3 text-[13px] outline-none placeholder:text-subtle" />
         <Command.List className="max-h-64 overflow-y-auto p-1">
-          <Command.Empty className="px-3 py-6 text-center text-xs text-muted">No people found</Command.Empty>
+          <Command.Empty className="px-3 py-6 text-center text-xs text-muted">{t('No people found')}</Command.Empty>
           {(people.data ?? []).map((p: UserSummary) => (
             <Command.Item
               key={p.id}
@@ -125,9 +126,9 @@ export function UnitPicker({
   value,
   onChange,
   id,
-  placeholder = 'Choose a team',
+  placeholder: placeholderProp,
   allowClear = false,
-  clearLabel = 'Whole organization',
+  clearLabel: clearLabelProp,
   suggested,
   filter,
 }: {
@@ -141,6 +142,8 @@ export function UnitPicker({
   suggested?: UnitOption[];
   filter?: (u: OrgUnit) => boolean;
 }) {
+  const placeholder = placeholderProp ?? t('Choose a team');
+  const clearLabel = clearLabelProp ?? t('Whole organization');
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const { units, unitPathNames } = useLookups();
@@ -148,7 +151,7 @@ export function UnitPicker({
   const terms = q.toLowerCase().split(/\s+/).filter(Boolean);
   const matches = units
     .filter((u) => !u.archived && (!filter || filter(u)))
-    .filter((u) => terms.every((t) => label(u).toLowerCase().includes(t)))
+    .filter((u) => terms.every((term) => label(u).toLowerCase().includes(term)))
     .slice(0, 60);
   const select = (v: string | null) => {
     onChange(v);
@@ -180,11 +183,11 @@ export function UnitPicker({
       }
     >
       <Command shouldFilter={false} className="flex flex-col">
-        <Command.Input value={q} onValueChange={setQ} placeholder="Search teams, departments, divisions…" className="h-9 border-b border-border bg-transparent px-3 text-[13px] outline-none placeholder:text-subtle" />
+        <Command.Input value={q} onValueChange={setQ} placeholder={t('Search teams, departments, divisions…')} className="h-9 border-b border-border bg-transparent px-3 text-[13px] outline-none placeholder:text-subtle" />
         <Command.List className="max-h-80 overflow-y-auto p-1">
-          <Command.Empty className="px-3 py-6 text-center text-xs text-muted">No matching units</Command.Empty>
+          <Command.Empty className="px-3 py-6 text-center text-xs text-muted">{t('No matching units')}</Command.Empty>
           {!q && suggested && suggested.length > 0 && (
-            <Command.Group heading="Suggested" className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:text-subtle">
+            <Command.Group heading={t('Suggested')} className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:text-subtle">
               {suggested.map(({ unit, hint }) => (
                 <Command.Item key={`s-${unit.id}`} value={`s-${unit.id}`} onSelect={() => select(unit.id)} className={item}>
                   <Building2 className="size-3.5 shrink-0 text-subtle" />
@@ -220,7 +223,7 @@ export function UnitPicker({
                     </span>
                   )}
                 </span>
-                <span className="text-[11px] text-subtle">{u.kind}</span>
+                <span className="text-[11px] text-subtle">{tMaybe(u.kind)}</span>
                 {value === u.id && <Check className="size-3.5 text-accent" />}
               </Command.Item>
             );
@@ -231,14 +234,14 @@ export function UnitPicker({
   );
 }
 
-export function AssetTypeSelect({ value, onChange, id, includeAll, allLabel = 'All asset types' }: { value: string | null; onChange: (v: string | null) => void; id?: string; includeAll?: boolean; allLabel?: string }) {
+export function AssetTypeSelect({ value, onChange, id, includeAll, allLabel }: { value: string | null; onChange: (v: string | null) => void; id?: string; includeAll?: boolean; allLabel?: string }) {
   const types = useAssetTypes();
   return (
     <Select id={id} value={value ?? ''} onChange={(e) => onChange(e.target.value || null)}>
-      {includeAll ? <option value="">{allLabel}</option> : <option value="" disabled>Select an asset type</option>}
-      {(types.data ?? []).map((t) => (
-        <option key={t.id} value={t.id}>
-          {t.name}
+      {includeAll ? <option value="">{allLabel ?? t('All asset types')}</option> : <option value="" disabled>{t('Select an asset type')}</option>}
+      {(types.data ?? []).map((ty) => (
+        <option key={ty.id} value={ty.id}>
+          {ty.name}
         </option>
       ))}
     </Select>

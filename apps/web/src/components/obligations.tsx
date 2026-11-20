@@ -5,6 +5,7 @@ import { AlarmClock, Check, CircleHelp, ShoppingCart, MessageCircleQuestion, Mor
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { api, ApiError } from '@/lib/api';
+import { plural, t, tMaybe } from '@/lib/i18n';
 import { useInvalidateAssets, useLookups, useMe } from '@/lib/queries';
 import { cn, formatDate, formatMoney, todayIso } from '@/lib/utils';
 import { DateKindBadge, DueBadge, RequestStatusBadge } from './badges';
@@ -22,12 +23,12 @@ import { Dialog, Menu, MenuItem, MenuSeparator } from './ui/overlay';
  */
 export function useObligationActions() {
   const invalidate = useInvalidateAssets();
-  const onError = (e: unknown) => toast.error(e instanceof ApiError ? e.message : 'Something went wrong');
+  const onError = (e: unknown) => toast.error(e instanceof ApiError ? e.message : t('Something went wrong'));
 
   const advance = useMutation({
     mutationFn: (o: Obligation) => api.post(`/api/registry/assets/${o.assetId}/dates/${o.fieldKey}/advance`),
     onSuccess: (_d, o) => {
-      toast.success(`${o.dateKind.actionLabel}: ${o.assetName}`, { description: `${o.label} rolled forward` });
+      toast.success(t('{action}: {asset}', { action: tMaybe(o.dateKind.actionLabel), asset: o.assetName }), { description: t('{label} rolled forward', { label: o.label }) });
       invalidate(o.assetId);
     },
     onError,
@@ -35,7 +36,7 @@ export function useObligationActions() {
   const act = useMutation({
     mutationFn: ({ o, body }: { o: Obligation; body: Record<string, unknown> }) => api.post(`/api/scheduler/obligations/${o.id}/actions`, body),
     onSuccess: (_d, { o, body }) => {
-      toast.success(body.action === 'snooze' ? `Snoozed until ${formatDate(body.until as string)}` : body.action === 'reopen' ? 'Reopened' : body.action === 'dismiss' ? 'Dismissed' : 'Marked complete');
+      toast.success(body.action === 'snooze' ? t('Snoozed until {date}', { date: formatDate(body.until as string) }) : body.action === 'reopen' ? t('Reopened') : body.action === 'dismiss' ? t('Dismissed') : t('Marked complete'));
       invalidate(o.assetId);
     },
     onError,
@@ -45,7 +46,7 @@ export function useObligationActions() {
   const renewal = useMutation({
     mutationFn: (o: Obligation) => api.post<{ id: string; number: string }>(`/api/registry/assets/${o.assetId}/renewal-requests`, { fieldKey: o.fieldKey, obligationId: o.id }),
     onSuccess: (r, o) => {
-      toast.success(`${r.number} opened`, { description: `Renewal of ${o.assetName}` });
+      toast.success(t('{number} opened', { number: r.number }), { description: t('Renewal of {asset}', { asset: o.assetName }) });
       invalidate(o.assetId);
       void navigate({ to: '/requests/$requestId', params: { requestId: r.id } });
     },
@@ -66,13 +67,13 @@ function SnoozeDialog({ obligation, onClose, onSnooze }: { obligation: Obligatio
   const today = todayIso();
   const [custom, setCustom] = useState(addDuration(today, { amount: 3, unit: 'day' }));
   const presets = [
-    { label: 'Tomorrow', date: addDuration(today, { amount: 1, unit: 'day' }) },
-    { label: 'In 3 days', date: addDuration(today, { amount: 3, unit: 'day' }) },
-    { label: 'Next week', date: addDuration(today, { amount: 7, unit: 'day' }) },
-    { label: 'In 2 weeks', date: addDuration(today, { amount: 14, unit: 'day' }) },
+    { label: t('Tomorrow'), date: addDuration(today, { amount: 1, unit: 'day' }) },
+    { label: plural(3, 'In {n} day', 'In {n} days'), date: addDuration(today, { amount: 3, unit: 'day' }) },
+    { label: t('Next week'), date: addDuration(today, { amount: 7, unit: 'day' }) },
+    { label: plural(2, 'In {n} week', 'In {n} weeks'), date: addDuration(today, { amount: 14, unit: 'day' }) },
   ];
   return (
-    <Dialog open={!!obligation} onOpenChange={(o) => !o && onClose()} title="Snooze reminders" description={obligation ? `${obligation.label} · ${obligation.assetName}` : undefined}>
+    <Dialog open={!!obligation} onOpenChange={(o) => !o && onClose()} title={t('Snooze reminders')} description={obligation ? `${obligation.label} · ${obligation.assetName}` : undefined}>
       <div className="grid grid-cols-2 gap-2">
         {presets.map((p) => (
           <button key={p.label} type="button" onClick={() => onSnooze(p.date)} className="rounded-lg border border-border px-3 py-2.5 text-start transition-colors hover:border-border-strong hover:bg-surface-2">
@@ -84,7 +85,7 @@ function SnoozeDialog({ obligation, onClose, onSnooze }: { obligation: Obligatio
       <div className="mt-4 flex items-center gap-2">
         <Input type="date" min={addDuration(today, { amount: 1, unit: 'day' })} value={custom} onChange={(e) => setCustom(e.target.value)} />
         <Button variant="primary" onClick={() => onSnooze(custom)}>
-          Snooze
+          {t('Snooze')}
         </Button>
       </div>
     </Dialog>
@@ -171,8 +172,8 @@ export function ObligationList({
                   {!showAsset && <DateKindBadge kind={o.dateKind} />}
                   <CheckBadge check={o.check} />
                   {o.renewalRequest && (
-                    <Link to="/requests/$requestId" params={{ requestId: o.renewalRequest.id }} className="inline-flex items-center gap-1 hover:opacity-80" title={`Renewal request ${o.renewalRequest.number}`}>
-                      <RequestStatusBadge status={{ label: `${o.renewalRequest.number} · ${o.renewalRequest.label}`, color: o.renewalRequest.color }} />
+                    <Link to="/requests/$requestId" params={{ requestId: o.renewalRequest.id }} className="inline-flex items-center gap-1 hover:opacity-80" title={t('Renewal request {number}', { number: o.renewalRequest.number })}>
+                      <RequestStatusBadge status={{ label: `${o.renewalRequest.number} · ${tMaybe(o.renewalRequest.label)}`, color: o.renewalRequest.color }} />
                     </Link>
                   )}
                 </div>
@@ -184,7 +185,7 @@ export function ObligationList({
               )}
               {active && o.check?.status === 'asked' && o.ownerId === me?.userId && (
                 <Button size="sm" variant="primary" icon={<CircleHelp className="size-3.5" />} onClick={() => setAnswer(o)}>
-                  Still needed?
+                  {t('Still needed?')}
                 </Button>
               )}
               {editable && active && (
@@ -196,36 +197,36 @@ export function ObligationList({
                   disabled={actions.pending}
                   onClick={() => actions.primary(o)}
                 >
-                  {o.dateKind.actionLabel}
+                  {tMaybe(o.dateKind.actionLabel)}
                 </Button>
               )}
               {editable && (
-                <Menu trigger={<Button size="icon" variant="ghost" aria-label="More actions" icon={<MoreHorizontal className="size-4" />} />}>
+                <Menu trigger={<Button size="icon" variant="ghost" aria-label={t('More actions')} icon={<MoreHorizontal className="size-4" />} />}>
                   {active ? (
                     <>
                       <MenuItem icon={<MessageCircleQuestion />} onSelect={() => setAsking(o)}>
-                        {o.check?.status === 'asked' ? 'Ask the owner again…' : 'Ask the owner if still needed…'}
+                        {o.check?.status === 'asked' ? t('Ask the owner again…') : t('Ask the owner if still needed…')}
                       </MenuItem>
                       <MenuItem icon={<CircleHelp />} onSelect={() => setAnswer(o)}>
-                        {o.check && o.check.status !== 'asked' ? 'Change the answer…' : 'Answer for the owner…'}
+                        {o.check && o.check.status !== 'asked' ? t('Change the answer…') : t('Answer for the owner…')}
                       </MenuItem>
                       {!o.renewalRequest && (
                         <MenuItem icon={<ShoppingCart />} onSelect={() => actions.requestRenewal(o)}>
-                          Open a renewal request
+                          {t('Open a renewal request')}
                         </MenuItem>
                       )}
                       <MenuSeparator />
                       <MenuItem icon={<AlarmClock />} onSelect={() => setSnoozing(o)}>
-                        Snooze…
+                        {t('Snooze…')}
                       </MenuItem>
                       <MenuSeparator />
                       <MenuItem icon={<XCircle />} onSelect={() => actions.dismiss(o)}>
-                        Dismiss reminders
+                        {t('Dismiss reminders')}
                       </MenuItem>
                     </>
                   ) : (
                     <MenuItem icon={<RotateCcw />} onSelect={() => actions.reopen(o)}>
-                      Reopen
+                      {t('Reopen')}
                     </MenuItem>
                   )}
                 </Menu>

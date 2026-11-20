@@ -22,7 +22,7 @@ import { useMediaQuery } from '@/lib/hooks';
 import { EmptyState } from './ui/display';
 import { Checkbox, Field, Input, Select } from './ui/form';
 import { Dialog, Popover } from './ui/overlay';
-import { intlLocale } from '@/lib/i18n';
+import { plural, t, tMaybe } from '@/lib/i18n';
 
 const PAGE = 50;
 /** Above this, act on a narrower search instead (and the export covers any size). */
@@ -69,13 +69,13 @@ function allColumnsFor(type: AssetType | undefined, variant: TypeVariant | undef
   return [
     {
       id: 'name',
-      header: 'Name',
+      header: t('Name'),
       meta: { sortKey: 'name', csvValue: (a: Asset) => `${a.name} (${a.reference})` },
       cell: ({ row }) => {
-        const t = lookups.typeById.get(row.original.assetTypeId);
+        const ty = lookups.typeById.get(row.original.assetTypeId);
         return (
           <span className="flex min-w-0 items-start gap-2.5">
-            {!type && t && <TypeIcon icon={t.icon} color={t.color} size={22} />}
+            {!type && ty && <TypeIcon icon={ty.icon} color={ty.color} size={22} />}
             <span className="min-w-0">
               <span className="flex max-w-56 items-baseline gap-1.5 xl:max-w-80">
                 <span className="truncate font-medium">{row.original.name}</span>
@@ -89,7 +89,7 @@ function allColumnsFor(type: AssetType | undefined, variant: TypeVariant | undef
     },
     ...(type
       ? []
-      : [{ id: 'type', header: 'Type', meta: { sortKey: 'type', csvValue: (a: Asset) => lookups.schemaOf(a.assetTypeId, a.variantId)?.name }, cell: ({ row }: { row: { original: Asset } }) => {
+      : [{ id: 'type', header: t('Type'), meta: { sortKey: 'type', csvValue: (a: Asset) => lookups.schemaOf(a.assetTypeId, a.variantId)?.name }, cell: ({ row }: { row: { original: Asset } }) => {
             const name = lookups.schemaOf(row.original.assetTypeId, row.original.variantId)?.name;
             return (
               <span className="block max-w-32 truncate text-muted xl:max-w-none" title={name}>
@@ -100,13 +100,13 @@ function allColumnsFor(type: AssetType | undefined, variant: TypeVariant | undef
         },
       ]),
     ...(type && !variant && lookups.variants.some((v) => v.assetTypeId === type.id)
-      ? [{ id: 'kind', header: 'Kind', cell: ({ row }: { row: { original: Asset } }) => <span className="text-muted">{row.original.variantId ? lookups.variantById.get(row.original.variantId)?.name : 'Standard'}</span> }]
+      ? [{ id: 'kind', header: t('Kind'), cell: ({ row }: { row: { original: Asset } }) => <span className="text-muted">{row.original.variantId ? lookups.variantById.get(row.original.variantId)?.name : t('Standard')}</span> }]
       : []),
-    { id: 'status', header: 'Status', meta: { sortKey: 'status', csvValue: (a: Asset) => lookups.typeById.get(a.assetTypeId)?.statuses.find((x) => x.value === a.status)?.label ?? a.status }, cell: ({ row }) => <StatusBadge type={lookups.typeById.get(row.original.assetTypeId)} status={row.original.status} /> },
+    { id: 'status', header: t('Status'), meta: { sortKey: 'status', csvValue: (a: Asset) => tMaybe(lookups.typeById.get(a.assetTypeId)?.statuses.find((x) => x.value === a.status)?.label) || a.status }, cell: ({ row }) => <StatusBadge type={lookups.typeById.get(row.original.assetTypeId)} status={row.original.status} /> },
     ...fieldCols,
-    { id: 'unit', header: 'Team', meta: { sortKey: 'unit', csvValue: (a: Asset) => (lookups.unitById.get(a.unitId)?.path ?? []).map((id) => lookups.unitById.get(id)?.name).join(' > ') }, cell: ({ row }) => <UnitPath id={row.original.unitId} className="max-w-40 xl:max-w-56" /> },
-    { id: 'owner', header: 'Owner', meta: { sortKey: 'owner' }, cell: ({ row }) => <PersonName id={row.original.ownerId} /> },
-    { id: 'updated', header: 'Updated', meta: { sortKey: 'updatedAt', csvValue: (a: Asset) => a.updatedAt }, cell: ({ row }) => <span className="text-muted">{formatDateTime(row.original.updatedAt)}</span> },
+    { id: 'unit', header: t('Team'), meta: { sortKey: 'unit', csvValue: (a: Asset) => (lookups.unitById.get(a.unitId)?.path ?? []).map((id) => lookups.unitById.get(id)?.name).join(' > ') }, cell: ({ row }) => <UnitPath id={row.original.unitId} className="max-w-40 xl:max-w-56" /> },
+    { id: 'owner', header: t('Owner'), meta: { sortKey: 'owner' }, cell: ({ row }) => <PersonName id={row.original.ownerId} /> },
+    { id: 'updated', header: t('Updated'), meta: { sortKey: 'updatedAt', csvValue: (a: Asset) => a.updatedAt }, cell: ({ row }) => <span className="text-muted">{formatDateTime(row.original.updatedAt)}</span> },
   ];
 }
 
@@ -258,10 +258,10 @@ export function AssetExplorer({
     onSuccess: (v) => {
       void qc.invalidateQueries({ queryKey: keys.views });
       setSaving(false);
-      toast.success(`Saved “${v.name}”`, { description: 'Find it in the sidebar under Saved views.' });
+      toast.success(t('Saved “{name}”', { name: v.name }), { description: t('Find it in the sidebar under Saved views.') });
       if (!view || v.id !== view.id) void navigate({ to: '/views/$viewId', params: { viewId: v.id } });
     },
-    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Could not save the view'),
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : t('Could not save the view')),
   });
 
   const error = assets.error instanceof ApiError ? assets.error.message : null;
@@ -276,7 +276,7 @@ export function AssetExplorer({
       }
       setPicked(all);
     } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : 'Could not select everything');
+      toast.error(e instanceof ApiError ? e.message : t('Could not select everything'));
     } finally {
       setSelectingAll(false);
     }
@@ -300,9 +300,9 @@ export function AssetExplorer({
       <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 sm:px-6 py-3">
         <div className="relative w-full max-w-md min-w-72 flex-1">
           <Search className="pointer-events-none absolute top-1/2 start-2.5 size-3.5 -translate-y-1/2 text-subtle" />
-          <Input className="h-9 ps-8 text-[14px]" placeholder="Search name, vendor, serial…" title="Searches every field: name, vendor, serial, person, team…" value={query.q} onChange={(e) => update({ q: e.target.value, sort: undefined })} />
+          <Input className="h-9 ps-8 text-[14px]" placeholder={t('Search name, vendor, serial…')} title={t('Searches every field: name, vendor, serial, person, team…')} value={query.q} onChange={(e) => update({ q: e.target.value, sort: undefined })} />
           {query.q && (
-            <button type="button" aria-label="Clear search" className="absolute top-1/2 end-2 -translate-y-1/2 text-subtle hover:text-fg" onClick={() => update({ q: '' })}>
+            <button type="button" aria-label={t('Clear search')} className="absolute top-1/2 end-2 -translate-y-1/2 text-subtle hover:text-fg" onClick={() => update({ q: '' })}>
               <X className="size-3.5" />
             </button>
           )}
@@ -314,13 +314,13 @@ export function AssetExplorer({
         )}
         {!fixed.unitId && (
           <div className="w-60">
-            <UnitPicker allowClear clearLabel="All teams" value={query.unitId ?? null} onChange={(v) => update({ unitId: v ?? undefined })} />
+            <UnitPicker allowClear clearLabel={t('All teams')} value={query.unitId ?? null} onChange={(v) => update({ unitId: v ?? undefined })} />
           </div>
         )}
-        {query.unitId && <Checkbox checked={query.includeSubunits} onChange={(includeSubunits) => update({ includeSubunits })} label={<span className="text-xs text-muted">Include sub-teams</span>} />}
+        {query.unitId && <Checkbox checked={query.includeSubunits} onChange={(includeSubunits) => update({ includeSubunits })} label={<span className="text-xs text-muted">{t('Include sub-teams')}</span>} />}
         {typeVariants.length > 0 && (
-          <Select className="w-44" value={query.variantId ?? ''} onChange={(e) => update({ variantId: e.target.value || undefined, filters: query.filters.filter((f) => !f.field.startsWith('attributes.') || type!.fields.some((x) => `attributes.${x.key}` === f.field)) })} aria-label="Kind">
-            <option value="">Every kind</option>
+          <Select className="w-44" value={query.variantId ?? ''} onChange={(e) => update({ variantId: e.target.value || undefined, filters: query.filters.filter((f) => !f.field.startsWith('attributes.') || type!.fields.some((x) => `attributes.${x.key}` === f.field)) })}  aria-label={t('Kind')}>
+            <option value="">{t('Every kind')}</option>
             {typeVariants.map((v) => (
               <option key={v.id} value={v.id}>
                 {v.name}
@@ -330,27 +330,27 @@ export function AssetExplorer({
         )}
         {type && (
           <Select className="w-36" value={query.status ?? ''} onChange={(e) => update({ status: e.target.value || undefined })}>
-            <option value="">Any status</option>
+            <option value="">{t('Any status')}</option>
             {type.statuses.map((s) => (
               <option key={s.value} value={s.value}>
-                {s.label}
+                {tMaybe(s.label)}
               </option>
             ))}
           </Select>
         )}
         <FilterBar type={type && variant ? { ...type, fields: [...type.fields, ...variant.fields] } : type} value={query.filters} onChange={(filters) => update({ filters })} />
         <span className="ms-auto flex flex-wrap items-center justify-end gap-2">
-          <span className="text-xs text-subtle">{assets.data ? `${assets.data.total.toLocaleString(intlLocale())} ${assets.data.total === 1 ? 'result' : 'results'}` : ''}</span>
+          <span className="text-xs text-subtle">{assets.data ? plural(assets.data.total, '{n} result', '{n} results') : ''}</span>
           <ColumnsMenu all={layout.all} shown={columns.map((c) => c.id!)} defaults={layout.defaults} onChange={setColumns} />
           <ExportButton disabled={!assets.data?.total} onExport={() => downloadUrl(withQuery('/api/registry/assets/export.csv', { ...listQuery, title: exportTitle }))} />
           {(hasQuery || view) && (view ? dirty : true) && (
             <Button icon={<Bookmark className="size-3.5" />} onClick={() => (view ? saveView.mutate(false) : (setName(''), setSaving(true)))} loading={saveView.isPending}>
-              {view ? 'Save changes' : 'Save view'}
+              {view ? t('Save changes') : t('Save view')}
             </Button>
           )}
           {view && (
-            <Button variant="ghost" onClick={() => (setName(`${view.name} (copy)`), setSaving(true))}>
-              Save as new
+            <Button variant="ghost" onClick={() => (setName(t('{name} (copy)', { name: view.name })), setSaving(true))}>
+              {t('Save as new')}
             </Button>
           )}
         </span>
@@ -368,9 +368,9 @@ export function AssetExplorer({
         page={assets.data ? { offset, limit: PAGE, total: assets.data.total, onChange: setOffset } : undefined}
         empty={
           hasQuery ? (
-            <EmptyState icon={<Search />} title="Nothing matches" description="Try fewer words, a different spelling, or remove a filter." action={<Button onClick={() => update({ q: '', filters: [], status: undefined })}>Clear search</Button>} />
+            <EmptyState icon={<Search />} title={t('Nothing matches')} description={t('Try fewer words, a different spelling, or remove a filter.')} action={<Button onClick={() => update({ q: '', filters: [], status: undefined })}>{t('Clear search')}</Button>} />
           ) : (
-            (empty ?? <EmptyState icon={<Shapes />} title="No assets yet" />)
+            (empty ?? <EmptyState icon={<Shapes />} title={t('No assets yet')} />)
           )
         }
       />
@@ -382,12 +382,12 @@ export function AssetExplorer({
         extra={
           assets.data && assets.data.total > picked.size && pageItems.every((a) => picked.has(a.id)) && assets.data.total <= SELECT_ALL_MAX ? (
             <Button size="sm" variant="ghost" loading={selectingAll} onClick={() => void selectAll()}>
-              Select all {assets.data.total.toLocaleString(intlLocale())}
+              {plural(assets.data.total, 'Select all {n}', 'Select all {n}')}
             </Button>
           ) : null
         } onExport={() =>
             exportRows(
-              `${exportTitle} (selected)`,
+              t('{title} (selected)', { title: exportTitle }),
               // People are stored by id: export their names.
               columns.map((c) => (c.id === 'owner' ? { ...c, meta: { ...c.meta, csvValue: (a: Asset) => a.ownerId } } : c)).map((c) => (c.meta?.csvValue ? { ...c, meta: { ...c.meta, csvValue: (a: Asset) => { const v = c.meta!.csvValue!(a); return typeof v === 'string' && people.has(v) ? people.get(v)!.displayName : v; } } } : c)),
               [...picked.values()],
@@ -396,18 +396,18 @@ export function AssetExplorer({
       <Dialog
         open={saving}
         onOpenChange={setSaving}
-        title="Save this view"
-        description="Keeps the search, filters and sorting so you can come back with one click."
+        title={t('Save this view')}
+        description={t('Keeps the search, filters and sorting so you can come back with one click.')}
         footer={
           <>
-            <Button onClick={() => setSaving(false)}>Cancel</Button>
+            <Button onClick={() => setSaving(false)}>{t('Cancel')}</Button>
             <Button variant="primary" disabled={!name.trim()} loading={saveView.isPending} onClick={() => saveView.mutate(true)}>
-              Save view
+              {t('Save view')}
             </Button>
           </>
         }
       >
-        <Field label="Name">{(id) => <Input id={id} autoFocus value={name} placeholder="e.g. R&D licenses renewing this quarter" onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && name.trim() && saveView.mutate(true)} />}</Field>
+        <Field label={t('Name')}>{(id) => <Input id={id} autoFocus value={name} placeholder={t('e.g. R&D licenses renewing this quarter')} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && name.trim() && saveView.mutate(true)} />}</Field>
       </Dialog>
     </>
   );
@@ -430,11 +430,11 @@ function ColumnsMenu({ all, shown, defaults, onChange }: { all: Array<DataColumn
       className="max-h-[var(--radix-popover-content-available-height)] w-64 overflow-y-auto p-2"
       trigger={
         <Button variant="ghost" icon={<Columns3 className="size-3.5" />}>
-          Columns
+          {t('Columns')}
         </Button>
       }
     >
-      <p className="px-1 pb-1.5 text-[11px] font-semibold tracking-wide text-subtle uppercase">Shown</p>
+      <p className="px-1 pb-1.5 text-[11px] font-semibold tracking-wide text-subtle uppercase">{t('Shown')}</p>
       <ul>
         {shown.map((id, i) => {
           const c = all.find((x) => x.id === id);
@@ -446,8 +446,8 @@ function ColumnsMenu({ all, shown, defaults, onChange }: { all: Array<DataColumn
               </span>
               {id !== 'name' && (
                 <>
-                  <Button size="icon" variant="ghost" className="size-6" aria-label={`Move ${label(c)} left`} disabled={i <= 1} icon={<ArrowUp className="size-3" />} onClick={() => move(id, -1)} />
-                  <Button size="icon" variant="ghost" className="size-6" aria-label={`Move ${label(c)} right`} disabled={i === shown.length - 1} icon={<ArrowDown className="size-3" />} onClick={() => move(id, 1)} />
+                  <Button size="icon" variant="ghost" className="size-6" aria-label={t('Move {column} left', { column: label(c) })} disabled={i <= 1} icon={<ArrowUp className="size-3" />} onClick={() => move(id, -1)} />
+                  <Button size="icon" variant="ghost" className="size-6" aria-label={t('Move {column} right', { column: label(c) })} disabled={i === shown.length - 1} icon={<ArrowDown className="size-3" />} onClick={() => move(id, 1)} />
                 </>
               )}
             </li>
@@ -456,7 +456,7 @@ function ColumnsMenu({ all, shown, defaults, onChange }: { all: Array<DataColumn
       </ul>
       {all.some((c) => !shown.includes(c.id!)) && (
         <>
-          <p className="px-1 pt-3 pb-1.5 text-[11px] font-semibold tracking-wide text-subtle uppercase">Hidden</p>
+          <p className="px-1 pt-3 pb-1.5 text-[11px] font-semibold tracking-wide text-subtle uppercase">{t('Hidden')}</p>
           <ul>
             {all
               .filter((c) => !shown.includes(c.id!))
@@ -471,7 +471,7 @@ function ColumnsMenu({ all, shown, defaults, onChange }: { all: Array<DataColumn
       {custom && (
         <div className="mt-2 border-t border-border px-1 pt-2">
           <button type="button" className="text-xs text-accent-fg" onClick={() => onChange(undefined)}>
-            Reset to the template’s columns
+            {t('Reset to the template’s columns')}
           </button>
         </div>
       )}

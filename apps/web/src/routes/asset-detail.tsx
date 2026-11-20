@@ -18,7 +18,9 @@ import { Card, EmptyState, PageHeader, SectionTitle, Spinner } from '@/component
 import { ConfirmDialog, Menu, MenuItem } from '@/components/ui/overlay';
 import { api, ApiError } from '@/lib/api';
 import { useActivity, useAsset, useAssetRequest, useCatalog, useInvalidateAssets, useLookups, useMe, useObligations } from '@/lib/queries';
-import { formatDateTime } from '@/lib/utils';
+import { plural, t } from '@/lib/i18n';
+import { tj } from '@/lib/i18n-react';
+import { formatDate, formatDateTime } from '@/lib/utils';
 import type { Obligation, Permission } from '@am/core';
 import { useRemember } from '@/lib/recent';
 
@@ -39,11 +41,11 @@ export function AssetDetailPage() {
   const remove = useMutation({
     mutationFn: () => api.delete(`/api/registry/assets/${assetId}`),
     onSuccess: () => {
-      toast.success('Asset deleted');
+      toast.success(t('Asset deleted'));
       invalidate();
       void navigate({ to: '/assets', search: { type: asset.data?.assetTypeId } });
     },
-    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Delete failed'),
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : t('Delete failed')),
   });
 
   if (asset.isLoading || !lookups.ready) {
@@ -53,7 +55,7 @@ export function AssetDetailPage() {
       </div>
     );
   }
-  if (!asset.data || !type || !schema) return <EmptyState title="Asset not found" description="It may have been deleted, or you may not have access." action={<Link to="/assets" className="text-accent-fg">Back to assets</Link>} />;
+  if (!asset.data || !type || !schema) return <EmptyState title={t('Asset not found')} description={t('It may have been deleted, or you may not have access.')} action={<Link to="/assets" className="text-accent-fg">{t('Back to assets')}</Link>} />;
 
   const a = asset.data;
   const can = (perm: Permission) => a.permissions.includes(perm);
@@ -66,7 +68,7 @@ export function AssetDetailPage() {
         title={a.name}
         description={
           <span className="flex flex-wrap items-center gap-2">
-            <span className="font-mono text-xs text-subtle" title="Item ID">
+            <span className="font-mono text-xs text-subtle" title={t('Item ID')}>
               {a.reference}
             </span>
             <Link to="/assets" search={{ type: type.id }} className="inline-flex items-center gap-1 hover:text-fg">
@@ -85,12 +87,12 @@ export function AssetDetailPage() {
           canEdit && (
             <>
               <Button icon={<Pencil className="size-3.5" />} onClick={() => setEditing(true)}>
-                Edit
+                {t('Edit')}
               </Button>
               {can('delete') && (
-                <Menu trigger={<Button size="icon" aria-label="More" icon={<MoreHorizontal className="size-4" />} />}>
+                <Menu trigger={<Button size="icon" aria-label={t('More')} icon={<MoreHorizontal className="size-4" />} />}>
                   <MenuItem danger icon={<Trash2 />} onSelect={() => setDeleting(true)}>
-                    Delete asset
+                    {t('Delete asset')}
                   </MenuItem>
                 </Menu>
               )}
@@ -115,9 +117,9 @@ export function AssetDetailPage() {
         open={deleting}
         onOpenChange={setDeleting}
         danger
-        title={`Delete ${a.name}?`}
-        description="The asset, its documents and its reminders are removed permanently. Activity history is kept."
-        confirmLabel="Delete"
+        title={t('Delete {name}?', { name: a.name })}
+        description={t('The asset, its documents and its reminders are removed permanently. Activity history is kept.')}
+        confirmLabel={t('Delete')}
         loading={remove.isPending}
         onConfirm={() => remove.mutate()}
       />
@@ -133,14 +135,14 @@ function Details({ assetId, type, attributes, ownerId, canSeeRestricted, canEdit
   });
   const saveValue = (patch: { attributes?: Record<string, unknown>; ownerId?: string | null }) =>
     save.mutateAsync(patch).catch((e) => {
-      toast.error(e instanceof ApiError ? e.message : 'Could not save');
+      toast.error(e instanceof ApiError ? e.message : t('Could not save'));
       throw e;
     });
   const sections = useMemo(() => {
     const out: Array<[string, FieldDefinition[]]> = [];
     for (const f of type.fields) {
       if (isRestricted(f) && !canSeeRestricted) continue;
-      const key = f.section ?? 'Details';
+      const key = f.section ?? '';
       const group = out.find(([k]) => k === key);
       if (group) group[1].push(f);
       else out.push([key, [f]]);
@@ -151,32 +153,32 @@ function Details({ assetId, type, attributes, ownerId, canSeeRestricted, canEdit
   return (
     <Card padded={false}>
       <div className="grid grid-cols-[140px_minmax(0,1fr)] gap-x-6 gap-y-3 border-b border-border px-5 py-4 text-[13px]">
-        <span className="text-muted">Owner</span>
+        <span className="text-muted">{t('Owner')}</span>
         {canEdit ? (
           <InlineEdit
-            label="Owner"
-            display={<PersonName id={ownerId} fallback="Unassigned" />}
+            label={t('Owner')}
+            display={<PersonName id={ownerId} fallback={t('Unassigned')} />}
             editor={(close) => (
               <PersonPicker
                 value={ownerId}
-                placeholder="Unassigned"
+                placeholder={t('Unassigned')}
                 onChange={(id) => void saveValue({ ownerId: id }).then(close, () => undefined)}
               />
             )}
           />
         ) : (
-          <PersonName id={ownerId} fallback="Unassigned" />
+          <PersonName id={ownerId} fallback={t('Unassigned')} />
         )}
       </div>
       {sections.map(([section, fields]) => (
         <div key={section} className="border-b border-border px-5 py-4 last:border-0">
-          <h3 className="mb-3 text-xs font-semibold tracking-wide text-subtle uppercase">{section}</h3>
+          <h3 className="mb-3 text-xs font-semibold tracking-wide text-subtle uppercase">{section || t('Details')}</h3>
           <dl className="grid grid-cols-[140px_minmax(0,1fr)] gap-x-6 gap-y-3 text-[13px]">
             {fields.map((f) => (
               <div key={f.key} className="contents">
                 <dt className="flex items-center gap-1 text-muted">
                   {f.label}
-                  {f.kind === 'date' && f.config.tracking?.derive && <Sparkles className="size-3 text-accent" aria-label="Calculated" />}
+                  {f.kind === 'date' && f.config.tracking?.derive && <Sparkles className="size-3 text-accent" aria-label={t('Calculated')} />}
                 </dt>
                 <dd className="min-w-0">
                   {canEdit && !(f.kind === 'date' && f.config.tracking?.derive) ? (
@@ -208,10 +210,10 @@ function CatalogLink({ catalogId }: { catalogId: string | null }) {
   if (!catalogId || !catalog.data) return null;
   const c = catalog.data;
   return (
-    <Link to="/catalogs/$catalogId" params={{ catalogId: c.id }} className="inline-flex items-center gap-1 hover:text-fg" title={c.shares.length ? `Shared with ${c.shares.length} ${c.shares.length === 1 ? 'unit or person' : 'units or people'}` : undefined}>
+    <Link to="/catalogs/$catalogId" params={{ catalogId: c.id }} className="inline-flex items-center gap-1 hover:text-fg" title={c.shares.length ? plural(c.shares.length, 'Shared with {n} unit or person', 'Shared with {n} units or people') : undefined}>
       <FolderOpen className="size-3" />
       {c.name}
-      {c.shares.length > 0 && <span className="text-subtle">· shared</span>}
+      {c.shares.length > 0 && <span className="text-subtle">· {t('shared')}</span>}
     </Link>
   );
 }
@@ -235,21 +237,21 @@ function KeyDates({ assetId, canEdit }: { assetId: string; canEdit: boolean }) {
     <Card padded={false}>
       <div className="flex items-center gap-2 border-b border-border px-4 py-2.5">
         <CalendarClock className="size-4 text-muted" />
-        <h2 className="text-[13px] font-semibold">Key dates</h2>
+        <h2 className="text-[13px] font-semibold">{t('Key dates')}</h2>
       </div>
       {active.data?.items.length ? (
         <ObligationList items={active.data.items} showAsset={false} canEdit={() => canEdit} answering={answering} onAnsweringChange={closeAnswer} />
       ) : (
-        <p className="px-4 py-6 text-center text-xs text-muted">{active.isLoading ? 'Loading…' : 'No upcoming tracked dates.'}</p>
+        <p className="px-4 py-6 text-center text-xs text-muted">{active.isLoading ? t('Loading…') : t('No upcoming tracked dates.')}</p>
       )}
       {!!history.data?.items.length && (
         <div className="border-t border-border px-4 py-3">
-          <p className="mb-2 text-xs font-medium text-subtle">Completed</p>
+          <p className="mb-2 text-xs font-medium text-subtle">{t('Completed')}</p>
           <ul className="space-y-1.5 text-xs text-muted">
             {history.data.items.map((o) => (
               <li key={o.id} className="flex justify-between gap-2">
                 <span className="truncate">
-                  {o.label} · {o.dueDate}
+                  {o.label} · {formatDate(o.dueDate)}
                 </span>
                 <span>{o.resolvedAt ? formatDateTime(o.resolvedAt) : ''}</span>
               </li>
@@ -269,9 +271,9 @@ function OriginRequest({ assetId }: { assetId: string }) {
     <Link to="/requests/$requestId" params={{ requestId: r.data.id }} className="block">
       <Card className="flex items-center gap-3 transition-colors hover:border-border-strong">
         <div className="min-w-0 flex-1">
-          <p className="text-xs text-muted">Bought for request {r.data.number}</p>
+          <p className="text-xs text-muted">{t('Bought for request {number}', { number: r.data.number })}</p>
           <p className="truncate text-[13px] font-medium">{r.data.title}</p>
-          <p className="text-xs text-subtle">Requested by {r.data.requesterName}</p>
+          <p className="text-xs text-subtle">{t('Requested by {name}', { name: r.data.requesterName })}</p>
         </div>
         <RequestStatusBadge status={r.data.statusInfo} />
       </Card>
@@ -279,29 +281,30 @@ function OriginRequest({ assetId }: { assetId: string }) {
   );
 }
 
-const actionLabels: Record<ActivityEntry['action'], string> = { created: 'created this asset', updated: 'updated', deleted: 'deleted', advanced: 'rolled a date forward' };
+/** Whole sentences, so the actor can sit wherever the language puts them. */
+const actionSentences: Record<ActivityEntry['action'], string> = { created: '{actor} created this asset', updated: '{actor} updated', deleted: '{actor} deleted', advanced: '{actor} rolled a date forward' };
 
 function Activity({ assetId, type }: { assetId: string; type: AssetType }) {
   const activity = useActivity(assetId);
   const label = (key: string) => {
     if (key.startsWith('attributes.')) return type.fields.find((f) => f.key === key.slice(11))?.label ?? key.slice(11);
-    return { name: 'Name', status: 'Status', ownerId: 'Owner', unitId: 'Team', catalogId: 'Catalog', variantId: 'Kind', reminderOverrides: 'Reminders', request: 'Request' }[key] ?? key;
+    return { name: t('Name'), status: t('Status'), ownerId: t('Owner'), unitId: t('Team'), catalogId: t('Catalog'), variantId: t('Kind'), reminderOverrides: t('Reminders'), request: t('Request') }[key] ?? key;
   };
   return (
     <Card>
-      <SectionTitle aside={<History className="size-4 text-subtle" />}>Activity</SectionTitle>
+      <SectionTitle aside={<History className="size-4 text-subtle" />}>{t('Activity')}</SectionTitle>
       <ol className="relative space-y-4 border-s border-border ps-4">
         {(activity.data ?? []).map((e) => (
           <li key={e.id} className="text-[13px]">
             <span className="absolute -start-[4.5px] mt-1.5 size-2 rounded-full border-2 border-surface bg-border-strong" />
             <p>
-              <span className="font-medium">{e.actorName}</span> <span className="text-muted">{actionLabels[e.action]}</span>
+              <span className="text-muted">{tj(actionSentences[e.action], { actor: <span className="font-medium text-fg">{e.actorName}</span> })}</span>
             </p>
             {e.action !== 'created' && (
               <p className="mt-0.5 text-xs text-subtle">
                 {Object.keys(e.changes)
                   .map(label)
-                  .join(', ')}
+                  .join(t(', '))}
               </p>
             )}
             <p className="mt-0.5 text-xs text-subtle">{formatDateTime(e.at)}</p>
@@ -357,8 +360,8 @@ function InlineEdit({
         type="button"
         onClick={() => (setValue(initial), setEditing(true))}
         className="group/edit -mx-1.5 -my-1 flex w-[calc(100%+0.75rem)] min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-start transition-colors hover:bg-surface-2"
-        title={`Edit ${label}`}
-        aria-label={`Edit ${label}`}
+        title={t('Edit {label}', { label })}
+        aria-label={t('Edit {label}', { label })}
       >
         <span className="min-w-0 flex-1">{display}</span>
         <Pencil className="size-3 shrink-0 text-subtle opacity-0 transition-opacity group-hover/edit:opacity-100 group-focus-visible/edit:opacity-100 touch:opacity-60" />
@@ -383,12 +386,12 @@ function InlineEdit({
       {onSave && (
         <div className="flex items-center gap-1.5">
           <Button size="xs" variant="primary" loading={saving} onClick={() => void commit()}>
-            Save
+            {t('Save')}
           </Button>
           <Button size="xs" variant="ghost" onClick={close}>
-            Cancel
+            {t('Cancel')}
           </Button>
-          <span className="text-[11px] text-subtle max-sm:hidden">Enter to save · Esc to cancel</span>
+          <span className="text-[11px] text-subtle max-sm:hidden">{t('Enter to save · Esc to cancel')}</span>
         </div>
       )}
     </div>

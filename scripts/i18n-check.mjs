@@ -54,7 +54,8 @@ for (const f of files(src)) {
   }
 }
 
-const holes = (s) => [...s.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort().join(',');
+// {n} may be dropped in a translation ("one result" is "תוצאה אחת" in Hebrew); other placeholders must match.
+const holes = (s) => [...new Set([...s.matchAll(/\{(\w+)\}/g)].map((m) => m[1]))].filter((h) => h !== 'n').sort().join(',');
 const missing = [...used].filter(([k]) => !(k in dict));
 const badHoles = [...used].filter(([k]) => k in dict && holes(k) !== holes(dict[k]));
 const unused = Object.keys(dict).filter((k) => !used.has(k));

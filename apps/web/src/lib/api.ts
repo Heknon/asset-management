@@ -1,4 +1,5 @@
 import type { ErrorBody } from '@am/core';
+import { t, tMaybe } from './i18n';
 
 export class ApiError extends Error {
   constructor(
@@ -49,7 +50,7 @@ export async function request<T>(method: string, path: string, body?: unknown, r
     });
   } catch {
     // Offline, DNS, refused connection.
-    throw new ApiError(0, 'unreachable', 'Can’t reach the server');
+    throw new ApiError(0, 'unreachable', t('Can’t reach the server'));
   }
   if (res.status === 401 && retry && !path.startsWith('/api/identity/auth/')) {
     if (await refreshSession()) return request<T>(method, path, body, false);
@@ -62,11 +63,11 @@ export async function request<T>(method: string, path: string, body?: unknown, r
     data = text ? JSON.parse(text) : undefined;
   } catch {
     // Not one of our services answering (a proxy page, a static host with no API, a gateway error).
-    throw new ApiError(res.status, 'unreachable', 'Can’t reach the server');
+    throw new ApiError(res.status, 'unreachable', t('Can’t reach the server'));
   }
   if (!res.ok) {
     const e = (data as ErrorBody | undefined)?.error;
-    throw new ApiError(res.status, e?.code ?? 'error', e?.message ?? res.statusText, e?.details);
+    throw new ApiError(res.status, e?.code ?? 'error', e?.message ? tMaybe(e.message) : res.statusText, e?.details);
   }
   return data as T;
 }

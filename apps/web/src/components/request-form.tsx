@@ -4,6 +4,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { createContext, useContext, useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { api, ApiError } from '@/lib/api';
+import { t, tMaybe } from '@/lib/i18n';
 import { useMyOrg } from '@/lib/org';
 import { keys, useAssetTypes } from '@/lib/queries';
 import { AssetTypeSelect, UnitPicker } from './pickers';
@@ -77,15 +78,15 @@ export function RequestFormSheet({ open, onOpenChange, request }: { open: boolea
     onSuccess: (r) => {
       void qc.invalidateQueries({ queryKey: keys.requests });
       onOpenChange(false);
-      toast.success(request ? 'Request updated' : `Request ${r.number} sent`, { description: request ? undefined : 'You’ll get an email as it moves along.' });
+      toast.success(request ? t('Request updated') : t('Request {number} sent', { number: r.number }), { description: request ? undefined : t('You’ll get an email as it moves along.') });
       if (!request) void navigate({ to: '/requests/$requestId', params: { requestId: r.id } });
     },
     onError: (e) => {
       if (e instanceof ApiError) {
         const issues = (e.details?.issues as Array<{ path: string; message: string }>) ?? [];
-        setErrors(Object.fromEntries(issues.map((i) => [i.path.split('.')[0]!, i.message])));
+        setErrors(Object.fromEntries(issues.map((i) => [i.path.split('.')[0]!, tMaybe(i.message)])));
         toast.error(e.message);
-      } else toast.error('Could not send the request');
+      } else toast.error(t('Could not send the request'));
     },
   });
 
@@ -99,23 +100,23 @@ export function RequestFormSheet({ open, onOpenChange, request }: { open: boolea
     <Sheet
       open={open}
       onOpenChange={onOpenChange}
-      title={request ? `Edit ${request.number}` : 'Request something'}
-      description={request ? undefined : 'Tell us what you need. Procurement takes it from here and keeps you posted.'}
+      title={request ? t('Edit {number}', { number: request.number }) : t('Request something')}
+      description={request ? undefined : t('Tell us what you need. Procurement takes it from here and keeps you posted.')}
       footer={
         <>
-          <Button onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button onClick={() => onOpenChange(false)}>{t('Cancel')}</Button>
           <Button variant="primary" type="submit" form="request-form" loading={save.isPending} disabled={d.title.trim().length < 3 || !d.unitId}>
-            {request ? 'Save' : 'Send request'}
+            {request ? t('Save') : t('Send request')}
           </Button>
         </>
       }
     >
       <form id="request-form" onSubmit={submit} className="space-y-5">
-        <Field label="What do you need?" required error={errors.title} hint="e.g. “10 Miro seats”, “Laptop for a new hire”, “Renew our Datadog contract”">
+        <Field label={t('What do you need?')} required error={errors.title} hint={t('e.g. “10 Miro seats”, “Laptop for a new hire”, “Renew our Datadog contract”')}>
           {(id) => <Input id={id} autoFocus className="h-9 text-[14px]" value={d.title} maxLength={200} onChange={(e) => setD({ ...d, title: e.target.value })} />}
         </Field>
 
-        <Field label="Who is it for?" required error={errors.unitId} hint="Your team, or a unit above it if it’s shared (department, division, the whole company).">
+        <Field label={t('Who is it for?')} required error={errors.unitId} hint={t('Your team, or a unit above it if it’s shared (department, division, the whole company).')}>
           {(id) => (
             <div className="space-y-2">
               <div className="flex flex-wrap gap-1.5">
@@ -134,52 +135,52 @@ export function RequestFormSheet({ open, onOpenChange, request }: { open: boolea
                   </button>
                 ))}
               </div>
-              <UnitPicker id={id} value={d.unitId} onChange={(unitId) => setD({ ...d, unitId })} suggested={requestTargets} placeholder="Or search for another team" />
+              <UnitPicker id={id} value={d.unitId} onChange={(unitId) => setD({ ...d, unitId })} suggested={requestTargets} placeholder={t('Or search for another team')} />
             </div>
           )}
         </Field>
 
-        <Field label="Why, and any details" error={errors.description} hint="Who will use it, for what, anything Procurement should know.">
+        <Field label={t('Why, and any details')} error={errors.description} hint={t('Who will use it, for what, anything Procurement should know.')}>
           {(id) => <Textarea id={id} rows={4} value={d.description} maxLength={4000} onChange={(e) => setD({ ...d, description: e.target.value })} />}
         </Field>
 
-        <Field label="What kind of thing is it?" hint="Optional — helps route it to the right people.">
+        <Field label={t('What kind of thing is it?')} hint={t('Optional — helps route it to the right people.')}>
           {(id) => (
             <div className="space-y-2">
               <div className="flex flex-wrap gap-1.5">
-                {popular.map((t) => (
+                {popular.map((ty) => (
                   <button
-                    key={t.id}
+                    key={ty.id}
                     type="button"
-                    onClick={() => setD({ ...d, assetTypeId: d.assetTypeId === t.id ? null : t.id })}
-                    className={cn('inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[13px] transition-colors', d.assetTypeId === t.id ? 'border-accent bg-accent-soft' : 'border-border hover:bg-surface-2')}
+                    onClick={() => setD({ ...d, assetTypeId: d.assetTypeId === ty.id ? null : ty.id })}
+                    className={cn('inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[13px] transition-colors', d.assetTypeId === ty.id ? 'border-accent bg-accent-soft' : 'border-border hover:bg-surface-2')}
                   >
-                    <TypeIcon icon={t.icon} color={t.color} size={18} />
-                    {t.name}
+                    <TypeIcon icon={ty.icon} color={ty.color} size={18} />
+                    {ty.name}
                   </button>
                 ))}
               </div>
-              <AssetTypeSelect id={id} includeAll allLabel="Not sure / something else" value={d.assetTypeId} onChange={(assetTypeId) => setD({ ...d, assetTypeId })} />
+              <AssetTypeSelect id={id} includeAll allLabel={t('Not sure / something else')} value={d.assetTypeId} onChange={(assetTypeId) => setD({ ...d, assetTypeId })} />
             </div>
           )}
         </Field>
 
         <div className="grid grid-cols-2 gap-4">
-          <Field label="How many?" error={errors.quantity}>
+          <Field label={t('How many?')} error={errors.quantity}>
             {(id) => <Input id={id} type="number" min={1} value={d.quantity} onChange={(e) => setD({ ...d, quantity: e.target.value })} />}
           </Field>
-          <Field label="Needed by" error={errors.neededBy}>
+          <Field label={t('Needed by')} error={errors.neededBy}>
             {(id) => <Input id={id} type="date" value={d.neededBy} onChange={(e) => setD({ ...d, neededBy: e.target.value })} />}
           </Field>
-          <Field label="Rough budget" error={errors.estimatedCost} hint="If you know it.">
+          <Field label={t('Rough budget')} error={errors.estimatedCost} hint={t('If you know it.')}>
             {(id) => (
               <div className="flex gap-1.5">
                 <Input id={id} type="number" min={0} step="0.01" value={d.amount} onChange={(e) => setD({ ...d, amount: e.target.value })} />
-                <Input aria-label="Currency" className="w-16 uppercase" maxLength={3} value={d.currency} onChange={(e) => setD({ ...d, currency: e.target.value })} />
+                <Input aria-label={t('Currency')} className="w-16 uppercase" maxLength={3} value={d.currency} onChange={(e) => setD({ ...d, currency: e.target.value })} />
               </div>
             )}
           </Field>
-          <Field label="Link" error={errors.link} hint="Product or quote page.">
+          <Field label={t('Link')} error={errors.link} hint={t('Product or quote page.')}>
             {(id) => <Input id={id} type="url" placeholder="https://" value={d.link} onChange={(e) => setD({ ...d, link: e.target.value })} />}
           </Field>
         </div>

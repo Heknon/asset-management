@@ -1,5 +1,6 @@
 import { Check, X } from 'lucide-react';
 import { forwardRef, useId, useState, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react';
+import { t } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 
 const control =
@@ -19,7 +20,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSel
       ref={ref}
       className={cn(
         control,
-        'h-8 cursor-pointer appearance-none touch:h-10 bg-[url("data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20width=%2712%27%20height=%2712%27%20fill=%27none%27%20stroke=%27%238b919c%27%20stroke-width=%272%27%3E%3Cpath%20d=%27M3%204.5l3%203%203-3%27/%3E%3C/svg%3E")] bg-[position:right_8px_center] bg-no-repeat pe-7',
+        'h-8 cursor-pointer appearance-none touch:h-10 bg-[url("data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20width=%2712%27%20height=%2712%27%20fill=%27none%27%20stroke=%27%238b919c%27%20stroke-width=%272%27%3E%3Cpath%20d=%27M3%204.5l3%203%203-3%27/%3E%3C/svg%3E")] bg-[position:right_8px_center] rtl:bg-[position:left_8px_center] bg-no-repeat pe-7',
         className,
       )}
       {...rest}
@@ -115,7 +116,7 @@ export function TagInput({ value, onChange, placeholder, validate, id }: { value
       {value.map((v) => (
         <span key={v} className="inline-flex max-w-full items-center gap-1 rounded-md bg-surface-2 py-0.5 pe-1 ps-2 font-mono text-[11px]">
           <span className="truncate">{v}</span>
-          <button type="button" aria-label={`Remove ${v}`} className="rounded p-0.5 text-subtle hover:bg-surface-3 hover:text-fg" onClick={() => onChange(value.filter((x) => x !== v))}>
+          <button type="button" aria-label={t('Remove {value}', { value: v })} className="rounded p-0.5 text-subtle hover:bg-surface-3 hover:text-fg" onClick={() => onChange(value.filter((x) => x !== v))}>
             <X className="size-3" />
           </button>
         </span>
