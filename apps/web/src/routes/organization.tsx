@@ -12,11 +12,13 @@ import { Dialog, Drawer, Menu, MenuItem } from '@/components/ui/overlay';
 import { useMediaQuery } from '@/lib/hooks';
 import { api, ApiError } from '@/lib/api';
 import { keys, useLookups } from '@/lib/queries';
+import { plural, t, tMaybe } from '@/lib/i18n';
 import { cn, slugKey } from '@/lib/utils';
 
-const LEVELS = ['Company', 'Division', 'Department', 'Team', 'Squad', 'Project', 'Client'];
+// Suggested level names; a unit's level is free text, stored as typed.
+const LEVELS = [t('Company'), t('Division'), t('Department'), t('Team'), t('Squad'), t('Project'), t('Client')];
 
-const memberRoleText = (r: MemberRole) => (r === 'none' ? 'Members get no access from membership alone (use the Access tab).' : `${roles[r].description}.${r === 'viewer' ? ' Recommended.' : ''}`);
+const memberRoleText = (r: MemberRole) => (r === 'none' ? t('Members get no access from membership alone (use the Access tab).') : r === 'viewer' ? t('{description}. Recommended.', { description: tMaybe(roles[r].description) }) : t('{description}.', { description: tMaybe(roles[r].description) }));
 
 /**
  * The org chart: divisions, departments and teams, each linked to directory
@@ -42,13 +44,13 @@ export function OrganizationPage() {
 
   const republish = useMutation({
     mutationFn: () => api.post<{ units: number }>('/api/identity/units/republish'),
-    onSuccess: (r) => toast.success(`Re-sent ${r.units} units to all services`),
+    onSuccess: (r) => toast.success(plural(r.units, 'Re-sent {n} unit to all services', 'Re-sent {n} units to all services')),
   });
 
   const terms = q.toLowerCase().split(/\s+/).filter(Boolean);
   const matching = useMemo(() => {
     if (!terms.length) return null;
-    const hits = units.filter((u) => terms.every((t) => u.name.toLowerCase().includes(t) || u.directoryMembers.some((d) => d.toLowerCase().includes(t))));
+    const hits = units.filter((u) => terms.every((term) => u.name.toLowerCase().includes(term) || u.directoryMembers.some((d) => d.toLowerCase().includes(term))));
     return new Set(hits.flatMap((u) => u.path));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q, units]);
@@ -63,15 +65,15 @@ export function OrganizationPage() {
       <li>
         <div
           className={cn('group flex h-8 cursor-pointer items-center gap-1 rounded-md pe-1 text-[13px] transition-colors', selected === unit.id ? 'bg-accent-soft text-fg' : 'hover:bg-surface-2', unit.archived && 'opacity-50')}
-          style={{ paddingLeft: depth * 16 + 4 }}
+          style={{ paddingInlineStart: depth * 16 + 4 }}
           onClick={() => setSelected(unit.id)}
         >
-          <button type="button" aria-label={open ? 'Collapse' : 'Expand'} className={cn('flex size-5 items-center justify-center rounded text-subtle hover:bg-surface-3', !kids.length && 'invisible')} onClick={(e) => (e.stopPropagation(), toggle(unit.id))}>
+          <button type="button" aria-label={open ? t('Collapse') : t('Expand')} className={cn('flex size-5 items-center justify-center rounded text-subtle hover:bg-surface-3', !kids.length && 'invisible')} onClick={(e) => (e.stopPropagation(), toggle(unit.id))}>
             {open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
           </button>
           <span className="size-2 shrink-0 rounded-full" style={{ background: unit.color }} />
           <span className="min-w-0 flex-1 truncate font-medium">{unit.name}</span>
-          <span className="text-[11px] text-subtle">{unit.kind}</span>
+          <span className="text-[11px] text-subtle">{tMaybe(unit.kind)}</span>
           {unit.memberCount > 0 && (
             <span className="flex items-center gap-0.5 text-[11px] text-subtle">
               <Users className="size-3" />
@@ -80,7 +82,7 @@ export function OrganizationPage() {
           )}
           <button
             type="button"
-            aria-label="Add sub-unit"
+            aria-label={t('Add sub-unit')}
             className="rounded p-0.5 text-subtle opacity-0 group-hover:opacity-100 touch:opacity-100 hover:bg-surface-3 hover:text-fg"
             onClick={(e) => {
               e.stopPropagation();
@@ -120,19 +122,19 @@ export function OrganizationPage() {
   return (
     <>
       <PageHeader
-        title="Organization"
-        description="Your company’s divisions, departments and teams. Link each to directory groups and people are placed in it automatically at sign-in."
+        title={t('Organization')}
+        description={t('Your company’s divisions, departments and teams. Link each to directory groups and people are placed in it automatically at sign-in.')}
         actions={
           <>
             <Button icon={<FileUp className="size-3.5" />} onClick={() => setImporting(true)}>
-              Import org chart
+              {t('Import org chart')}
             </Button>
             <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => (setNewParent(null), setSelected('new'))}>
-              New unit
+              {t('New unit')}
             </Button>
-            <Menu trigger={<Button size="icon" aria-label="More" icon={<MoreHorizontal className="size-4" />} />}>
+            <Menu trigger={<Button size="icon" aria-label={t('More')} icon={<MoreHorizontal className="size-4" />} />}>
               <MenuItem icon={<RefreshCcw />} onSelect={() => republish.mutate()}>
-                Re-sync all units to services
+                {t('Re-sync all units to services')}
               </MenuItem>
             </Menu>
           </>
@@ -143,7 +145,7 @@ export function OrganizationPage() {
           <div className="border-b border-border p-2">
             <div className="relative">
               <Search className="pointer-events-none absolute top-1/2 start-2.5 size-3.5 -translate-y-1/2 text-subtle" />
-              <Input className="ps-8" placeholder={`Search ${units.length} units or directory links…`} value={q} onChange={(e) => setQ(e.target.value)} />
+              <Input className="ps-8" placeholder={plural(units.length, 'Search {n} unit or directory links…', 'Search {n} units or directory links…')} value={q} onChange={(e) => setQ(e.target.value)} />
             </div>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
@@ -156,7 +158,7 @@ export function OrganizationPage() {
                   ))}
               </ul>
             ) : (
-              <EmptyState icon={<Building2 />} title="No units yet" description="Import your org chart or add the company as the first unit." />
+              <EmptyState icon={<Building2 />} title={t('No units yet')} description={t('Import your org chart or add the company as the first unit.')} />
             )}
           </div>
         </Card>
@@ -166,8 +168,8 @@ export function OrganizationPage() {
           <Drawer
             open={!!selected}
             onOpenChange={(o) => !o && setSelected(null)}
-            title={selected === 'new' ? 'New unit' : (unitById.get(selected ?? '')?.name ?? 'Unit')}
-            description={selected && selected !== 'new' ? unitById.get(selected)?.kind : undefined}
+            title={selected === 'new' ? t('New unit') : (unitById.get(selected ?? '')?.name ?? t('Unit'))}
+            description={selected && selected !== 'new' ? tMaybe(unitById.get(selected)?.kind) : undefined}
           >
             {selected && editor(true)}
           </Drawer>
@@ -187,7 +189,7 @@ function UnitEditor({ unit, parentId, onSaved, plain = false }: { unit: OrgUnit 
       : {
           key: '',
           name: '',
-          kind: parent ? (LEVELS[Math.min(parent.path.length, 3)] ?? 'Team') : 'Company',
+          kind: parent ? (LEVELS[Math.min(parent.path.length, 3)] ?? LEVELS[3]!) : LEVELS[0]!,
           description: null,
           parentId: parentId ?? null,
           color: parent?.color ?? '#6366f1',
@@ -203,10 +205,10 @@ function UnitEditor({ unit, parentId, onSaved, plain = false }: { unit: OrgUnit 
       return unit ? api.put<OrgUnit>(`/api/identity/units/${unit.id}`, body) : api.post<OrgUnit>('/api/identity/units', body);
     },
     onSuccess: (u) => {
-      toast.success(unit ? 'Unit saved' : `${u.name} created`, { description: d.directoryMembers.length || d.directoryManagers.length ? 'Directory members were re-synced.' : undefined });
+      toast.success(unit ? t('Unit saved') : t('{name} created', { name: u.name }), { description: d.directoryMembers.length || d.directoryManagers.length ? t('Directory members were re-synced.') : undefined });
       onSaved(u);
     },
-    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Could not save'),
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : t('Could not save')),
   });
   const set = (patch: Partial<OrgUnitInput>) => setD((x) => ({ ...x, ...patch }));
 
@@ -214,26 +216,26 @@ function UnitEditor({ unit, parentId, onSaved, plain = false }: { unit: OrgUnit 
     <Card className={cn('space-y-5 self-start', plain && 'border-0 bg-transparent p-0 shadow-none')}>
       <div className="flex items-start justify-between gap-3">
         <div>
-          {!plain && <h2 className="text-[15px] font-semibold">{unit ? unit.name : parent ? `New unit in ${parent.name}` : 'New top-level unit'}</h2>}
-          {plain && !unit && <p className="text-xs text-muted">{parent ? `In ${parent.name}` : 'At the top of the organization'}</p>}
+          {!plain && <h2 className="text-[15px] font-semibold">{unit ? unit.name : parent ? t('New unit in {name}', { name: parent.name }) : t('New top-level unit')}</h2>}
+          {plain && !unit && <p className="text-xs text-muted">{parent ? t('In {name}', { name: parent.name }) : t('At the top of the organization')}</p>}
           {unit && (
             <p className="mt-0.5 text-xs text-muted">
-              {unit.memberCount} members · {unit.managerCount} managers ·{' '}
+              {plural(unit.memberCount, '{n} member', '{n} members')} · {plural(unit.managerCount, '{n} manager', '{n} managers')} ·{' '}
               <Link to="/units/$unitId" params={{ unitId: unit.id }} className="text-accent-fg hover:underline">
-                Open team page
+                {t('Open team page')}
               </Link>
             </p>
           )}
         </div>
         <Button variant="primary" disabled={!d.name.trim()} loading={save.isPending} onClick={() => save.mutate()}>
-          {unit ? 'Save' : 'Create'}
+          {unit ? t('Save') : t('Create')}
         </Button>
       </div>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <Field label="Name" required>
-          {(id) => <Input id={id} autoFocus={!unit} value={d.name} onChange={(e) => set({ name: e.target.value })} placeholder="e.g. Editor Platform" />}
+        <Field label={t('Name')} required>
+          {(id) => <Input id={id} autoFocus={!unit} value={d.name} onChange={(e) => set({ name: e.target.value })} placeholder={t('e.g. Editor Platform')} />}
         </Field>
-        <Field label="Level" hint="Any label your company uses.">
+        <Field label={t('Level')} hint={t('Any label your company uses.')}>
           {(id) => (
             <>
               <Input id={id} list="unit-levels" value={d.kind} onChange={(e) => set({ kind: e.target.value })} />
@@ -245,47 +247,47 @@ function UnitEditor({ unit, parentId, onSaved, plain = false }: { unit: OrgUnit 
             </>
           )}
         </Field>
-        <Field label="Part of" className="sm:col-span-2" hint="Moving a unit moves everything beneath it; access and reports follow instantly.">
+        <Field label={t('Part of')} className="sm:col-span-2" hint={t('Moving a unit moves everything beneath it; access and reports follow instantly.')}>
           {(id) => (
             <UnitPicker
               id={id}
               value={d.parentId}
               onChange={(parentId) => set({ parentId })}
               allowClear
-              clearLabel="Nothing — this is a top-level unit"
+              clearLabel={t('Nothing — this is a top-level unit')}
               filter={(u) => !unit || !u.path.includes(unit.id)}
             />
           )}
         </Field>
       </div>
-      <Field label="What members can do">
+      <Field label={t('What members can do')}>
         {() => (
           <div className="space-y-1.5">
-            <Segmented value={d.memberRole} onChange={(memberRole) => set({ memberRole })} options={memberRoles.map((r) => ({ value: r, label: r === 'none' ? 'Nothing' : roles[r].label }))} />
-            <p className="text-xs text-subtle">{memberRoleText(d.memberRole)} Managers are always Admins of the unit and everything below it. Give anyone else access in the unit’s Access tab.</p>
+            <Segmented value={d.memberRole} onChange={(memberRole) => set({ memberRole })} options={memberRoles.map((r) => ({ value: r, label: r === 'none' ? t('Nothing') : tMaybe(roles[r].label) }))} />
+            <p className="text-xs text-subtle">{memberRoleText(d.memberRole)} {t('Managers are always Admins of the unit and everything below it. Give anyone else access in the unit’s Access tab.')}</p>
           </div>
         )}
       </Field>
       <div className="space-y-4 rounded-xl border border-border p-4">
         <div>
-          <p className="text-[13px] font-semibold">Directory links</p>
-          <p className="text-xs text-muted">People are placed in this unit when they sign in, if they match any of these. Use LDAP group DNs, ADFS group names, or attributes such as department=Platform.</p>
+          <p className="text-[13px] font-semibold">{t('Directory links')}</p>
+          <p className="text-xs text-muted">{t('People are placed in this unit when they sign in, if they match any of these. Use LDAP group DNs, ADFS group names, or attributes such as department=Platform.')}</p>
         </div>
-        <Field label="Members">
+        <Field label={t('Members')}>
           {(id) => <TagInput id={id} value={d.directoryMembers} onChange={(directoryMembers) => set({ directoryMembers })} placeholder="CN=editor-platform,OU=Groups,DC=corp,DC=com" />}
         </Field>
-        <Field label="Managers">
+        <Field label={t('Managers')}>
           {(id) => <TagInput id={id} value={d.directoryManagers} onChange={(directoryManagers) => set({ directoryManagers })} placeholder="CN=editor-platform-leads,OU=Groups,DC=corp,DC=com" />}
         </Field>
       </div>
-      <Field label="Color">{() => <ColorPicker value={d.color} onChange={(color) => set({ color })} />}</Field>
-      {unit && <Switch checked={d.archived} onChange={(archived) => set({ archived })} label="Archived" description="Hidden from pickers; nothing new can be added to it. Existing assets keep working." />}
+      <Field label={t('Color')}>{() => <ColorPicker value={d.color} onChange={(color) => set({ color })} />}</Field>
+      {unit && <Switch checked={d.archived} onChange={(archived) => set({ archived })} label={t('Archived')} description={t('Hidden from pickers; nothing new can be added to it. Existing assets keep working.')} />}
     </Card>
   );
 }
 
-const EXAMPLE = `# One unit per line. Parents are created automatically.
-# Path | member directory ids (;-separated) | manager directory ids
+const EXAMPLE = `# ${t('One unit per line. Parents are created automatically.')}
+# ${t('Path | member directory ids (;-separated) | manager directory ids')}
 Wix
 Wix / R&D | CN=rnd,OU=Groups,DC=wix,DC=com
 Wix / R&D / Editor / Platform | department=Editor Platform | CN=editor-platform-leads,OU=Groups,DC=wix,DC=com
@@ -293,7 +295,7 @@ Wix / Marketing / Brand | CN=brand,OU=Groups,DC=wix,DC=com`;
 
 function ImportDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
   const [text, setText] = useState('');
-  const [kinds, setKinds] = useState('Company, Division, Department, Team');
+  const [kinds, setKinds] = useState(LEVELS.slice(0, 4).join(', '));
   const [result, setResult] = useState<OrgImportResult | null>(null);
   const qc = useQueryClient();
   const run = useMutation({
@@ -301,22 +303,22 @@ function ImportDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o:
     onSuccess: (r) => {
       setResult(r);
       void qc.invalidateQueries({ queryKey: keys.units });
-      if (!r.errors.length) toast.success(`Imported: ${r.created} created, ${r.updated} updated`);
+      if (!r.errors.length) toast.success(t('Imported: {created} created, {updated} updated', { created: r.created, updated: r.updated }));
     },
-    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Import failed'),
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : t('Import failed')),
   });
   return (
     <Dialog
       open={open}
       onOpenChange={(o) => (onOpenChange(o), !o && setResult(null))}
-      title="Import org chart"
-      description="Paste from a spreadsheet or HR export. Existing units are matched by their path and kept; new ones are added."
+      title={t('Import org chart')}
+      description={t('Paste from a spreadsheet or HR export. Existing units are matched by their path and kept; new ones are added.')}
       className="max-w-2xl"
       footer={
         <>
-          <Button onClick={() => onOpenChange(false)}>Close</Button>
+          <Button onClick={() => onOpenChange(false)}>{t('Close')}</Button>
           <Button variant="primary" disabled={!text.trim()} loading={run.isPending} onClick={() => run.mutate()}>
-            Import
+            {t('Import')}
           </Button>
         </>
       }
@@ -324,19 +326,19 @@ function ImportDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o:
       <div className="space-y-4">
         <Textarea rows={10} className="font-mono text-xs" placeholder={EXAMPLE} value={text} onChange={(e) => setText(e.target.value)} />
         <Button size="xs" variant="ghost" onClick={() => setText(EXAMPLE.split('\n').filter((l) => !l.startsWith('#')).join('\n'))}>
-          Use the example
+          {t('Use the example')}
         </Button>
-        <Field label="Level names by depth" hint="Used for new units: the first level is the company, then divisions, and so on.">
+        <Field label={t('Level names by depth')} hint={t('Used for new units: the first level is the company, then divisions, and so on.')}>
           {(id) => <Input id={id} value={kinds} onChange={(e) => setKinds(e.target.value)} />}
         </Field>
         {result && (
           <div className="rounded-lg bg-surface-2 px-3 py-2 text-[13px]">
             <p className="font-medium">
-              {result.created} created · {result.updated} updated
+              {t('{created} created · {updated} updated', { created: result.created, updated: result.updated })}
             </p>
             {result.errors.map((e) => (
               <p key={e.line} className="text-xs text-danger">
-                Line {e.line}: {e.message}
+                {t('Line {line}: {message}', { line: e.line, message: e.message })}
               </p>
             ))}
           </div>

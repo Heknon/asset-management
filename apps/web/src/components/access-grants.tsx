@@ -8,6 +8,8 @@ import { useLookups } from '@/lib/queries';
 import { AccessEditor, accessLabel, SubjectIcon, type AccessEntry } from './access';
 import { UnitPath } from './pickers';
 import { Badge } from './ui/display';
+import { t, tMaybe } from '@/lib/i18n';
+import { tj } from '@/lib/i18n-react';
 
 const accessKey = (unitId: string | null) => ['access', unitId ?? 'organization'] as const;
 
@@ -29,8 +31,8 @@ export function GrantsEditor({ unitId }: { unitId: string | null }) {
     },
   });
   const done = () => void qc.invalidateQueries({ queryKey: ['access'] });
-  const onError = (e: unknown) => toast.error(e instanceof ApiError ? e.message : 'Something went wrong');
-  const changed = () => (done(), toast.success('Access updated', { description: 'Takes effect within 15 minutes, or at their next sign-in.' }));
+  const onError = (e: unknown) => toast.error(e instanceof ApiError ? e.message : t('Something went wrong'));
+  const changed = () => (done(), toast.success(t('Access updated'), { description: t('Takes effect within 15 minutes, or at their next sign-in.') }));
 
   const add = useMutation({
     mutationFn: (v: { subject: { kind: string; id: string }; permissions: Permission[]; assetTypeId: string | null }) =>
@@ -42,8 +44,8 @@ export function GrantsEditor({ unitId }: { unitId: string | null }) {
   const remove = useMutation({ mutationFn: (id: string) => api.delete(`/api/identity/grants/${id}`), onSuccess: changed, onError });
 
   const a = access.data;
-  if (!a) return <p className="text-xs text-muted">{access.isLoading ? 'Loading…' : 'Access could not be loaded.'}</p>;
-  const typeNote = (g: GrantRecord) => (g.assetTypeId ? `only ${typeById.get(g.assetTypeId)?.name ?? 'one type'}` : undefined);
+  if (!a) return <p className="text-xs text-muted">{access.isLoading ? t('Loading…') : t('Access could not be loaded.')}</p>;
+  const typeNote = (g: GrantRecord) => (g.assetTypeId ? t('only {type}', { type: typeById.get(g.assetTypeId)?.name ?? t('one type') }) : undefined);
   const entry = (g: GrantRecord): AccessEntry => ({ key: g.id, subject: g.subject, permissions: g.permissions, note: typeNote(g) });
   const unit = unitId ? unitById.get(unitId) : undefined;
 
@@ -61,27 +63,27 @@ export function GrantsEditor({ unitId }: { unitId: string | null }) {
           <div>
             <p className="mb-2 flex items-center gap-1.5 text-xs font-medium text-subtle">
               <Info className="size-3.5" />
-              Also has access, from the organization chart
+              {t('Also has access, from the organization chart')}
             </p>
             <ul className="divide-y divide-border rounded-lg border border-border bg-surface-2/40">
               <li className="flex items-center gap-2.5 px-3 py-2">
                 <SubjectIcon kind="unit" />
                 <span className="min-w-0 flex-1">
-                  <span className="block font-medium">Everyone in {unit?.name}</span>
-                  <span className="block text-xs text-muted">Members’ default role · changed in Organization</span>
+                  <span className="block font-medium">{t('Everyone in {unit}', { unit: unit?.name ?? '' })}</span>
+                  <span className="block text-xs text-muted">{t('Members’ default role · changed in Organization')}</span>
                 </span>
-                <Badge>{a.memberRole === 'none' ? 'No access' : roles[a.memberRole].label}</Badge>
+                <Badge>{a.memberRole === 'none' ? t('No access') : tMaybe(roles[a.memberRole].label)}</Badge>
               </li>
               {a.managers.length > 0 && (
                 <li className="flex items-center gap-2.5 px-3 py-2">
                   <SubjectIcon kind="user" />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-medium">{a.managers.map((m) => m.displayName).join(', ')}</span>
-                    <span className="block text-xs text-muted">Managers of {unit?.name}</span>
+                    <span className="block text-xs text-muted">{t('Managers of {unit}', { unit: unit?.name ?? '' })}</span>
                   </span>
                   <Badge tone="accent">
                     <Crown className="me-1 size-3" />
-                    Admin
+                    {t('Admin')}
                   </Badge>
                 </li>
               )}
@@ -92,14 +94,15 @@ export function GrantsEditor({ unitId }: { unitId: string | null }) {
                     <span className="block truncate font-medium">{g.subject.name}</span>
                     <span className="block truncate text-xs text-muted">
                       {g.fromUnitId ? (
-                        <>
-                          From{' '}
-                          <Link to="/units/$unitId" params={{ unitId: g.fromUnitId }} className="hover:underline">
-                            <UnitPath id={g.fromUnitId} leafOnly />
-                          </Link>
-                        </>
+                        tj('From {unit}', {
+                          unit: (
+                            <Link to="/units/$unitId" params={{ unitId: g.fromUnitId }} className="hover:underline">
+                              <UnitPath id={g.fromUnitId} leafOnly />
+                            </Link>
+                          ),
+                        })
                       ) : (
-                        'The whole organization'
+                        t('The whole organization')
                       )}
                       {typeNote(g) && ` · ${typeNote(g)}`}
                     </span>

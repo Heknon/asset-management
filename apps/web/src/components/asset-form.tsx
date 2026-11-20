@@ -5,6 +5,7 @@ import { Lock, Sparkles } from 'lucide-react';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { toast } from 'sonner';
 import { api, ApiError } from '@/lib/api';
+import { plural, t, tMaybe } from '@/lib/i18n';
 import { useInvalidateAssets, useLookups, useMe } from '@/lib/queries';
 import { formatDate, formatDurations, inSentence } from '@/lib/utils';
 import { AttributeInput } from './attribute';
@@ -105,7 +106,7 @@ export function AssetFormSheet({
         : api.post<Asset>('/api/registry/assets', { ...body, assetTypeId: type.id, ...(request && { requestId: request.id }) });
     },
     onSuccess: (saved) => {
-      toast.success(asset ? 'Saved' : request ? `${request.number} fulfilled` : `${type.name} created`);
+      toast.success(asset ? t('Saved') : request ? t('{number} fulfilled', { number: request.number }) : t('{type} created', { type: type.name }));
       invalidate(saved.id);
       onOpenChange(false);
       if (!asset) void navigate({ to: '/assets/$assetId', params: { assetId: saved.id } });
@@ -114,7 +115,7 @@ export function AssetFormSheet({
       if (e instanceof ApiError) {
         setErrors(e.fieldErrors);
         toast.error(e.message);
-      } else toast.error('Save failed');
+      } else toast.error(t('Save failed'));
     },
   });
 
@@ -128,23 +129,23 @@ export function AssetFormSheet({
     <Sheet
       open={open}
       onOpenChange={onOpenChange}
-      title={asset ? `Edit ${asset.name}` : request ? `Fulfil ${request.number}` : `New ${inSentence(type.name)}`}
-      description={request ? `Creates the ${type.name.toLowerCase()} and closes “${request.title}”.` : type.description}
+      title={asset ? t('Edit {name}', { name: asset.name }) : request ? t('Fulfil {number}', { number: request.number }) : t('New {type}', { type: inSentence(type.name) })}
+      description={request ? t('Creates the {type} and closes “{title}”.', { type: inSentence(type.name), title: request.title }) : type.description}
       footer={
         <>
-          <Button onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button onClick={() => onOpenChange(false)}>{t('Cancel')}</Button>
           <Button variant="primary" type="submit" form="asset-form" loading={save.isPending} disabled={!draft.name || !draft.unitId}>
-            {asset ? 'Save changes' : request ? 'Create & fulfil' : 'Create'}
+            {asset ? t('Save changes') : request ? t('Create & fulfil') : t('Create')}
           </Button>
         </>
       }
     >
       <form id="asset-form" onSubmit={submit} className="space-y-6">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Field label="Name" required className="col-span-2">
-            {(id) => <Input id={id} autoFocus value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder={`e.g. ${type.name} for …`} />}
+          <Field label={t('Name')} required className="col-span-2">
+            {(id) => <Input id={id} autoFocus value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder={t('e.g. {type} for …', { type: type.name })} />}
           </Field>
-          <Field label="Team" required hint="Who it's for. Its people can see it; access follows the org chart.">
+          <Field label={t('Team')} required hint={t("Who it's for. Its people can see it; access follows the org chart.")}>
             {(id) => (
               <UnitPicker
                 id={id}
@@ -155,22 +156,22 @@ export function AssetFormSheet({
               />
             )}
           </Field>
-          <Field label="Status">
+          <Field label={t('Status')}>
             {(id) => (
               <Select id={id} value={draft.status} onChange={(e) => setDraft({ ...draft, status: e.target.value })}>
                 {type.statuses.map((s) => (
                   <option key={s.value} value={s.value}>
-                    {s.label}
+                    {tMaybe(s.label)}
                   </option>
                 ))}
               </Select>
             )}
           </Field>
           {(variantOptions.length > 0 || draft.variantId) && (
-            <Field label="Kind" className="col-span-2" hint={draft.variantId ? schemaOf(type.id, draft.variantId)?.name && `Adds ${schema.fields.length - type.fields.length} fields this team tracks` : 'Your team has its own versions of this template'}>
+            <Field label={t('Kind')} className="col-span-2" hint={draft.variantId ? schemaOf(type.id, draft.variantId)?.name && plural(schema.fields.length - type.fields.length, 'Adds {n} field this team tracks', 'Adds {n} fields this team tracks') : t('Your team has its own versions of this template')}>
               {(id) => (
                 <Select id={id} value={draft.variantId ?? ''} onChange={(e) => setDraft({ ...draft, variantId: e.target.value || null })}>
-                  <option value="">Standard {type.name.toLowerCase()}</option>
+                  <option value="">{t('Standard {type}', { type: inSentence(type.name) })}</option>
                   {variantOptions.map((v) => (
                     <option key={v.id} value={v.id}>
                       {v.name}
@@ -181,11 +182,11 @@ export function AssetFormSheet({
             </Field>
           )}
           {unit && (
-            <Field label="Catalog" className="col-span-2" hint="Everyone the catalog is shared with can see this item.">
+            <Field label={t('Catalog')} className="col-span-2" hint={t('Everyone the catalog is shared with can see this item.')}>
               {(id) => <CatalogSelect id={id} value={draft.catalogId} unitPath={unit.path} onChange={(catalogId) => setDraft({ ...draft, catalogId })} />}
             </Field>
           )}
-          <Field label="Owner" className="col-span-2" hint="Receives reminders unless a date says otherwise">
+          <Field label={t('Owner')} className="col-span-2" hint={t('Receives reminders unless a date says otherwise')}>
             {(id) => <PersonPicker id={id} value={draft.ownerId} onChange={(v) => setDraft({ ...draft, ownerId: v })} />}
           </Field>
         </div>
@@ -201,7 +202,7 @@ export function AssetFormSheet({
                     <Field key={f.key} label={f.label} className="col-span-2 sm:col-span-1">
                       {() => (
                         <div className="flex h-8 items-center gap-1.5 rounded-lg border border-dashed border-border px-2.5 text-xs text-subtle">
-                          <Lock className="size-3" /> Managers only
+                          <Lock className="size-3" /> {t('Managers only')}
                         </div>
                       )}
                     </Field>
@@ -213,7 +214,7 @@ export function AssetFormSheet({
                 if (tracking?.derive) {
                   const value = derived[f.key] as string | undefined;
                   return (
-                    <Field key={f.key} label={f.label} className="col-span-2 sm:col-span-1" hint={`Calculated from ${schema.fields.find((x) => x.key === tracking.derive!.from)?.label ?? tracking.derive.from}`}>
+                    <Field key={f.key} label={f.label} className="col-span-2 sm:col-span-1" hint={t('Calculated from {field}', { field: schema.fields.find((x) => x.key === tracking.derive!.from)?.label ?? tracking.derive.from })}>
                       {() => (
                         <div className="flex h-8 items-center gap-1.5 rounded-lg bg-surface-2 px-2.5 text-[13px]">
                           <Sparkles className="size-3.5 text-accent" />
@@ -229,7 +230,7 @@ export function AssetFormSheet({
                     label={f.kind === 'boolean' ? '' : f.label}
                     required={f.required}
                     error={errors[f.key]}
-                    hint={kind ? `${kind.name} · ${formatDurations(draft.reminderOverrides[f.key] ?? tracking!.reminders ?? kind.defaultReminders)}` : f.description}
+                    hint={kind ? `${tMaybe(kind.name)} · ${formatDurations(draft.reminderOverrides[f.key] ?? tracking!.reminders ?? kind.defaultReminders)}` : f.description}
                     className={wide ? 'col-span-2' : 'col-span-2 sm:col-span-1'}
                     aside={restricted ? <Lock className="size-3 text-subtle" /> : undefined}
                   >
@@ -254,21 +255,21 @@ function ReminderOverrides({ type, value, onChange }: { type: AssetType; value: 
   if (!tracked.length) return null;
   return (
     <fieldset className="space-y-3 rounded-xl border border-border p-4">
-      <legend className="px-1 text-xs font-semibold tracking-wide text-subtle uppercase">Reminders for this asset</legend>
+      <legend className="px-1 text-xs font-semibold tracking-wide text-subtle uppercase">{t('Reminders for this asset')}</legend>
       {tracked.map((f) => {
         if (f.kind !== 'date') return null;
-        const t = f.config.tracking!;
-        const kind = kindById.get(t.dateKindId);
+        const tr = f.config.tracking!;
+        const kind = kindById.get(tr.dateKindId);
         const custom = f.key in value;
         return (
           <div key={f.key} className="space-y-2">
             <Switch
               checked={custom}
               label={f.label}
-              description={custom ? 'Custom schedule for this asset' : `Template default: ${formatDurations(t.reminders ?? kind?.defaultReminders ?? [])}`}
+              description={custom ? t('Custom schedule for this asset') : t('Template default: {schedule}', { schedule: formatDurations(tr.reminders ?? kind?.defaultReminders ?? []) })}
               onChange={(on) => {
                 const next = { ...value };
-                if (on) next[f.key] = t.reminders ?? kind?.defaultReminders ?? [];
+                if (on) next[f.key] = tr.reminders ?? kind?.defaultReminders ?? [];
                 else delete next[f.key];
                 onChange(next);
               }}

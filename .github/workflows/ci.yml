@@ -19,6 +19,7 @@ jobs:
           node-version: 22
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
+      - run: bun scripts/i18n-check.mjs
       - run: bun test
       - run: bun run build
 

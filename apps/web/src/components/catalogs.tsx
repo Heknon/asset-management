@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { api, ApiError } from '@/lib/api';
 import { keys, useCatalogs, useLookups, useMe } from '@/lib/queries';
+import { plural, t } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { ColorPicker, IconPicker, UnitPath, UnitPicker } from './pickers';
 import { TypeIcon } from './type-icon';
@@ -16,7 +17,7 @@ import { Field, Input, Select, Textarea } from './ui/form';
 import { Dialog } from './ui/overlay';
 
 
-const onError = (e: unknown) => toast.error(e instanceof ApiError ? e.message : 'Something went wrong');
+const onError = (e: unknown) => toast.error(e instanceof ApiError ? e.message : t('Something went wrong'));
 
 function useInvalidateCatalogs() {
   const qc = useQueryClient();
@@ -50,13 +51,11 @@ export function CatalogCard({ catalog }: { catalog: Catalog }) {
         </div>
         {catalog.description && <p className="line-clamp-2 text-xs text-muted">{catalog.description}</p>}
         <div className="mt-auto flex items-center gap-3 pt-1 text-xs text-subtle">
-          <span>
-            {catalog.assetCount} {catalog.assetCount === 1 ? 'item' : 'items'}
-          </span>
+          <span>{plural(catalog.assetCount, '{n} item', '{n} items')}</span>
           {catalog.shares.length > 0 && (
             <span className="inline-flex items-center gap-1">
               <Share2 className="size-3" />
-              Shared with {catalog.shares.length}
+              {t('Shared with {count}', { count: catalog.shares.length })}
             </span>
           )}
         </div>
@@ -82,7 +81,7 @@ export function CatalogFormDialog({ open, onOpenChange, catalog, unitId, onSaved
       return catalog ? api.put<Catalog>(`/api/registry/catalogs/${catalog.id}`, body) : api.post<Catalog>('/api/registry/catalogs', { ...body, unitId: draft.unitId });
     },
     onSuccess: (c) => {
-      toast.success(catalog ? 'Saved' : `Created “${c.name}”`, catalog ? undefined : { description: 'Add assets to it, then share it with other teams.' });
+      toast.success(catalog ? t('Saved') : t('Created “{name}”', { name: c.name }), catalog ? undefined : { description: t('Add assets to it, then share it with other teams.') });
       invalidate();
       onOpenChange(false);
       onSaved?.(c);
@@ -95,28 +94,28 @@ export function CatalogFormDialog({ open, onOpenChange, catalog, unitId, onSaved
     <Dialog
       open={open}
       onOpenChange={onOpenChange}
-      title={catalog ? 'Edit catalog' : 'New catalog'}
-      description="A collection of your unit's assets — licenses, lab equipment, tools — that you can share with other teams."
+      title={catalog ? t('Edit catalog') : t('New catalog')}
+      description={t("A collection of your unit's assets — licenses, lab equipment, tools — that you can share with other teams.")}
       footer={
         <>
-          <Button onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button onClick={() => onOpenChange(false)}>{t('Cancel')}</Button>
           <Button variant="primary" disabled={!draft.name.trim() || !draft.unitId} loading={save.isPending} onClick={() => save.mutate()}>
-            {catalog ? 'Save' : 'Create'}
+            {catalog ? t('Save') : t('Create')}
           </Button>
         </>
       }
     >
       <div className="space-y-4">
-        <Field label="Name" required>
-          {(id) => <Input id={id} autoFocus value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="e.g. R&D Labs, Design licenses" />}
+        <Field label={t('Name')} required>
+          {(id) => <Input id={id} autoFocus value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder={t('e.g. R&D Labs, Design licenses')} />}
         </Field>
         {!catalog && (
-          <Field label="Owned by" required hint="It can hold assets of this unit and every team beneath it. Its managers decide who it is shared with.">
+          <Field label={t('Owned by')} required hint={t('It can hold assets of this unit and every team beneath it. Its managers decide who it is shared with.')}>
             {(id) => <UnitPicker id={id} value={draft.unitId} onChange={(v) => setDraft({ ...draft, unitId: v })} filter={(u) => ids.has(u.id)} />}
           </Field>
         )}
-        <Field label="Description">{(id) => <Textarea id={id} rows={2} value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} placeholder="What is in it, who it is for" />}</Field>
-        <Field label="Look">
+        <Field label={t('Description')}>{(id) => <Textarea id={id} rows={2} value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} placeholder={t('What is in it, who it is for')} />}</Field>
+        <Field label={t('Look')}>
           {() => (
             <div className="space-y-2">
               <ColorPicker value={draft.color} onChange={(color) => setDraft({ ...draft, color })} />
@@ -146,11 +145,11 @@ export function ShareDialog({ catalog, open, onOpenChange }: { catalog: Catalog;
   });
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange} title={`Share “${catalog.name}”`} description="Everyone you add gets access to everything in this catalog, including items added later." footer={<Button onClick={() => onOpenChange(false)}>Done</Button>}>
+    <Dialog open={open} onOpenChange={onOpenChange} title={t('Share “{name}”', { name: catalog.name })} description={t('Everyone you add gets access to everything in this catalog, including items added later.')} footer={<Button onClick={() => onOpenChange(false)}>{t('Done')}</Button>}>
       <AccessEditor
         canManage={canManage}
         pending={put.isPending}
-        entries={catalog.shares.map((s) => ({ key: `${s.subject.kind}:${s.subject.id}`, subject: s.subject, permissions: s.permissions, note: `shared by ${s.createdByName}` }))}
+        entries={catalog.shares.map((s) => ({ key: `${s.subject.kind}:${s.subject.id}`, subject: s.subject, permissions: s.permissions, note: t('shared by {name}', { name: s.createdByName }) }))}
         onAdd={(subject, permissions) => put.mutate({ subject, permissions })}
         onChange={(e, permissions) => put.mutate({ subject: e.subject, permissions })}
         onRemove={(e) => remove.mutate(catalog.shares.find((s) => `${s.subject.kind}:${s.subject.id}` === e.key)!)}
@@ -161,7 +160,7 @@ export function ShareDialog({ catalog, open, onOpenChange }: { catalog: Catalog;
               <span className="block font-medium">
                 <UnitPath id={catalog.unitId} />
               </span>
-              <span className="block text-xs text-muted">Owner · its people keep the access the organization chart gives them</span>
+              <span className="block text-xs text-muted">{t('Owner · its people keep the access the organization chart gives them')}</span>
             </span>
           </div>
         }
@@ -174,14 +173,14 @@ export function ShareDialog({ catalog, open, onOpenChange }: { catalog: Catalog;
 export function CatalogSelect({ id, value, unitPath, onChange }: { id?: string; value: string | null; unitPath: string[]; onChange: (v: string | null) => void }) {
   const catalogs = useCatalogs();
   const options = (catalogs.data ?? []).filter((c) => unitPath.includes(c.unitId) && (c.permissions.includes('edit') || c.id === value));
-  if (!options.length && !value) return <p className="text-xs text-muted">No catalogs for this team yet.</p>;
+  if (!options.length && !value) return <p className="text-xs text-muted">{t('No catalogs for this team yet.')}</p>;
   return (
     <Select id={id} value={value ?? ''} onChange={(e) => onChange(e.target.value || null)} className={cn(!value && 'text-muted')}>
-      <option value="">Not in a catalog</option>
+      <option value="">{t('Not in a catalog')}</option>
       {options.map((c) => (
         <option key={c.id} value={c.id}>
           {c.name}
-          {c.shares.length ? ` · shared with ${c.shares.length}` : ''}
+          {c.shares.length ? ` · ${t('shared with {count}', { count: c.shares.length })}` : ''}
         </option>
       ))}
     </Select>

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Merges apps/web/src/i18n/he-parts/*.json into he.json (when the parts folder exists)
+// Merges apps/web/src/i18n/he-parts/*.json into he.json when such a folder exists (handy when several people translate),
 // and checks that every literal key passed to t()/plural()/tj() in the web app has a
 // Hebrew translation with the same {placeholders}. Exit code 1 lists what is missing.
 //   bun scripts/i18n-check.mjs
@@ -13,7 +13,8 @@ const partsDir = join(src, 'i18n/he-parts');
 
 let dict = JSON.parse(readFileSync(dictPath, 'utf8'));
 if (existsSync(partsDir)) {
-  for (const f of readdirSync(partsDir).filter((f) => f.endsWith('.json')).sort()) {
+  // core.json (built-in labels shared across pages) first, so its wording wins where parts differ.
+  for (const f of readdirSync(partsDir).filter((f) => f.endsWith('.json')).sort((a, b) => (a === 'core.json' ? -1 : b === 'core.json' ? 1 : a.localeCompare(b)))) {
     const part = JSON.parse(readFileSync(join(partsDir, f), 'utf8'));
     for (const [k, v] of Object.entries(part)) {
       if (dict[k] && dict[k] !== v) console.warn(`different translations for "${k}": "${dict[k]}" vs "${v}" (${f}); keeping the first`);
@@ -36,7 +37,7 @@ function* files(dir) {
   for (const e of readdirSync(dir, { withFileTypes: true })) {
     const p = join(dir, e.name);
     if (e.isDirectory()) yield* files(p);
-    else if (/\.(ts|tsx)$/.test(e.name) && !e.name.endsWith('.d.ts')) yield p;
+    else if (/\.(ts|tsx)$/.test(e.name) && !e.name.endsWith('.d.ts') && !/^i18n(-react)?\.tsx?$/.test(e.name)) yield p;
   }
 }
 

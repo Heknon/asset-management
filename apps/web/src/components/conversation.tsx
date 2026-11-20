@@ -7,6 +7,7 @@ import { api, ApiError } from '@/lib/api';
 import { useDebounced } from '@/lib/hooks';
 import { keys, useComments, useMe, usePeople, usePeopleSearch } from '@/lib/queries';
 import { cn, formatDateTime } from '@/lib/utils';
+import { t } from '@/lib/i18n';
 import { Button } from './ui/button';
 import { Avatar, Card, SectionTitle } from './ui/display';
 import { Textarea } from './ui/form';
@@ -25,7 +26,7 @@ export function Conversation({ assetId, permissions }: { assetId: string; permis
   const items = comments.data ?? [];
   const mentioned = usePeople(items.flatMap((c) => c.mentionIds));
   const refresh = () => void qc.invalidateQueries({ queryKey: keys.comments(assetId) });
-  const onError = (e: unknown) => toast.error(e instanceof ApiError ? e.message : 'Something went wrong');
+  const onError = (e: unknown) => toast.error(e instanceof ApiError ? e.message : t('Something went wrong'));
 
   const post = useMutation({ mutationFn: (body: { body: string; mentionIds: string[] }) => api.post(`/api/registry/assets/${assetId}/comments`, body), onSuccess: refresh, onError });
   const edit = useMutation({
@@ -38,7 +39,7 @@ export function Conversation({ assetId, permissions }: { assetId: string; permis
   return (
     <Card padded={false}>
       <div id="conversation" className="scroll-mt-20 px-4 pt-3.5">
-        <SectionTitle aside={<MessagesSquare className="size-4 text-subtle" />}>Conversation</SectionTitle>
+        <SectionTitle aside={<MessagesSquare className="size-4 text-subtle" />}>{t('Conversation')}</SectionTitle>
       </div>
       {items.length > 0 && (
         <ol className="space-y-4 px-4 pb-2">
@@ -63,30 +64,30 @@ export function Conversation({ assetId, permissions }: { assetId: string; permis
                     <span className="font-medium">{c.authorName}</span>
                     <span className="text-xs text-subtle">
                       {formatDateTime(c.createdAt)}
-                      {c.editedAt && !c.deleted && ' · edited'}
+                      {c.editedAt && !c.deleted && ` · ${t('edited')}`}
                     </span>
                     {!c.deleted && (c.authorId === me.userId || permissions.includes('delete')) && (
                       <span className="ms-auto opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 touch:opacity-100">
-                        <Menu trigger={<Button size="icon" variant="ghost" aria-label="Message actions" icon={<MoreHorizontal className="size-3.5" />} />}>
+                        <Menu trigger={<Button size="icon" variant="ghost" aria-label={t('Message actions')} icon={<MoreHorizontal className="size-3.5" />} />}>
                           {c.authorId === me.userId && (
                             <MenuItem icon={<Pencil />} onSelect={() => setEditing(c.id)}>
-                              Edit
+                              {t('Edit')}
                             </MenuItem>
                           )}
                           <MenuItem danger icon={<Trash2 />} onSelect={() => remove.mutate(c.id)}>
-                            Delete
+                            {t('Delete')}
                           </MenuItem>
                         </Menu>
                       </span>
                     )}
                   </p>
                   {c.deleted ? (
-                    <p className="text-subtle italic">Message deleted</p>
+                    <p className="text-subtle italic">{t('Message deleted')}</p>
                   ) : editing === c.id ? (
                     <Composer
                       initial={c}
                       people={mentioned}
-                      submitLabel="Save"
+                      submitLabel={t('Save')}
                       pending={edit.isPending}
                       onCancel={() => setEditing(null)}
                       onSubmit={(body) => edit.mutate({ id: c.id, ...body })}
@@ -101,11 +102,11 @@ export function Conversation({ assetId, permissions }: { assetId: string; permis
         </ol>
       )}
       <div className={cn('px-4 pb-4', items.length ? 'border-t border-border pt-3' : 'pt-1')}>
-        {!items.length && permissions.includes('comment') && <p className="mb-2 text-xs text-muted">Ask the owner a question, note a vendor update, or record a decision. Type @ to mention someone — they’ll get an email.</p>}
+        {!items.length && permissions.includes('comment') && <p className="mb-2 text-xs text-muted">{t('Ask the owner a question, note a vendor update, or record a decision. Type @ to mention someone — they’ll get an email.')}</p>}
         {permissions.includes('comment') ? (
-          <Composer key={items.length} people={mentioned} submitLabel="Send" pending={post.isPending} onSubmit={(body) => post.mutate(body)} />
+          <Composer key={items.length} people={mentioned} submitLabel={t('Send')} pending={post.isPending} onSubmit={(body) => post.mutate(body)} />
         ) : (
-          <p className="text-xs text-muted">You can read this conversation. Writing needs the “Comment” permission.</p>
+          <p className="text-xs text-muted">{t('You can read this conversation. Writing needs the “Comment” permission.')}</p>
         )}
       </div>
     </Card>
@@ -151,8 +152,8 @@ function Composer({
   // People whose first or last name starts with what was typed come first.
   const options = useMemo(() => {
     if (!match || !term) return [];
-    const t = term.toLowerCase();
-    const rank = (p: UserSummary) => (p.displayName.toLowerCase().split(/\s+/).some((w) => w.startsWith(t)) ? 0 : p.username.toLowerCase().startsWith(t) ? 1 : 2);
+    const lower = term.toLowerCase();
+    const rank = (p: UserSummary) => (p.displayName.toLowerCase().split(/\s+/).some((w) => w.startsWith(lower)) ? 0 : p.username.toLowerCase().startsWith(lower) ? 1 : 2);
     return [...(suggestions.data ?? [])].sort((a, b) => rank(a) - rank(b) || a.displayName.localeCompare(b.displayName)).slice(0, 6);
   }, [match, term, suggestions.data]);
 
@@ -202,7 +203,7 @@ function Composer({
         ref={ref}
         rows={initial ? 3 : 2}
         value={body}
-        placeholder="Write a message… (@ to mention, ⌘↵ to send)"
+        placeholder={t('Write a message… (@ to mention, ⌘↵ to send)')}
         onChange={(e) => {
           setBody(e.target.value);
           setCaret(e.target.selectionStart);
@@ -210,7 +211,7 @@ function Composer({
         }}
         onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
         onKeyDown={onKeyDown}
-        aria-label="Message"
+        aria-label={t('Message')}
       />
       {options.length > 0 && (
         <ul role="listbox" className="absolute bottom-full start-0 z-20 mb-1 w-72 overflow-hidden rounded-lg border border-border bg-surface py-1 shadow-lg">
@@ -232,7 +233,7 @@ function Composer({
         </ul>
       )}
       <div className="mt-2 flex justify-end gap-2">
-        {onCancel && <Button onClick={onCancel}>Cancel</Button>}
+        {onCancel && <Button onClick={onCancel}>{t('Cancel')}</Button>}
         <Button variant="primary" size="sm" icon={<Send className="size-3.5" />} disabled={!body.trim()} loading={pending} onClick={submit}>
           {submitLabel}
         </Button>

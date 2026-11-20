@@ -31,7 +31,7 @@ import { api, ApiError } from '@/lib/api';
 import { keys, useOrgWorkflow, useDateKinds, useGroupMembers, useGroups, useLookups, useMe, useProviders, useUsers } from '@/lib/queries';
 import { useMyOrg } from '@/lib/org';
 import { formatDateTime, formatDurations, slugKey } from '@/lib/utils';
-import { intlLocale } from '@/lib/i18n';
+import { intlLocale, plural, t, tMaybe } from '@/lib/i18n';
 
 /** Mutation with toast + invalidation; every settings screen saves through this. */
 function useSave<TVars, TOut = unknown>(fn: (v: TVars) => Promise<TOut>, invalidate: QueryKey[], success: string, onDone?: () => void) {
@@ -43,7 +43,7 @@ function useSave<TVars, TOut = unknown>(fn: (v: TVars) => Promise<TOut>, invalid
       toast.success(success);
       onDone?.();
     },
-    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Something went wrong'),
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : t('Something went wrong')),
   });
 }
 
@@ -66,9 +66,15 @@ const Dot = ({ color }: { color: string }) => <span className="size-2.5 shrink-0
 // ─── Date kinds ──────────────────────────────────────────────────────────────
 
 const behaviorText: Record<DateBehavior, string> = {
-  recurring: 'Repeats — completing it rolls the date forward',
-  milestone: 'One-off — completing it closes the item',
-  informational: 'Shown for context; never reminds',
+  recurring: t('Repeats — completing it rolls the date forward'),
+  milestone: t('One-off — completing it closes the item'),
+  informational: t('Shown for context; never reminds'),
+};
+
+const behaviorLabel: Record<DateBehavior, string> = {
+  recurring: t('Recurring'),
+  milestone: t('Milestone'),
+  informational: t('Informational'),
 };
 
 export function DateKindsPage() {
@@ -77,9 +83,9 @@ export function DateKindsPage() {
   return (
     <>
       <PageHeader
-        title="Date kinds"
-        description="The meanings a date field can have. Templates pick one per date; reminders and actions follow from it."
-        actions={<Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setEditing('new')}>New date kind</Button>}
+        title={t('Date kinds')}
+        description={t('The meanings a date field can have. Templates pick one per date; reminders and actions follow from it.')}
+        actions={<Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setEditing('new')}>{t('New date kind')}</Button>}
       />
       <div className="mx-auto w-full max-w-3xl px-4 sm:px-6 py-6">
         <Card padded={false}>
@@ -90,13 +96,13 @@ export function DateKindsPage() {
                 lead={<Dot color={k.color} />}
                 title={
                   <span className="flex items-center gap-2">
-                    {k.name}
-                    {k.archived && <Badge>Archived</Badge>}
+                    {tMaybe(k.name)}
+                    {k.archived && <Badge>{t('Archived')}</Badge>}
                   </span>
                 }
                 subtitle={`${behaviorText[k.behavior]}${k.behavior !== 'informational' ? ` · ${formatDurations(k.defaultReminders)}` : ''}`}
-                meta={<Badge tone="accent">{k.actionLabel}</Badge>}
-                actions={<Button size="icon" variant="ghost" aria-label="Edit" icon={<Pencil className="size-3.5" />} onClick={() => setEditing(k)} />}
+                meta={<Badge tone="accent">{tMaybe(k.actionLabel)}</Badge>}
+                actions={<Button size="icon" variant="ghost" aria-label={t('Edit')} icon={<Pencil className="size-3.5" />} onClick={() => setEditing(k)} />}
               />
             ))}
           </ul>
@@ -109,39 +115,39 @@ export function DateKindsPage() {
 
 function DateKindDialog({ kind, onClose }: { kind: DateKind | null; onClose: () => void }) {
   const [d, setD] = useState<DateKindInput & { archived: boolean }>(
-    kind ?? { key: '', name: '', color: '#6366f1', behavior: 'milestone', actionLabel: 'Complete', defaultReminders: [{ amount: 30, unit: 'day' }, { amount: 7, unit: 'day' }], archived: false },
+    kind ?? { key: '', name: '', color: '#6366f1', behavior: 'milestone', actionLabel: t('Complete'), defaultReminders: [{ amount: 30, unit: 'day' }, { amount: 7, unit: 'day' }], archived: false },
   );
-  const save = useSave(() => (kind ? api.put(`/api/registry/date-kinds/${kind.id}`, d) : api.post('/api/registry/date-kinds', d)), [keys.dateKinds], kind ? 'Date kind saved' : 'Date kind created', onClose);
+  const save = useSave(() => (kind ? api.put(`/api/registry/date-kinds/${kind.id}`, d) : api.post('/api/registry/date-kinds', d)), [keys.dateKinds], kind ? t('Date kind saved') : t('Date kind created'), onClose);
   return (
     <Dialog
       open
       onOpenChange={(o) => !o && onClose()}
-      title={kind ? `Edit ${kind.name}` : 'New date kind'}
+      title={kind ? t('Edit {name}', { name: tMaybe(kind.name) }) : t('New date kind')}
       footer={
         <>
-          <Button onClick={onClose}>Cancel</Button>
+          <Button onClick={onClose}>{t('Cancel')}</Button>
           <Button variant="primary" loading={save.isPending} disabled={!d.name} onClick={() => save.mutate(undefined)}>
-            Save
+            {t('Save')}
           </Button>
         </>
       }
     >
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Name" required>
-            {(id) => <Input id={id} value={d.name} placeholder="e.g. Audit due" onChange={(e) => setD({ ...d, name: e.target.value, ...(!kind && { key: slugKey(e.target.value) }) })} />}
+          <Field label={t('Name')} required>
+            {(id) => <Input id={id} value={d.name} placeholder={t('e.g. Audit due')} onChange={(e) => setD({ ...d, name: e.target.value, ...(!kind && { key: slugKey(e.target.value) }) })} />}
           </Field>
-          <Field label="Action label" hint="Button text, e.g. Renew, Pay">
+          <Field label={t('Action label')} hint={t('Button text, e.g. Renew, Pay')}>
             {(id) => <Input id={id} value={d.actionLabel} onChange={(e) => setD({ ...d, actionLabel: e.target.value })} />}
           </Field>
         </div>
-        <Field label="Behaviour" hint={behaviorText[d.behavior]}>
-          {() => <Segmented value={d.behavior} onChange={(behavior) => setD({ ...d, behavior, ...(behavior === 'recurring' && !d.defaultRecurrence && { defaultRecurrence: { amount: 1, unit: 'year' } }) })} options={dateBehaviors.map((b) => ({ value: b, label: b[0]!.toUpperCase() + b.slice(1) }))} />}
+        <Field label={t('Behaviour')} hint={behaviorText[d.behavior]}>
+          {() => <Segmented value={d.behavior} onChange={(behavior) => setD({ ...d, behavior, ...(behavior === 'recurring' && !d.defaultRecurrence && { defaultRecurrence: { amount: 1, unit: 'year' } }) })} options={dateBehaviors.map((b) => ({ value: b, label: behaviorLabel[b] }))} />}
         </Field>
-        {d.behavior === 'recurring' && <Field label="Repeats every">{(id) => <DurationInput id={id} value={d.defaultRecurrence ?? { amount: 1, unit: 'year' }} onChange={(defaultRecurrence) => setD({ ...d, defaultRecurrence })} />}</Field>}
-        {d.behavior !== 'informational' && <Field label="Default reminders">{() => <DurationListEditor value={d.defaultReminders} onChange={(defaultReminders) => setD({ ...d, defaultReminders })} />}</Field>}
-        <Field label="Color">{() => <ColorPicker value={d.color} onChange={(color) => setD({ ...d, color })} />}</Field>
-        {kind && <Switch checked={d.archived} onChange={(archived) => setD({ ...d, archived })} label="Archived" description="Hidden from the template builder; existing dates keep working" />}
+        {d.behavior === 'recurring' && <Field label={t('Repeats every')}>{(id) => <DurationInput id={id} value={d.defaultRecurrence ?? { amount: 1, unit: 'year' }} onChange={(defaultRecurrence) => setD({ ...d, defaultRecurrence })} />}</Field>}
+        {d.behavior !== 'informational' && <Field label={t('Default reminders')}>{() => <DurationListEditor value={d.defaultReminders} onChange={(defaultReminders) => setD({ ...d, defaultReminders })} />}</Field>}
+        <Field label={t('Color')}>{() => <ColorPicker value={d.color} onChange={(color) => setD({ ...d, color })} />}</Field>
+        {kind && <Switch checked={d.archived} onChange={(archived) => setD({ ...d, archived })} label={t('Archived')} description={t('Hidden from the template builder; existing dates keep working')} />}
       </div>
     </Dialog>
   );
@@ -153,18 +159,18 @@ export function WorkflowsPage() {
   const saved = useOrgWorkflow();
   const [draft, setDraft] = useState<Workflow | null>(null);
   const wf = draft ?? saved.data;
-  const save = useSave(() => api.put<Workflow>('/api/registry/workflows/default', wf), [keys.workflow, keys.requests], 'Workflow saved', () => setDraft(null));
+  const save = useSave(() => api.put<Workflow>('/api/registry/workflows/default', wf), [keys.workflow, keys.requests], t('Workflow saved'), () => setDraft(null));
   return (
     <>
       <PageHeader
-        title="Request workflow"
-        description="The statuses purchase and renewal requests go through, and who moves them. Templates can have their own (Templates → a template → Requests)."
+        title={t('Request workflow')}
+        description={t('The statuses purchase and renewal requests go through, and who moves them. Templates can have their own (Templates → a template → Requests).')}
         actions={
           draft && (
             <>
-              <Button onClick={() => setDraft(null)}>Discard</Button>
+              <Button onClick={() => setDraft(null)}>{t('Discard')}</Button>
               <Button variant="primary" loading={save.isPending} disabled={validateWorkflow(draft).length > 0} onClick={() => save.mutate(undefined)}>
-                Save workflow
+                {t('Save workflow')}
               </Button>
             </>
           )
@@ -177,7 +183,7 @@ export function WorkflowsPage() {
 
 // ─── People & groups ─────────────────────────────────────────────────────────
 
-const sourceLabel = { local: 'Local', ldap: 'LDAP', oidc: 'ADFS' };
+const sourceLabel = { local: t('Local'), ldap: 'LDAP', oidc: 'ADFS' };
 
 export function PeoplePage() {
   const [tab, setTab] = useState('users');
@@ -193,34 +199,34 @@ export function PeoplePage() {
   const directory = !!providers.data?.some((p) => p.id !== 'local');
   const [adding, setAdding] = useState(false);
   const [settingPassword, setSettingPassword] = useState<User | null>(null);
-  const update = useSave((v: { id: string; patch: Partial<Pick<User, 'isAdmin' | 'active'>> }) => api.patch(`/api/identity/users/${v.id}`, v.patch), [['users']], 'User updated');
+  const update = useSave((v: { id: string; patch: Partial<Pick<User, 'isAdmin' | 'active'>> }) => api.patch(`/api/identity/users/${v.id}`, v.patch), [['users']], t('User updated'));
 
   return (
     <>
       <PageHeader
-        title="People & groups"
+        title={t('People & groups')}
         description={
           manual && !directory
-            ? 'Add the people who use Assets; each gets a sign-in name and a password you give them. Groups gather people for access.'
+            ? t('Add the people who use Assets; each gets a sign-in name and a password you give them. Groups gather people for access.')
             : manual
-              ? 'People from the company directory appear on first sign-in; you can also add people with their own password here. Directory groups sync automatically.'
-              : 'People are provisioned on first sign-in through LDAP or ADFS. Directory groups sync automatically and can be granted access.'
+              ? t('People from the company directory appear on first sign-in; you can also add people with their own password here. Directory groups sync automatically.')
+              : t('People are provisioned on first sign-in through LDAP or ADFS. Directory groups sync automatically and can be granted access.')
         }
         actions={
           manual && (
             <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setAdding(true)}>
-              Add person
+              {t('Add person')}
             </Button>
           )
         }
       >
-        <Tabs value={tab} onValueChange={setTab} tabs={[{ value: 'users', label: 'People', count: users.data?.total }, { value: 'groups', label: 'Groups', count: groups.data?.length }]} />
+        <Tabs value={tab} onValueChange={setTab} tabs={[{ value: 'users', label: t('People'), count: users.data?.total }, { value: 'groups', label: t('Groups'), count: groups.data?.length }]} />
       </PageHeader>
       <div className="mx-auto w-full max-w-4xl px-4 sm:px-6 py-6">
         {tab === 'users' ? (
           <Card padded={false}>
             <div className="border-b border-border p-3">
-              <Input placeholder="Search people…" value={q} onChange={(e) => setQ(e.target.value)} />
+              <Input placeholder={t('Search people…')} value={q} onChange={(e) => setQ(e.target.value)} />
             </div>
             <ul className="divide-y divide-border">
               {(users.data?.items ?? []).map((u) => (
@@ -230,40 +236,40 @@ export function PeoplePage() {
                   title={
                     <span className="flex items-center gap-2">
                       {u.displayName}
-                      {!u.active && <Badge tone="danger">Disabled</Badge>}
-                      {u.isAdmin && <Badge tone="accent">Admin</Badge>}
+                      {!u.active && <Badge tone="danger">{t('Disabled')}</Badge>}
+                      {u.isAdmin && <Badge tone="accent">{t('Admin')}</Badge>}
                     </span>
                   }
                   subtitle={`${u.email ?? u.username} · ${sourceLabel[u.source]}${u.groups.length ? ` · ${u.groups.map((g) => g.name).join(', ')}` : ''}`}
-                  meta={<span className="hidden text-xs text-subtle md:block">{u.lastLoginAt ? `Last seen ${formatDateTime(u.lastLoginAt)}` : 'Never signed in'}</span>}
+                  meta={<span className="hidden text-xs text-subtle md:block">{u.lastLoginAt ? t('Last seen {when}', { when: formatDateTime(u.lastLoginAt) }) : t('Never signed in')}</span>}
                   actions={
                     u.id !== me.userId && (
                       phone ? (
-                        <Menu trigger={<Button size="icon" variant="ghost" aria-label={`Actions for ${u.displayName}`} icon={<MoreHorizontal className="size-4" />} />}>
+                        <Menu trigger={<Button size="icon" variant="ghost" aria-label={t('Actions for {name}', { name: u.displayName })} icon={<MoreHorizontal className="size-4" />} />}>
                           <MenuItem icon={<KeyRound />} onSelect={() => update.mutate({ id: u.id, patch: { isAdmin: !u.isAdmin } })}>
-                            {u.isAdmin ? 'Remove admin' : 'Make admin'}
+                            {u.isAdmin ? t('Remove admin') : t('Make admin')}
                           </MenuItem>
                           {u.source === 'local' && (
                             <MenuItem icon={<KeyRound />} onSelect={() => setSettingPassword(u)}>
-                              Set password
+                              {t('Set password')}
                             </MenuItem>
                           )}
                           <MenuItem icon={<UserX />} danger={u.active} onSelect={() => update.mutate({ id: u.id, patch: { active: !u.active } })}>
-                            {u.active ? 'Disable' : 'Enable'}
+                            {u.active ? t('Disable') : t('Enable')}
                           </MenuItem>
                         </Menu>
                       ) : (
                         <>
                           {u.source === 'local' && (
                             <Button size="sm" variant="ghost" onClick={() => setSettingPassword(u)}>
-                              Set password
+                              {t('Set password')}
                             </Button>
                           )}
                           <Button size="sm" variant="ghost" onClick={() => update.mutate({ id: u.id, patch: { isAdmin: !u.isAdmin } })}>
-                            {u.isAdmin ? 'Remove admin' : 'Make admin'}
+                            {u.isAdmin ? t('Remove admin') : t('Make admin')}
                           </Button>
                           <Button size="sm" variant={u.active ? 'danger-ghost' : 'ghost'} onClick={() => update.mutate({ id: u.id, patch: { active: !u.active } })}>
-                            {u.active ? 'Disable' : 'Enable'}
+                            {u.active ? t('Disable') : t('Enable')}
                           </Button>
                         </>
                       )
@@ -277,7 +283,7 @@ export function PeoplePage() {
           <Card padded={false}>
             <div className="flex justify-end border-b border-border p-3">
               <Button size="sm" icon={<Plus className="size-3.5" />} onClick={() => setGroup('new')}>
-                New group
+                {t('New group')}
               </Button>
             </div>
             {groups.data?.length ? (
@@ -293,17 +299,17 @@ export function PeoplePage() {
                     title={
                       <span className="flex items-center gap-2">
                         {g.name}
-                        <Badge>{g.externalId ? (g.source === 'oidc' ? 'ADFS' : 'Directory') : 'Local'}</Badge>
+                        <Badge>{g.externalId ? (g.source === 'oidc' ? 'ADFS' : t('Directory')) : t('Local')}</Badge>
                       </span>
                     }
-                    subtitle={g.externalId ?? `${g.memberCount} members`}
-                    meta={<span className="text-xs text-subtle">{g.memberCount} members</span>}
-                    actions={<Button size="icon" variant="ghost" aria-label="Edit" icon={<Pencil className="size-3.5" />} onClick={() => setGroup(g)} />}
+                    subtitle={g.externalId ?? plural(g.memberCount, '{n} member', '{n} members')}
+                    meta={<span className="text-xs text-subtle">{plural(g.memberCount, '{n} member', '{n} members')}</span>}
+                    actions={<Button size="icon" variant="ghost" aria-label={t('Edit')} icon={<Pencil className="size-3.5" />} onClick={() => setGroup(g)} />}
                   />
                 ))}
               </ul>
             ) : (
-              <EmptyState icon={<Users />} title="No groups" description="Directory groups appear after members sign in. You can also pre-create a group by its DN or ADFS claim value." />
+              <EmptyState icon={<Users />} title={t('No groups')} description={t('Directory groups appear after members sign in. You can also pre-create a group by its DN or ADFS claim value.')} />
             )}
           </Card>
         )}
@@ -331,42 +337,42 @@ function GroupDialog({ group, onClose }: { group: Group | null; onClose: () => v
       if (!body.externalId && memberIds) await api.put(`/api/identity/groups/${g.id}/members`, { userIds: memberIds });
     },
     [keys.groups],
-    'Group saved',
+    t('Group saved'),
     onClose,
   );
-  const remove = useSave(() => api.delete(`/api/identity/groups/${group!.id}`), [keys.groups], 'Group deleted', onClose);
+  const remove = useSave(() => api.delete(`/api/identity/groups/${group!.id}`), [keys.groups], t('Group deleted'), onClose);
   return (
     <Dialog
       open
       onOpenChange={(o) => !o && onClose()}
-      title={group ? `Edit ${group.name}` : 'New group'}
+      title={group ? t('Edit {name}', { name: group.name }) : t('New group')}
       footer={
         <>
           {group && (
             <Button variant="danger-ghost" className="me-auto" icon={<Trash2 className="size-3.5" />} onClick={() => setConfirm(true)}>
-              Delete
+              {t('Delete')}
             </Button>
           )}
-          <Button onClick={onClose}>Cancel</Button>
+          <Button onClick={onClose}>{t('Cancel')}</Button>
           <Button variant="primary" loading={save.isPending} disabled={!name} onClick={() => save.mutate(undefined)}>
-            Save
+            {t('Save')}
           </Button>
         </>
       }
     >
       <div className="space-y-4">
-        <Field label="Name" required>
+        <Field label={t('Name')} required>
           {(id) => <Input id={id} value={name} onChange={(e) => setName(e.target.value)} />}
         </Field>
-        <Field label="Directory identifier" hint="LDAP group DN or ADFS group claim value. Members are then synced at each sign-in.">
+        <Field label={t('Directory identifier')} hint={t('LDAP group DN or ADFS group claim value. Members are then synced at each sign-in.')}>
           {(id) => <Input id={id} className="font-mono text-xs" placeholder="CN=Procurement,OU=Groups,DC=corp,DC=example" value={externalId} onChange={(e) => setExternalId(e.target.value)} />}
         </Field>
         {!externalId && (
-          <Field label="Members">
+          <Field label={t('Members')}>
             {() => (
               <div className="space-y-2">
                 <div className="flex gap-1.5">
-                  <PersonPicker value={adding} onChange={setAdding} placeholder="Add a person" />
+                  <PersonPicker value={adding} onChange={setAdding} placeholder={t('Add a person')} />
                   <Button
                     disabled={!adding}
                     onClick={() => {
@@ -375,7 +381,7 @@ function GroupDialog({ group, onClose }: { group: Group | null; onClose: () => v
                       void qc.invalidateQueries({ queryKey: ['people'] });
                     }}
                   >
-                    Add
+                    {t('Add')}
                   </Button>
                 </div>
                 <MemberList ids={current} onRemove={(id) => setMemberIds(current.filter((x) => x !== id))} />
@@ -384,19 +390,19 @@ function GroupDialog({ group, onClose }: { group: Group | null; onClose: () => v
           </Field>
         )}
       </div>
-      <ConfirmDialog open={confirm} onOpenChange={setConfirm} danger title="Delete group?" description="Its access grants are removed too." confirmLabel="Delete" onConfirm={() => remove.mutate(undefined)} loading={remove.isPending} />
+      <ConfirmDialog open={confirm} onOpenChange={setConfirm} danger title={t('Delete group?')} description={t('Its access grants are removed too.')} confirmLabel={t('Delete')} onConfirm={() => remove.mutate(undefined)} loading={remove.isPending} />
     </Dialog>
   );
 }
 
 function MemberList({ ids, onRemove }: { ids: string[]; onRemove: (id: string) => void }) {
-  if (!ids.length) return <p className="text-xs text-subtle">No members yet.</p>;
+  if (!ids.length) return <p className="text-xs text-subtle">{t('No members yet.')}</p>;
   return (
     <ul className="divide-y divide-border rounded-lg border border-border">
       {ids.map((id) => (
         <li key={id} className="flex items-center justify-between px-3 py-1.5 text-[13px]">
           <PersonName id={id} />
-          <Button size="icon" variant="ghost" aria-label="Remove" icon={<Trash2 className="size-3.5" />} onClick={() => onRemove(id)} />
+          <Button size="icon" variant="ghost" aria-label={t('Remove')} icon={<Trash2 className="size-3.5" />} onClick={() => onRemove(id)} />
         </li>
       ))}
     </ul>
@@ -410,8 +416,8 @@ export function AccessPage() {
   return (
     <>
       <PageHeader
-        title="Access"
-        description="Most access comes from the organization chart: members get their unit’s default role, managers are Admins of everything beneath their unit. Add access here for what spans the whole company — e.g. Procurement as Admin, Finance as Viewer. Access adds up; changes apply within 15 minutes."
+        title={t('Access')}
+        description={t('Most access comes from the organization chart: members get their unit’s default role, managers are Admins of everything beneath their unit. Add access here for what spans the whole company — e.g. Procurement as Admin, Finance as Viewer. Access adds up; changes apply within 15 minutes.')}
       />
       <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-4 py-6 sm:px-6">
         {/* The roles, as a legend: compact rows on phones (after the list), cards above it on wider screens. */}
@@ -419,23 +425,23 @@ export function AccessPage() {
           {roleKeys.map((r) => (
             <div key={r} className="flex items-baseline gap-3 px-4 py-2.5">
               <Badge tone={r === 'admin' ? 'accent' : 'neutral'} className="w-24 shrink-0 justify-center">
-                {roles[r].label}
+                {tMaybe(roles[r].label)}
               </Badge>
-              <p className="text-xs text-muted">{roles[r].description}</p>
+              <p className="text-xs text-muted">{tMaybe(roles[r].description)}</p>
             </div>
           ))}
         </Card>
         <div className="hidden gap-3 sm:grid sm:grid-cols-5">
           {roleKeys.map((r) => (
             <Card key={r}>
-              <Badge tone={r === 'admin' ? 'accent' : 'neutral'}>{roles[r].label}</Badge>
-              <p className="mt-2 text-xs text-muted">{roles[r].description}</p>
+              <Badge tone={r === 'admin' ? 'accent' : 'neutral'}>{tMaybe(roles[r].label)}</Badge>
+              <p className="mt-2 text-xs text-muted">{tMaybe(roles[r].description)}</p>
             </Card>
           ))}
         </div>
         <section>
-          <h2 className="mb-1 text-[13px] font-semibold">The whole organization</h2>
-          <p className="mb-3 text-xs text-muted">For a single unit, use the Access tab on its page.</p>
+          <h2 className="mb-1 text-[13px] font-semibold">{t('The whole organization')}</h2>
+          <p className="mb-3 text-xs text-muted">{t('For a single unit, use the Access tab on its page.')}</p>
           <GrantsEditor unitId={null} />
         </section>
       </div>
@@ -445,67 +451,67 @@ export function AccessPage() {
 export function ProfilePage() {
   const me = useMe().data!;
   const qc = useQueryClient();
-  const prefs = useSave((p: Partial<typeof me.preferences>) => api.patch('/api/identity/me/preferences', p), [keys.me], 'Preferences saved');
-  const rotate = useSave(() => api.post('/api/scheduler/calendar-feed/rotate'), [keys.calendarFeed], 'New calendar link created; the old one stops working');
+  const prefs = useSave((p: Partial<typeof me.preferences>) => api.patch('/api/identity/me/preferences', p), [keys.me], t('Preferences saved'));
+  const rotate = useSave(() => api.post('/api/scheduler/calendar-feed/rotate'), [keys.calendarFeed], t('New calendar link created; the old one stops working'));
   const [feedUrl, setFeedUrl] = useState<string | null>(null);
   const lookups = useLookups();
 
   return (
     <>
-      <PageHeader title="Profile & notifications" icon={<Avatar name={me.displayName} size={40} />} description={me.email ?? me.username} />
+      <PageHeader title={t('Profile & notifications')} icon={<Avatar name={me.displayName} size={40} />} description={me.email ?? me.username} />
       <div className="mx-auto w-full max-w-2xl space-y-6 px-4 sm:px-6 py-6">
         <Card>
           <LanguageSetting />
         </Card>
         <Card className="space-y-4">
-          <h2 className="text-[13px] font-semibold">Notifications</h2>
+          <h2 className="text-[13px] font-semibold">{t('Notifications')}</h2>
           <Switch
             checked={me.preferences.emailReminders}
             onChange={(emailReminders) => (qc.setQueryData(keys.me, { ...me, preferences: { ...me.preferences, emailReminders } }), prefs.mutate({ emailReminders }))}
-            label="Email reminders"
-            description="A digest when renewals, deadlines or expiries you own are coming up"
+            label={t('Email reminders')}
+            description={t('A digest when renewals, deadlines or expiries you own are coming up')}
           />
           <Switch
             checked={me.preferences.outlookInvites}
             onChange={(outlookInvites) => (qc.setQueryData(keys.me, { ...me, preferences: { ...me.preferences, outlookInvites } }), prefs.mutate({ outlookInvites }))}
-            label="Outlook calendar invites"
-            description="All-day entries on your calendar that move or cancel when the date changes"
+            label={t('Outlook calendar invites')}
+            description={t('All-day entries on your calendar that move or cancel when the date changes')}
           />
         </Card>
         <Card className="space-y-3">
-          <h2 className="text-[13px] font-semibold">Calendar subscription</h2>
-          <p className="text-xs text-muted">Subscribe in Outlook (Add calendar → Subscribe from web) to see every item you own or are a contact for. Treat the link like a password.</p>
+          <h2 className="text-[13px] font-semibold">{t('Calendar subscription')}</h2>
+          <p className="text-xs text-muted">{t('Subscribe in Outlook (Add calendar → Subscribe from web) to see every item you own or are a contact for. Treat the link like a password.')}</p>
           {feedUrl ? (
             <Input readOnly value={feedUrl} onFocus={(e) => e.target.select()} className="font-mono text-xs" />
           ) : (
             <Button icon={<CalendarDays className="size-3.5" />} onClick={async () => setFeedUrl((await api.get<{ url: string }>('/api/scheduler/calendar-feed')).url)}>
-              Show my calendar link
+              {t('Show my calendar link')}
             </Button>
           )}
           <Button size="sm" variant="ghost" icon={<RefreshCcw className="size-3.5" />} loading={rotate.isPending} onClick={() => rotate.mutate(undefined, { onSuccess: () => setFeedUrl(null) })}>
-            Reset link
+            {t('Reset link')}
           </Button>
         </Card>
         <MyTeams />
         <Card className="space-y-3">
           <h2 className="flex items-center gap-2 text-[13px] font-semibold">
-            <KeyRound className="size-4 text-muted" /> Your access
+            <KeyRound className="size-4 text-muted" /> {t('Your access')}
           </h2>
           {me.isAdmin ? (
-            <p className="text-xs text-muted">You are an administrator and can manage everything.</p>
+            <p className="text-xs text-muted">{t('You are an administrator and can manage everything.')}</p>
           ) : me.grants.length ? (
             <ul className="space-y-1.5 text-[13px]">
               {me.grants.map((g, i) => (
                 <li key={i} className="flex items-center justify-between">
                   <span>
-                    {g.unitId ? lookups.unitPathNames(g.unitId).join(' › ') : 'Whole organization'} · {g.assetTypeId ? lookups.typeById.get(g.assetTypeId)?.name : 'All asset types'}
+                    {g.unitId ? lookups.unitPathNames(g.unitId).join(' › ') : t('Whole organization')} · {g.assetTypeId ? lookups.typeById.get(g.assetTypeId)?.name : t('All asset types')}
                   </span>
                   <Badge>{accessLabel(g.permissions)}</Badge>
                 </li>
               ))}
             </ul>
           ) : (
-            <p className="text-xs text-muted">You don’t have access to any assets yet. Ask an administrator.</p>
+            <p className="text-xs text-muted">{t('You don’t have access to any assets yet. Ask an administrator.')}</p>
           )}
         </Card>
         {/* Security last: everyday settings first. */}
@@ -521,7 +527,7 @@ function MyTeams() {
   return (
     <Card className="space-y-3">
       <h2 className="flex items-center gap-2 text-[13px] font-semibold">
-        <Building2 className="size-4 text-muted" /> Your teams
+        <Building2 className="size-4 text-muted" /> {t('Your teams')}
       </h2>
       {mine.length ? (
         <ul className="space-y-1.5 text-[13px]">
@@ -530,12 +536,12 @@ function MyTeams() {
               <Link to="/units/$unitId" params={{ unitId: unit.id }} className="min-w-0 hover:underline">
                 <UnitPath id={unit.id} />
               </Link>
-              <Badge tone={role === 'manager' ? 'accent' : 'neutral'}>{role === 'manager' ? 'Manager' : 'Member'}</Badge>
+              <Badge tone={role === 'manager' ? 'accent' : 'neutral'}>{role === 'manager' ? t('Manager') : t('Member')}</Badge>
             </li>
           ))}
         </ul>
       ) : (
-        <p className="text-xs text-muted">You aren’t in any team yet. Teams come from your directory groups when you sign in; an administrator can also add you.</p>
+        <p className="text-xs text-muted">{t('You aren’t in any team yet. Teams come from your directory groups when you sign in; an administrator can also add you.')}</p>
       )}
     </Card>
   );
@@ -549,7 +555,7 @@ function AddPersonDialog({ open, onOpenChange }: { open: boolean; onOpenChange: 
   const create = useSave(
     () => api.post('/api/identity/users', { displayName: form.displayName.trim(), username: form.username.trim(), email: form.email.trim() || null, password: form.password, isAdmin: form.isAdmin }),
     [['users']],
-    `${form.displayName || 'Person'} added`,
+    form.displayName ? t('{name} added', { name: form.displayName }) : t('Person added'),
     () => {
       onOpenChange(false);
       setForm(blank);
@@ -562,13 +568,13 @@ function AddPersonDialog({ open, onOpenChange }: { open: boolean; onOpenChange: 
     <Dialog
       open={open}
       onOpenChange={onOpenChange}
-      title="Add a person"
-      description="They sign in with this name and password, and can change the password on their profile."
+      title={t('Add a person')}
+      description={t('They sign in with this name and password, and can change the password on their profile.')}
       footer={
         <>
-          <Button onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button onClick={() => onOpenChange(false)}>{t('Cancel')}</Button>
           <Button variant="primary" disabled={!ok} loading={create.isPending} onClick={() => create.mutate(undefined)}>
-            Add person
+            {t('Add person')}
           </Button>
         </>
       }
@@ -580,20 +586,20 @@ function AddPersonDialog({ open, onOpenChange }: { open: boolean; onOpenChange: 
           if (ok) create.mutate(undefined);
         }}
       >
-        <Field label="Name" required className="sm:col-span-2">
-          {(id) => <Input id={id} value={form.displayName} placeholder="e.g. Dana Cohen" onChange={(e) => setForm((f) => ({ ...f, displayName: e.target.value, ...(!touchedUsername && { username: suggestUsername(e.target.value) }) }))} />}
+        <Field label={t('Name')} required className="sm:col-span-2">
+          {(id) => <Input id={id} value={form.displayName} placeholder={t('e.g. Dana Cohen')} onChange={(e) => setForm((f) => ({ ...f, displayName: e.target.value, ...(!touchedUsername && { username: suggestUsername(e.target.value) }) }))} />}
         </Field>
-        <Field label="Sign-in name" required hint="Letters, digits, dots, dashes">
+        <Field label={t('Sign-in name')} required hint={t('Letters, digits, dots, dashes')}>
           {(id) => <Input id={id} value={form.username} autoComplete="off" onChange={(e) => (setTouchedUsername(true), setForm((f) => ({ ...f, username: e.target.value })))} />}
         </Field>
-        <Field label="Email" hint="For reminders">
+        <Field label={t('Email')} hint={t('For reminders')}>
           {(id) => <Input id={id} type="email" value={form.email} placeholder="dana@company.com" onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />}
         </Field>
-        <Field label="First password" required hint="At least 12 characters; they can change it" className="sm:col-span-2">
+        <Field label={t('First password')} required hint={t('At least 12 characters; they can change it')} className="sm:col-span-2">
           {(id) => <PasswordInput id={id} value={form.password} onChange={(password) => setForm((f) => ({ ...f, password }))} />}
         </Field>
         <div className="sm:col-span-2">
-          <Switch checked={form.isAdmin} onChange={(isAdmin) => setForm((f) => ({ ...f, isAdmin }))} label="Administrator" description="Full control: templates, the organization, access and every item" />
+          <Switch checked={form.isAdmin} onChange={(isAdmin) => setForm((f) => ({ ...f, isAdmin }))} label={t('Administrator')} description={t('Full control: templates, the organization, access and every item')} />
         </div>
         <button type="submit" className="hidden" />
       </form>
@@ -604,7 +610,7 @@ function AddPersonDialog({ open, onOpenChange }: { open: boolean; onOpenChange: 
 /** An admin sets a new password for someone with a manual account (e.g. a forgotten one); they are signed out everywhere. */
 function SetPasswordDialog({ user, onClose }: { user: User | null; onClose: () => void }) {
   const [password, setPassword] = useState('');
-  const save = useSave((_: void) => api.put(`/api/identity/users/${user!.id}/password`, { password }), [], `New password set for ${user?.displayName ?? 'them'}`, () => {
+  const save = useSave((_: void) => api.put(`/api/identity/users/${user!.id}/password`, { password }), [], user ? t('New password set for {name}', { name: user.displayName }) : t('New password set'), () => {
     setPassword('');
     onClose();
   });
@@ -612,18 +618,18 @@ function SetPasswordDialog({ user, onClose }: { user: User | null; onClose: () =
     <Dialog
       open={!!user}
       onOpenChange={(o) => !o && onClose()}
-      title={`Set a password for ${user?.displayName ?? ''}`}
-      description="They are signed out everywhere and sign in again with the new password. Pass it on privately."
+      title={t('Set a password for {name}', { name: user?.displayName ?? '' })}
+      description={t('They are signed out everywhere and sign in again with the new password. Pass it on privately.')}
       footer={
         <>
-          <Button onClick={onClose}>Cancel</Button>
+          <Button onClick={onClose}>{t('Cancel')}</Button>
           <Button variant="primary" disabled={password.length < 12} loading={save.isPending} onClick={() => save.mutate()}>
-            Set password
+            {t('Set password')}
           </Button>
         </>
       }
     >
-      <Field label="New password" hint="At least 12 characters">
+      <Field label={t('New password')} hint={t('At least 12 characters')}>
         {(id) => <PasswordInput id={id} value={password} onChange={setPassword} />}
       </Field>
     </Dialog>
@@ -631,13 +637,14 @@ function SetPasswordDialog({ user, onClose }: { user: User | null; onClose: () =
 }
 
 /** On the profile, for manual accounts. */
-/** "just now", "5 min ago", "3 h ago", "yesterday", then a date. */
+/** "just now", "5 min ago", "3 h ago", "yesterday", then a date (in the page's language). */
 function ago(iso: string): string {
   const min = Math.round((Date.now() - new Date(iso).getTime()) / 60_000);
-  if (min < 2) return 'just now';
-  if (min < 60) return `${min} min ago`;
-  if (min < 24 * 60) return `${Math.round(min / 60)} h ago`;
-  if (min < 48 * 60) return 'yesterday';
+  const rel = new Intl.RelativeTimeFormat(intlLocale(), { numeric: 'auto', style: 'short' });
+  if (min < 2) return t('just now');
+  if (min < 60) return rel.format(-min, 'minute');
+  if (min < 24 * 60) return rel.format(-Math.round(min / 60), 'hour');
+  if (min < 48 * 60) return rel.format(-1, 'day');
   return new Intl.DateTimeFormat(intlLocale(), { dateStyle: 'medium' }).format(new Date(iso));
 }
 
@@ -647,13 +654,13 @@ function deviceName(s: SignedInSession): string {
   const ua = s.userAgent ?? '';
   const browser = /Edg\//.test(ua) ? 'Edge' : /Firefox\//.test(ua) ? 'Firefox' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : null;
   const os = /iPhone|iPad/.test(ua) ? 'iOS' : /Android/.test(ua) ? 'Android' : /Mac OS X/.test(ua) ? 'macOS' : /Windows/.test(ua) ? 'Windows' : /Linux/.test(ua) ? 'Linux' : null;
-  return browser && os ? `${browser} on ${os}` : browser ?? os ?? 'A browser';
+  return browser && os ? t('{browser} on {os}', { browser, os }) : browser ?? os ?? t('A browser');
 }
 
 /** Browsers and connected apps (AI assistants via MCP) signed in as this person; each can be signed out. */
 function SignedInDevices() {
   const sessions = useQuery({ queryKey: ['my-sessions'], queryFn: () => api.get<SignedInSession[]>('/api/identity/me/sessions') });
-  const end = useSave((id: string) => api.delete(`/api/identity/me/sessions/${id}`), [['my-sessions']], 'Signed out');
+  const end = useSave((id: string) => api.delete(`/api/identity/me/sessions/${id}`), [['my-sessions']], t('Signed out'));
   const list = sessions.data ?? [];
   const apps = list.filter((s) => s.connectedApp);
   const allBrowsers = list.filter((s) => !s.connectedApp);
@@ -666,19 +673,19 @@ function SignedInDevices() {
       </div>
       <div className="min-w-0 flex-1">
         <p className="truncate text-[13px] font-medium">{deviceName(s)}</p>
-        <p className="truncate text-xs text-muted" title={`${s.connectedApp ? 'Connected' : 'Signed in'} ${formatDateTime(s.createdAt)}`}>
-          Last used {ago(s.lastUsedAt)}
+        <p className="truncate text-xs text-muted" title={s.connectedApp ? t('Connected {when}', { when: formatDateTime(s.createdAt) }) : t('Signed in {when}', { when: formatDateTime(s.createdAt) })}>
+          {t('Last used {when}', { when: ago(s.lastUsedAt) })}
         </p>
       </div>
       <Button size="sm" variant="ghost" disabled={end.isPending} onClick={() => end.mutate(s.id)}>
-        {s.connectedApp ? 'Disconnect' : 'Sign out'}
+        {s.connectedApp ? t('Disconnect') : t('Sign out')}
       </Button>
     </li>
   );
   return (
     <Card className="space-y-2">
-      <h2 className="text-[13px] font-semibold">Signed-in devices</h2>
-      <p className="text-xs text-muted">Browsers and connected apps (such as AI assistants using MCP) that can act as you. Signing one out takes effect within the hour.</p>
+      <h2 className="text-[13px] font-semibold">{t('Signed-in devices')}</h2>
+      <p className="text-xs text-muted">{t('Browsers and connected apps (such as AI assistants using MCP) that can act as you. Signing one out takes effect within the hour.')}</p>
       {sessions.isPending ? (
         <div className="flex justify-center py-4">
           <Spinner />
@@ -687,16 +694,16 @@ function SignedInDevices() {
         <>
           {!!apps.length && (
             <div>
-              <h3 className="pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted">Connected apps</h3>
+              <h3 className="pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted">{t('Connected apps')}</h3>
               <ul className="divide-y divide-border">{apps.map(row)}</ul>
             </div>
           )}
           <div>
-            {!!apps.length && <h3 className="pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted">Browsers</h3>}
+            {!!apps.length && <h3 className="pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted">{t('Browsers')}</h3>}
             <ul className="divide-y divide-border">{browsers.map(row)}</ul>
             {allBrowsers.length > browsers.length && (
               <button type="button" className="pt-1 text-xs font-medium text-accent hover:underline" onClick={() => setShowAll(true)}>
-                Show all {allBrowsers.length}
+                {t('Show all {count}', { count: allBrowsers.length })}
               </button>
             )}
           </div>
@@ -709,15 +716,15 @@ function SignedInDevices() {
 function ChangePassword() {
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
-  const save = useSave((_: void) => api.post('/api/identity/me/password', { current, password: next }), [], 'Password changed', () => {
+  const save = useSave((_: void) => api.post('/api/identity/me/password', { current, password: next }), [], t('Password changed'), () => {
     setCurrent('');
     setNext('');
   });
   return (
     <Card className="space-y-4">
       <div>
-        <h2 className="text-[13px] font-semibold">Password</h2>
-        <p className="text-xs text-muted">Your account’s password is kept by Assets. Use at least 12 characters.</p>
+        <h2 className="text-[13px] font-semibold">{t('Password')}</h2>
+        <p className="text-xs text-muted">{t('Your account’s password is kept by Assets. Use at least 12 characters.')}</p>
       </div>
       <form
         className="grid grid-cols-1 gap-4 sm:grid-cols-2"
@@ -726,11 +733,11 @@ function ChangePassword() {
           if (current && next.length >= 12) save.mutate();
         }}
       >
-        <Field label="Current password">{(id) => <PasswordInput id={id} value={current} autoComplete="current-password" onChange={setCurrent} />}</Field>
-        <Field label="New password">{(id) => <PasswordInput id={id} value={next} autoComplete="new-password" onChange={setNext} />}</Field>
+        <Field label={t('Current password')}>{(id) => <PasswordInput id={id} value={current} autoComplete="current-password" onChange={setCurrent} />}</Field>
+        <Field label={t('New password')}>{(id) => <PasswordInput id={id} value={next} autoComplete="new-password" onChange={setNext} />}</Field>
         <div className="sm:col-span-2">
           <Button type="submit" disabled={!current || next.length < 12} loading={save.isPending}>
-            Change password
+            {t('Change password')}
           </Button>
         </div>
       </form>
@@ -745,7 +752,7 @@ function PasswordInput({ id, value, onChange, autoComplete = 'new-password' }: {
     <div className="relative">
       <Input id={id} type={shown ? 'text' : 'password'} autoComplete={autoComplete} value={value} onChange={(e) => onChange(e.target.value)} className="pe-16" />
       <button type="button" onClick={() => setShown((x) => !x)} className="absolute top-1/2 end-2 -translate-y-1/2 rounded px-1.5 text-xs text-accent-fg">
-        {shown ? 'Hide' : 'Show'}
+        {shown ? t('Hide') : t('Show')}
       </button>
     </div>
   );

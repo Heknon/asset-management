@@ -6,6 +6,8 @@ import { toast } from 'sonner';
 import { api, ApiError } from '@/lib/api';
 import { keys } from '@/lib/queries';
 import { cn, formatDate, formatDateTime } from '@/lib/utils';
+import { t, tMaybe } from '@/lib/i18n';
+import { tj } from '@/lib/i18n-react';
 import { PersonName } from './pickers';
 import { Button } from './ui/button';
 import { Badge } from './ui/display';
@@ -16,13 +18,18 @@ import { Dialog } from './ui/overlay';
 export function CheckBadge({ check }: { check: Obligation['check'] }) {
   if (!check) return null;
   const meta = renewalDecisionMeta[check.status];
-  const detail = check.status === 'asked' ? `Asked by ${check.askedByName ?? 'someone'}${check.message ? `: ${check.message}` : ''}` : `${check.answeredByName ?? 'Owner'}${check.note ? `: ${check.note}` : ''}`;
+  const detail =
+    check.status === 'asked'
+      ? t(check.message ? 'Asked by {name}: {message}' : 'Asked by {name}', { name: check.askedByName ?? t('someone'), message: check.message })
+      : `${check.answeredByName ?? t('Owner')}${check.note ? `: ${check.note}` : ''}`;
   return (
     <span title={detail}>
-      <Badge tone={meta.tone}>{meta.label}</Badge>
+      <Badge tone={meta.tone}>{tMaybe(meta.label)}</Badge>
     </span>
   );
 }
+
+const answeredLabel: Record<RenewalDecision, string> = { renew: t('Answered: renew'), change: t('Answered: renew with changes'), cancel: t('Answered: don’t renew') };
 
 export function useCheckActions() {
   const qc = useQueryClient();
@@ -31,11 +38,11 @@ export function useCheckActions() {
     // The question and the answer are also posted to the asset's conversation (asynchronously).
     setTimeout(() => void qc.invalidateQueries({ queryKey: keys.comments(o.assetId) }), 1500);
   };
-  const onError = (e: unknown) => toast.error(e instanceof ApiError ? e.message : 'Something went wrong');
+  const onError = (e: unknown) => toast.error(e instanceof ApiError ? e.message : t('Something went wrong'));
   const ask = useMutation({
     mutationFn: ({ o, message }: { o: Obligation; message: string }) => api.post(`/api/scheduler/obligations/${o.id}/actions`, { action: 'ask', message: message || undefined }),
     onSuccess: (_d, { o }) => {
-      toast.success('Owner asked', { description: `They'll get an email and see it in Upcoming. Answers show up here and in ${o.assetName}'s conversation.` });
+      toast.success(t('Owner asked'), { description: t('They’ll get an email and see it in Upcoming. Answers show up here and in the conversation about {asset}.', { asset: o.assetName }) });
       done(o);
     },
     onError,
@@ -43,7 +50,7 @@ export function useCheckActions() {
   const answer = useMutation({
     mutationFn: ({ o, decision, note }: { o: Obligation; decision: RenewalDecision; note: string }) => api.post(`/api/scheduler/obligations/${o.id}/actions`, { action: 'answer', decision, note: note || undefined }),
     onSuccess: (_d, { o, decision }) => {
-      toast.success(renewalDecisionMeta[decision].label.replace('Owner: ', 'Answered: '), { description: o.assetName });
+      toast.success(answeredLabel[decision], { description: o.assetName });
       done(o);
     },
     onError,
@@ -60,13 +67,13 @@ export function AskOwnerDialog({ obligation, onClose }: { obligation: Obligation
     <Dialog
       open
       onOpenChange={(o) => !o && onClose()}
-      title="Ask the owner"
-      description={`${obligation.assetName} · ${obligation.label} ${formatDate(obligation.dueDate)}`}
+      title={t('Ask the owner')}
+      description={`${obligation.assetName} · ${tMaybe(obligation.label)} ${formatDate(obligation.dueDate)}`}
       footer={
         <>
-          <Button onClick={onClose}>Cancel</Button>
+          <Button onClick={onClose}>{t('Cancel')}</Button>
           <Button variant="primary" loading={ask.isPending} onClick={() => ask.mutate({ o: obligation, message }, { onSuccess: onClose })}>
-            Ask
+            {t('Ask')}
           </Button>
         </>
       }
@@ -74,23 +81,21 @@ export function AskOwnerDialog({ obligation, onClose }: { obligation: Obligation
       <div className="space-y-3 text-[13px]">
         <p className="text-muted">
           {obligation.ownerId ? (
-            <>
-              <PersonName id={obligation.ownerId} /> will be asked whether to renew as is, renew with changes, or not renew.
-            </>
+            tj('{person} will be asked whether to renew as is, renew with changes, or not renew.', { person: <PersonName id={obligation.ownerId} /> })
           ) : (
-            'Nobody owns this, so the managers of its team will be asked whether to renew it.'
+            t('Nobody owns this, so the managers of its team will be asked whether to renew it.')
           )}
         </p>
-        <Textarea rows={3} value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Optional: add context, e.g. “The vendor raised the price 12%. Still need 40 seats?”" />
+        <Textarea rows={3} value={message} onChange={(e) => setMessage(e.target.value)} placeholder={t('Optional: add context, e.g. “The vendor raised the price 12%. Still need 40 seats?”')} />
       </div>
     </Dialog>
   );
 }
 
 const choices: Array<{ value: RenewalDecision; title: string; hint: string; icon: ReactNode; tone: string }> = [
-  { value: 'renew', title: 'Renew as is', hint: 'Still needed, nothing changes', icon: <RefreshCcw className="size-4" />, tone: 'text-success' },
-  { value: 'change', title: 'Renew with changes', hint: 'More or fewer seats, another plan…', icon: <PencilLine className="size-4" />, tone: 'text-accent' },
-  { value: 'cancel', title: "Don't renew", hint: 'No longer needed', icon: <XCircle className="size-4" />, tone: 'text-danger' },
+  { value: 'renew', title: t('Renew as is'), hint: t('Still needed, nothing changes'), icon: <RefreshCcw className="size-4" />, tone: 'text-success' },
+  { value: 'change', title: t('Renew with changes'), hint: t('More or fewer seats, another plan…'), icon: <PencilLine className="size-4" />, tone: 'text-accent' },
+  { value: 'cancel', title: t('Don’t renew'), hint: t('No longer needed'), icon: <XCircle className="size-4" />, tone: 'text-danger' },
 ];
 
 /** The owner's side: one click, with an optional note. */
@@ -109,13 +114,13 @@ export function AnswerDialog({ obligation, initial, onClose }: { obligation: Obl
     <Dialog
       open
       onOpenChange={(o) => !o && onClose()}
-      title={`Should we renew ${obligation.assetName}?`}
-      description={`${obligation.label} ${formatDate(obligation.dueDate)}`}
+      title={t('Should we renew {name}?', { name: obligation.assetName })}
+      description={`${tMaybe(obligation.label)} ${formatDate(obligation.dueDate)}`}
       footer={
         <>
-          <Button onClick={onClose}>Cancel</Button>
+          <Button onClick={onClose}>{t('Cancel')}</Button>
           <Button variant="primary" disabled={!decision || (needsNote && !note.trim())} loading={answer.isPending} onClick={() => decision && answer.mutate({ o: obligation, decision, note }, { onSuccess: onClose })}>
-            Send answer
+            {t('Send answer')}
           </Button>
         </>
       }
@@ -126,7 +131,7 @@ export function AnswerDialog({ obligation, initial, onClose }: { obligation: Obl
             <CircleHelp className="mt-0.5 size-4 shrink-0 text-muted" />
             <div>
               <p>
-                <span className="font-medium">{check.askedByName}</span> <span className="text-muted">asked {check.askedAt ? formatDateTime(check.askedAt) : ''}</span>
+                <span className="font-medium">{check.askedByName}</span> <span className="text-muted">{check.askedAt ? t('asked {when}', { when: formatDateTime(check.askedAt) }) : t('asked')}</span>
               </p>
               {check.message && <p className="mt-1 whitespace-pre-wrap">{check.message}</p>}
             </div>
@@ -153,7 +158,7 @@ export function AnswerDialog({ obligation, initial, onClose }: { obligation: Obl
           rows={3}
           value={note}
           onChange={(e) => setNote(e.target.value)}
-          placeholder={decision === 'change' ? 'What should change? e.g. “Drop to 25 seats, move to the Business plan”' : decision === 'cancel' ? 'Optional: why, or what replaces it' : 'Optional note for the buyer'}
+          placeholder={decision === 'change' ? t('What should change? e.g. “Drop to 25 seats, move to the Business plan”') : decision === 'cancel' ? t('Optional: why, or what replaces it') : t('Optional note for the buyer')}
         />
       </div>
     </Dialog>

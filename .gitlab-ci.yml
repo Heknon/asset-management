@@ -96,6 +96,7 @@ test:
     - *bun-registry
     - bun install --frozen-lockfile
     - bun run typecheck
+    - bun scripts/i18n-check.mjs   # every UI string has its Hebrew translation
     - bun test
 
 helm-lint:

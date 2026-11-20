@@ -1,6 +1,7 @@
 import {
   coerceCell,
   detectDateFormat,
+  fieldKindMeta,
   foldText,
   inferField,
   parseTables,
@@ -35,16 +36,16 @@ import { api, ApiError } from '@/lib/api';
 import { downloadCsv } from '@/lib/download';
 import { useMyOrg } from '@/lib/org';
 import { keys, useLookups } from '@/lib/queries';
-import { cn, formatDateTime } from '@/lib/utils';
-import { intlLocale } from '@/lib/i18n';
+import { cn, formatDateTime, inSentence } from '@/lib/utils';
+import { intlLocale, plural, t, tMaybe } from '@/lib/i18n';
 
 type Step = 'source' | 'destination' | 'columns' | 'review' | 'done';
 const steps: Array<{ key: Step; label: string }> = [
-  { key: 'source', label: 'Table' },
-  { key: 'destination', label: 'Where it goes' },
-  { key: 'columns', label: 'Columns' },
-  { key: 'review', label: 'Check' },
-  { key: 'done', label: 'Done' },
+  { key: 'source', label: t('Table') },
+  { key: 'destination', label: t('Where it goes') },
+  { key: 'columns', label: t('Columns') },
+  { key: 'review', label: t('Check') },
+  { key: 'done', label: t('Done') },
 ];
 const CHUNK = 500;
 const MAX_ROWS = 20_000;
@@ -68,7 +69,7 @@ export function ImportPage() {
   const search = useSearch({ strict: false }) as { type?: string; unit?: string; catalog?: string };
   const lookups = useLookups();
   const [step, setStep] = useState<Step>('source');
-  const [fileName, setFileName] = useState('pasted table');
+  const [fileName, setFileName] = useState(() => t('pasted table'));
   const [tables, setTables] = useState<ParsedTable[]>([]);
   const [tableIndex, setTableIndex] = useState(0);
   const [headerRow, setHeaderRow] = useState(true);
@@ -83,7 +84,7 @@ export function ImportPage() {
   const raw = tables[tableIndex];
   const table = useMemo(() => {
     if (!raw) return null;
-    return headerRow ? raw : { ...raw, headers: raw.headers.map((_, i) => `Column ${i + 1}`), rows: [raw.headers, ...raw.rows] };
+    return headerRow ? raw : { ...raw, headers: raw.headers.map((_, i) => t('Column {n}', { n: i + 1 })), rows: [raw.headers, ...raw.rows] };
   }, [raw, headerRow]);
   const type = dest.typeId ? lookups.typeById.get(dest.typeId) : undefined;
   const schema = type ? (lookups.schemaOf(type.id, dest.variantId) ?? type) : undefined;
@@ -108,10 +109,10 @@ export function ImportPage() {
 
   return (
     <>
-      <PageHeader title="Import" description="Bring in what you already track in spreadsheets: CSV, TSV, Excel or Sheets (copy & paste), and Markdown tables." />
+      <PageHeader title={t('Import')} description={t('Bring in what you already track in spreadsheets: CSV, TSV, Excel or Sheets (copy & paste), and Markdown tables.')} />
       <div className="mx-auto w-full max-w-5xl space-y-6 px-4 sm:px-6 py-6">
         <CompactSteps className="sm:hidden" index={index} total={steps.length} label={steps[index]!.label} done={index === steps.length - 1} />
-        <ol className="hidden flex-wrap items-center gap-2 text-[13px] sm:flex" aria-label="Steps">
+        <ol className="hidden flex-wrap items-center gap-2 text-[13px] sm:flex" aria-label={t('Steps')}>
           {steps.map((s, i) => (
             <li key={s.key} className="flex items-center gap-2">
               <span className={cn('flex size-6 items-center justify-center rounded-full text-xs font-medium', i < index ? 'bg-success text-white' : i === index ? 'bg-accent text-white' : 'bg-surface-2 text-muted')}>{i < index ? <Check className="size-3.5" /> : i + 1}</span>
@@ -129,7 +130,7 @@ export function ImportPage() {
             fileName={fileName}
             onLoad={(text, name) => {
               const parsed = parseTables(text);
-              if (!parsed.length) return toast.error('No table found', { description: 'Use a CSV/TSV file, a Markdown table, or paste cells copied from a spreadsheet.' });
+              if (!parsed.length) return toast.error(t('No table found'), { description: t('Use a CSV/TSV file, a Markdown table, or paste cells copied from a spreadsheet.') });
               setTables(parsed);
               setTableIndex(0);
               setFileName(name);
@@ -194,12 +195,12 @@ export function ImportPage() {
   );
 }
 
-function Nav({ onBack, onNext, nextLabel = 'Continue', disabled, hint }: { onBack?: () => void; onNext?: () => void; nextLabel?: ReactNode; disabled?: boolean; hint?: ReactNode }) {
+function Nav({ onBack, onNext, nextLabel = t('Continue'), disabled, hint }: { onBack?: () => void; onNext?: () => void; nextLabel?: ReactNode; disabled?: boolean; hint?: ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-3">
       {onBack ? (
         <Button variant="ghost" icon={<ArrowLeft className="size-3.5" />} onClick={onBack}>
-          Back
+          {t('Back')}
         </Button>
       ) : (
         <span />
@@ -274,8 +275,8 @@ function SourceStep({
   const [dragging, setDragging] = useState(false);
   const readFile = async (f: File | undefined) => {
     if (!f) return;
-    if (/\.(xlsx?|numbers)$/i.test(f.name)) return toast.error('Save the sheet as CSV first', { description: 'Or select the cells in Excel / Google Sheets, copy, and paste them here.' });
-    if (f.size > 25 * 1_048_576) return toast.error('That file is over 25 MB');
+    if (/\.(xlsx?|numbers)$/i.test(f.name)) return toast.error(t('Save the sheet as CSV first'), { description: t('Or select the cells in Excel / Google Sheets, copy, and paste them here.') });
+    if (f.size > 25 * 1_048_576) return toast.error(t('That file is over 25 MB'));
     onLoad(await f.text(), f.name);
   };
 
@@ -293,11 +294,11 @@ function SourceStep({
           className={cn('flex flex-col items-center gap-2 border-b border-border px-4 sm:px-6 py-8 text-center transition-colors', dragging && 'bg-accent-soft')}
         >
           <FileUp className="size-6 text-muted" />
-          <p className="text-[13px] font-medium">Drop a CSV, TSV or Markdown file</p>
-          <p className="text-xs text-muted">Several tables in one Markdown file? You choose which one next.</p>
+          <p className="text-[13px] font-medium">{t('Drop a CSV, TSV or Markdown file')}</p>
+          <p className="text-xs text-muted">{t('Several tables in one Markdown file? You choose which one next.')}</p>
           <input ref={fileRef} type="file" accept=".csv,.tsv,.txt,.md,.markdown,text/csv,text/plain,text/markdown" className="hidden" onChange={(e) => void readFile(e.target.files?.[0])} />
           <Button size="sm" onClick={() => fileRef.current?.click()}>
-            Choose a file
+            {t('Choose a file')}
           </Button>
         </div>
         <div className="space-y-2 p-4">
@@ -307,20 +308,20 @@ function SourceStep({
             className="font-mono text-xs touch:text-sm"
             value={pasted}
             onChange={(e) => setPasted(e.target.value)}
-            placeholder="…or paste a table here: cells copied from Excel or Google Sheets, CSV text, or a Markdown table"
+            placeholder={t('…or paste a table here: cells copied from Excel or Google Sheets, CSV text, or a Markdown table')}
             onPaste={(e) => {
               const text = e.clipboardData.getData('text');
               if (text.includes('\t') || text.includes('|') || text.split('\n').length > 1) {
                 e.preventDefault();
-                onLoad(text, 'pasted table');
+                onLoad(text, t('pasted table'));
               }
             }}
-            onBlur={(e) => e.target.value.trim() && onLoad(e.target.value, 'pasted table')}
+            onBlur={(e) => e.target.value.trim() && onLoad(e.target.value, t('pasted table'))}
           />
           {pasted.trim() && (
             <div className="flex justify-end">
-              <Button size="sm" variant="primary" onClick={() => onLoad(pasted, 'pasted table')}>
-                Use this table
+              <Button size="sm" variant="primary" onClick={() => onLoad(pasted, t('pasted table'))}>
+                {t('Use this table')}
               </Button>
             </div>
           )}
@@ -329,14 +330,13 @@ function SourceStep({
 
       {tables.length > 1 && (
         <Card>
-          <p className="mb-2 text-[13px] font-medium">{tables.length} tables in {fileName} — which one?</p>
+          <p className="mb-2 text-[13px] font-medium">{plural(tables.length, '{n} table in {file} — which one?', '{n} tables in {file} — which one?', { file: fileName })}</p>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-            {tables.map((t, i) => (
+            {tables.map((tb, i) => (
               <button key={i} type="button" onClick={() => onPick(i)} className={cn('rounded-lg border px-3 py-2 text-start', i === tableIndex ? 'border-accent bg-accent-soft' : 'border-border hover:border-border-strong')}>
-                <span className="block text-[13px] font-medium">{t.name}</span>
+                <span className="block text-[13px] font-medium">{tb.name}</span>
                 <span className="block text-xs text-muted">
-                  {t.rows.length} rows · {t.headers.slice(0, 3).join(', ')}
-                  {t.headers.length > 3 ? '…' : ''}
+                  {plural(tb.rows.length, '{n} row · {columns}', '{n} rows · {columns}', { columns: tb.headers.slice(0, 3).join(', ') + (tb.headers.length > 3 ? '…' : '') })}
                 </span>
               </button>
             ))}
@@ -351,13 +351,13 @@ function SourceStep({
               <FileSpreadsheet className="size-4 text-muted" />
               <span className="font-medium">{fileName}</span>
               <span className="text-muted">
-                · {table.rows.length.toLocaleString(intlLocale())} rows · {table.headers.length} columns · {raw(table.format)}
+                · {plural(table.rows.length, '{n} row', '{n} rows')} · {plural(table.headers.length, '{n} column', '{n} columns')} · {raw(table.format)}
               </span>
             </p>
-            <Segmented value={headerRow ? 'yes' : 'no'} onChange={(v) => onHeaderRow(v === 'yes')} options={[{ value: 'yes', label: 'First row is column names' }, { value: 'no', label: 'No header row' }]} />
+            <Segmented value={headerRow ? 'yes' : 'no'} onChange={(v) => onHeaderRow(v === 'yes')} options={[{ value: 'yes', label: t('First row is column names') }, { value: 'no', label: t('No header row') }]} />
           </div>
           <Preview table={table} />
-          {table.rows.length > MAX_ROWS && <p className="text-xs text-danger">Only the first {MAX_ROWS.toLocaleString(intlLocale())} rows are imported at a time; split larger files.</p>}
+          {table.rows.length > MAX_ROWS && <p className="text-xs text-danger">{t('Only the first {n} rows are imported at a time; split larger files.', { n: MAX_ROWS.toLocaleString(intlLocale()) })}</p>}
         </Card>
       )}
       <Nav onNext={onNext} disabled={!table || !table.rows.length} />
@@ -366,7 +366,7 @@ function SourceStep({
   );
 }
 
-const raw = (f: ParsedTable['format']) => ({ csv: 'CSV', tsv: 'tab-separated', semicolon: 'semicolon-separated', pipe: 'pipe-separated', markdown: 'Markdown table' })[f];
+const raw = (f: ParsedTable['format']) => ({ csv: 'CSV', tsv: t('tab-separated'), semicolon: t('semicolon-separated'), pipe: t('pipe-separated'), markdown: t('Markdown table') })[f];
 
 function RecentImports() {
   const qc = useQueryClient();
@@ -375,34 +375,38 @@ function RecentImports() {
   const undo = useMutation({
     mutationFn: (id: string) => api.delete<{ removed: number }>(`/api/registry/imports/${id}`),
     onSuccess: (r) => {
-      toast.success(`Undone — ${r.removed} items removed`);
+      toast.success(plural(r.removed, 'Undone — {n} item removed', 'Undone — {n} items removed'));
       void qc.invalidateQueries({ queryKey: ['imports'] });
       void qc.invalidateQueries({ queryKey: keys.assets });
     },
-    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Undo failed'),
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : t('Undo failed')),
   });
   if (!list.data?.length) return null;
   return (
     <section>
-      <h2 className="mb-2 text-[13px] font-semibold">Your recent imports</h2>
+      <h2 className="mb-2 text-[13px] font-semibold">{t('Your recent imports')}</h2>
       <Card padded={false} className="divide-y divide-border">
         {list.data.map((b) => (
           <div key={b.id} className="flex items-center gap-3 px-4 py-2.5 text-[13px]">
             <span className="min-w-0 flex-1">
               <span className="block truncate font-medium">{b.fileName}</span>
               <span className="block text-xs text-muted">
-                {typeById.get(b.assetTypeId)?.name} · {b.created} added, {b.updated} updated · {formatDateTime(b.createdAt)}
-                {b.undoneAt && ' · undone'}
+                {t(b.undoneAt ? '{type} · {created} added, {updated} updated · {date} · undone' : '{type} · {created} added, {updated} updated · {date}', {
+                  type: typeById.get(b.assetTypeId)?.name ?? '',
+                  created: b.created.toLocaleString(intlLocale()),
+                  updated: b.updated.toLocaleString(intlLocale()),
+                  date: formatDateTime(b.createdAt),
+                })}
               </span>
             </span>
             {!b.undoneAt && b.created > 0 && (
               <Link to="/assets" search={{ import: b.id, type: b.assetTypeId }} className="text-xs text-accent-fg hover:underline">
-                See items
+                {t('See items')}
               </Link>
             )}
             {b.undoable > 0 && (
               <Button size="sm" variant="ghost" icon={<Undo2 className="size-3.5" />} loading={undo.isPending} onClick={() => undo.mutate(b.id)}>
-                Undo ({b.undoable})
+                {t('Undo ({n})', { n: b.undoable.toLocaleString(intlLocale()) })}
               </Button>
             )}
           </div>
@@ -485,15 +489,15 @@ function DestinationStep({
           keys.add(f.key);
           return { ...f, showInTable: keys.size <= 5 };
         });
-      const name = table.name.startsWith('Table ') ? 'Imported items' : table.name;
+      const name = table.name.startsWith('Table ') ? t('Imported items') : table.name;
       return api.post<AssetType>('/api/registry/asset-types', { key: foldText(name).replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').replace(/^(\d)/, 't_$1').slice(0, 50) || 'imported', name, icon: 'box', color: '#6366f1', sections: [], fields });
     },
-    onSuccess: (t) => {
+    onSuccess: (created) => {
       void qc.invalidateQueries({ queryKey: keys.assetTypes });
-      setDest((d) => ({ ...d, typeId: t.id, variantId: null }));
-      toast.success(`Template “${t.name}” created from ${t.fields.length} columns`, { description: 'Fine-tune it later in Templates; dates can get reminders there.' });
+      setDest((d) => ({ ...d, typeId: created.id, variantId: null }));
+      toast.success(plural(created.fields.length, 'Template “{name}” created from {n} column', 'Template “{name}” created from {n} columns', { name: created.name }), { description: t('Fine-tune it later in Templates; dates can get reminders there.') });
     },
-    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Could not create the template'),
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : t('Could not create the template')),
   });
 
   const variants = dest.typeId && dest.unitMode === 'one' && dest.unitId ? variantsFor(dest.typeId, dest.unitId) : [];
@@ -504,21 +508,21 @@ function DestinationStep({
   return (
     <>
       <Card className="space-y-3">
-        <h2 className="text-[13px] font-semibold">What are these?</h2>
+        <h2 className="text-[13px] font-semibold">{t('What are these?')}</h2>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {ranked.map(({ t, fit, count }) => (
+          {ranked.map(({ t: tp, fit, count }) => (
             <button
-              key={t.id}
+              key={tp.id}
               type="button"
-              onClick={() => setDest((d) => ({ ...d, typeId: t.id, variantId: null }))}
-              className={cn('flex items-start gap-3 rounded-lg border px-3 py-2.5 text-start', dest.typeId === t.id ? 'border-accent bg-accent-soft' : 'border-border hover:border-border-strong')}
+              onClick={() => setDest((d) => ({ ...d, typeId: tp.id, variantId: null }))}
+              className={cn('flex items-start gap-3 rounded-lg border px-3 py-2.5 text-start', dest.typeId === tp.id ? 'border-accent bg-accent-soft' : 'border-border hover:border-border-strong')}
             >
-              <TypeIcon icon={t.icon} color={t.color} size={28} />
+              <TypeIcon icon={tp.icon} color={tp.color} size={28} />
               <span className="min-w-0">
-                <span className="block text-[13px] font-medium">{t.name}</span>
-                <span className="block text-xs text-muted">{count ? `${count} of ${table.headers.length} columns match` : 'No matching columns'}</span>
+                <span className="block text-[13px] font-medium">{tp.name}</span>
+                <span className="block text-xs text-muted">{count ? t('{count} of {total} columns match', { count, total: table.headers.length }) : t('No matching columns')}</span>
               </span>
-              {t.id === best?.t.id && fit > 0 && <Badge tone="accent">Best match</Badge>}
+              {tp.id === best?.t.id && fit > 0 && <Badge tone="accent">{t('Best match')}</Badge>}
             </button>
           ))}
           {canManageOrganization && (
@@ -527,8 +531,8 @@ function DestinationStep({
                 <Wand2 className="size-4" />
               </span>
               <span>
-                <span className="block text-[13px] font-medium">{newTemplate.isPending ? 'Creating…' : 'New template from these columns'}</span>
-                <span className="block text-xs text-muted">Field types are guessed from the values</span>
+                <span className="block text-[13px] font-medium">{newTemplate.isPending ? t('Creating…') : t('New template from these columns')}</span>
+                <span className="block text-xs text-muted">{t('Field types are guessed from the values')}</span>
               </span>
             </button>
           )}
@@ -536,7 +540,7 @@ function DestinationStep({
       </Card>
 
       <Card className="space-y-3">
-        <h2 className="text-[13px] font-semibold">Which team owns them?</h2>
+        <h2 className="text-[13px] font-semibold">{t('Which team owns them?')}</h2>
         <Segmented
           value={dest.unitMode}
           onChange={(unitMode) => {
@@ -544,8 +548,8 @@ function DestinationStep({
             if (unitMode === 'one') setMapping(mapping.map((t) => (t === 'unit' ? 'skip' : t)));
           }}
           options={[
-            { value: 'one', label: 'One team for every row' },
-            { value: 'column', label: 'A column says which team' },
+            { value: 'one', label: t('One team for every row') },
+            { value: 'column', label: t('A column says which team') },
           ]}
         />
         {dest.unitMode === 'one' ? (
@@ -554,10 +558,10 @@ function DestinationStep({
           </div>
         ) : (
           <div className="space-y-2">
-            <Field label="Team column">
+            <Field label={t('Team column')}>
               {(id) => (
-                <Select id={id} className="max-w-xs" value={unitColumn >= 0 ? String(unitColumn) : ''} onChange={(e) => setMapping(mapping.map((t, i) => (i === Number(e.target.value) ? 'unit' : t === 'unit' ? 'skip' : t)))}>
-                  <option value="">Choose…</option>
+                <Select id={id} className="max-w-xs" value={unitColumn >= 0 ? String(unitColumn) : ''} onChange={(e) => setMapping(mapping.map((m, i) => (i === Number(e.target.value) ? 'unit' : m === 'unit' ? 'skip' : m)))}>
+                  <option value="">{t('Choose…')}</option>
                   {table.headers.map((h, i) => (
                     <option key={i} value={i}>
                       {h}
@@ -574,7 +578,7 @@ function DestinationStep({
                       <tr key={v} className="border-t border-border first:border-0">
                         <td className="w-1/3 px-3 py-1.5">{v}</td>
                         <td className="px-3 py-1.5">
-                          <UnitPicker value={unitMap[v] ?? null} onChange={(id) => setUnitMap({ ...unitMap, [v]: id })} placeholder="Choose the team" />
+                          <UnitPicker value={unitMap[v] ?? null} onChange={(id) => setUnitMap({ ...unitMap, [v]: id })} placeholder={t('Choose the team')} />
                         </td>
                         <td className="w-8 px-2">{unitMap[v] ? <Check className="size-4 text-success" /> : <AlertTriangle className="size-4 text-warning" />}</td>
                       </tr>
@@ -583,14 +587,14 @@ function DestinationStep({
                 </table>
               </div>
             )}
-            {unmatchedUnits.length > 0 && <p className="text-xs text-warning">{unmatchedUnits.length} team names did not match a unit — choose them above.</p>}
+            {unmatchedUnits.length > 0 && <p className="text-xs text-warning">{plural(unmatchedUnits.length, '{n} team name did not match a unit — choose it above.', '{n} team names did not match a unit — choose them above.')}</p>}
           </div>
         )}
         {variants.length > 0 && (
-          <Field label="Kind" hint={`${unit?.name} has its own versions of this template`}>
+          <Field label={t('Kind')} hint={t('{unit} has its own versions of this template', { unit: unit?.name ?? '' })}>
             {(id) => (
               <Select id={id} className="max-w-xs" value={dest.variantId ?? ''} onChange={(e) => setDest((d) => ({ ...d, variantId: e.target.value || null }))}>
-                <option value="">Standard</option>
+                <option value="">{t('Standard')}</option>
                 {variants.map((v: TypeVariant) => (
                   <option key={v.id} value={v.id}>
                     {v.name}
@@ -601,7 +605,7 @@ function DestinationStep({
           </Field>
         )}
         {dest.unitMode === 'one' && unit && (
-          <Field label="Put them in a catalog" hint="Optional — everyone the catalog is shared with will see them">
+          <Field label={t('Put them in a catalog')} hint={t('Optional — everyone the catalog is shared with will see them')}>
             {(id) => (
               <div className="max-w-xs">
                 <CatalogSelect id={id} value={dest.catalogId} unitPath={unit.path} onChange={(catalogId) => setDest((d) => ({ ...d, catalogId }))} />
@@ -612,26 +616,26 @@ function DestinationStep({
       </Card>
 
       <Card className="space-y-3">
-        <h2 className="text-[13px] font-semibold">Some of them may already exist</h2>
+        <h2 className="text-[13px] font-semibold">{t('Some of them may already exist')}</h2>
         <Segmented
           value={dest.mode}
           onChange={(mode) => setDest((d) => ({ ...d, mode }))}
           options={[
-            { value: 'create', label: 'Add every row as a new item' },
-            { value: 'upsert', label: 'Update items that already exist' },
+            { value: 'create', label: t('Add every row as a new item') },
+            { value: 'upsert', label: t('Update items that already exist') },
           ]}
         />
         {dest.mode === 'upsert' && (
-          <Field label="Recognise existing items by" hint="Rows that match nothing are added as new items">
+          <Field label={t('Recognise existing items by')} hint={t('Rows that match nothing are added as new items')}>
             {(id) => (
               <Select id={id} className="max-w-xs" value={dest.matchBy} onChange={(e) => setDest((d) => ({ ...d, matchBy: e.target.value as Destination['matchBy'] }))}>
-                <option value="name">Same name (in the same team)</option>
-                <option value="reference">Their ID (LIC-42) — map an ID column</option>
-                {(dest.typeId ? (types.find((t) => t.id === dest.typeId)?.fields ?? []) : [])
+                <option value="name">{t('Same name (in the same team)')}</option>
+                <option value="reference">{t('Their ID (LIC-42) — map an ID column')}</option>
+                {(dest.typeId ? (types.find((x) => x.id === dest.typeId)?.fields ?? []) : [])
                   .filter((f) => ['text', 'number', 'email', 'url'].includes(f.kind))
                   .map((f) => (
                     <option key={f.key} value={`field:${f.key}`}>
-                      Same {f.label.toLowerCase()}
+                      {t('Same {field}', { field: inSentence(f.label) })}
                     </option>
                   ))}
               </Select>
@@ -639,14 +643,14 @@ function DestinationStep({
           </Field>
         )}
       </Card>
-      <Nav onBack={onBack} onNext={onNext} disabled={!dest.typeId || !unitOk} hint={!dest.typeId ? 'Choose a template' : !unitOk ? 'Choose the team' : undefined} />
+      <Nav onBack={onBack} onNext={onNext} disabled={!dest.typeId || !unitOk} hint={!dest.typeId ? t('Choose a template') : !unitOk ? t('Choose the team') : undefined} />
     </>
   );
 }
 
 // ─── 3. Columns ──────────────────────────────────────────────────────────────
 
-const targetLabel: Record<string, string> = { name: 'Name', reference: 'ID (to match existing items)', owner: 'Owner', unit: 'Team', status: 'Status' };
+const targetLabel: Record<string, string> = { name: t('Name'), reference: t('ID (to match existing items)'), owner: t('Owner'), unit: t('Team'), status: t('Status') };
 
 function ColumnsStep({
   table,
@@ -681,38 +685,38 @@ function ColumnsStep({
   const { canManageOrganization, unitPermissionsOn } = useMyOrg();
   const [extending, setExtending] = useState(false);
   const fieldOf = (t: ImportTarget) => (t.startsWith('field:') ? schema.fields.find((f) => f.key === t.slice(6)) : undefined);
-  const setTarget = (col: number, t: ImportTarget) => {
-    const next = mapping.map((x, i) => (i === col ? t : x === t && t !== 'skip' ? 'skip' : x));
+  const setTarget = (col: number, target: ImportTarget) => {
+    const next = mapping.map((x, i) => (i === col ? target : x === target && target !== 'skip' ? 'skip' : x));
     setMapping(next);
-    const f = t.startsWith('field:') ? schema.fields.find((x) => x.key === t.slice(6)) : undefined;
+    const f = target.startsWith('field:') ? schema.fields.find((x) => x.key === target.slice(6)) : undefined;
     if (f?.kind === 'date') setDateFormats({ ...dateFormats, [col]: detectDateFormat(table.rows.map((r) => r[col] ?? '')).format });
   };
-  const skipped = mapping.map((t, i) => ({ t, i })).filter((x) => x.t === 'skip' && table.rows.some((r) => (r[x.i] ?? '').trim()));
+  const skipped = mapping.map((m, i) => ({ m, i })).filter((x) => x.m === 'skip' && table.rows.some((r) => (r[x.i] ?? '').trim()));
   const canExtend = dest.unitMode === 'one' && !!dest.unitId && (canManageOrganization || unitPermissionsOn(dest.unitId).has('manage'));
 
   return (
     <>
       <Card padded={false}>
         <div className="border-b border-border px-4 py-2.5">
-          <h2 className="text-[13px] font-semibold">Which column is which?</h2>
-          <p className="text-xs text-muted">Matched by column names; change anything that is wrong. Problems are checked again before anything is saved.</p>
+          <h2 className="text-[13px] font-semibold">{t('Which column is which?')}</h2>
+          <p className="text-xs text-muted">{t('Matched by column names; change anything that is wrong. Problems are checked again before anything is saved.')}</p>
         </div>
         <div className="divide-y divide-border">
           {table.headers.map((h, col) => {
-            const t = mapping[col] ?? 'skip';
-            const f = fieldOf(t);
+            const target = mapping[col] ?? 'skip';
+            const f = fieldOf(target);
             const samples = table.rows.map((r) => r[col] ?? '').filter((v) => v.trim()).slice(0, 3);
             return (
               <div key={col} className="grid grid-cols-1 items-start gap-3 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_24px_minmax(0,1fr)]">
                 <div className="min-w-0">
                   <p className="truncate text-[13px] font-medium">{h}</p>
-                  <p className="truncate text-xs text-muted">{samples.join(' · ') || 'empty'}</p>
+                  <p className="truncate text-xs text-muted">{samples.join(' · ') || t('empty')}</p>
                 </div>
                 <ArrowRight className="mt-2 hidden size-4 text-subtle sm:block" />
                 <div className="space-y-2">
-                  <Select value={t} onChange={(e) => setTarget(col, e.target.value as ImportTarget)} aria-label={`Column ${h}`} className={cn(t === 'skip' && 'text-muted')}>
-                    <option value="skip">— Don’t import —</option>
-                    <optgroup label="Every item">
+                  <Select value={target} onChange={(e) => setTarget(col, e.target.value as ImportTarget)} aria-label={t('Column {name}', { name: h })} className={cn(target === 'skip' && 'text-muted')}>
+                    <option value="skip">{t('— Don’t import —')}</option>
+                    <optgroup label={t('Every item')}>
                       {(['name', 'reference', 'owner', 'status', ...(dest.unitMode === 'column' ? ['unit'] : [])] as const).map((k) => (
                         <option key={k} value={k}>
                           {targetLabel[k]}
@@ -728,14 +732,14 @@ function ColumnsStep({
                     </optgroup>
                   </Select>
                   {f?.kind === 'date' && (
-                    <Select value={dateFormats[col] ?? 'iso'} onChange={(e) => setDateFormats({ ...dateFormats, [col]: e.target.value as DateFormat })} aria-label="Date format" className="text-xs">
-                      <option value="dmy">Day first (31/01/2026)</option>
-                      <option value="mdy">Month first (01/31/2026)</option>
-                      <option value="iso">Year first (2026-01-31)</option>
+                    <Select value={dateFormats[col] ?? 'iso'} onChange={(e) => setDateFormats({ ...dateFormats, [col]: e.target.value as DateFormat })} aria-label={t('Date format')} className="text-xs">
+                      <option value="dmy">{t('Day first (31/01/2026)')}</option>
+                      <option value="mdy">{t('Month first (01/31/2026)')}</option>
+                      <option value="iso">{t('Year first (2026-01-31)')}</option>
                     </Select>
                   )}
                   {f && (f.kind === 'select' || f.kind === 'multiSelect') && <OptionMapper field={f} values={table.rows.map((r) => r[col] ?? '')} map={optionMaps[f.key] ?? {}} onChange={(m) => setOptionMaps({ ...optionMaps, [f.key]: m })} />}
-                  <ColumnCheck field={f} target={t} values={table.rows.map((r) => r[col] ?? '')} dateFormat={dateFormats[col] ?? 'iso'} optionMap={f ? optionMaps[f.key] : undefined} type={type} />
+                  <ColumnCheck field={f} target={target} values={table.rows.map((r) => r[col] ?? '')} dateFormat={dateFormats[col] ?? 'iso'} optionMap={f ? optionMaps[f.key] : undefined} type={type} />
                 </div>
               </div>
             );
@@ -746,12 +750,12 @@ function ColumnsStep({
         <Card className="flex flex-wrap items-center gap-3 text-[13px]">
           <AlertTriangle className="size-4 text-warning" />
           <span className="min-w-0 flex-1">
-            Not imported: {skipped.map((s) => table.headers[s.i]).join(', ')}.
-            {canExtend ? ` Keep them as ${unitById.get(dest.unitId!)?.name}’s own fields?` : ' Ask a template manager to add these fields, or your unit’s managers to create a team variant.'}
+            {t('Not imported: {columns}.', { columns: skipped.map((s) => table.headers[s.i]).join(', ') })}{' '}
+            {canExtend ? t('Keep them as {unit}’s own fields?', { unit: unitById.get(dest.unitId!)?.name ?? '' }) : t('Ask a template manager to add these fields, or your unit’s managers to create a team variant.')}
           </span>
           {canExtend && (
             <Button size="sm" icon={<Sparkles className="size-3.5" />} onClick={() => setExtending(true)}>
-              Add as team fields…
+              {t('Add as team fields…')}
             </Button>
           )}
         </Card>
@@ -766,12 +770,12 @@ function ColumnsStep({
           onClose={() => setExtending(false)}
           onDone={(variant, keyByColumn) => {
             setDest((d) => ({ ...d, variantId: variant.id }));
-            setMapping(mapping.map((t, i) => (keyByColumn.has(i) ? (`field:${keyByColumn.get(i)}` as ImportTarget) : t)));
+            setMapping(mapping.map((m, i) => (keyByColumn.has(i) ? (`field:${keyByColumn.get(i)}` as ImportTarget) : m)));
             setExtending(false);
           }}
         />
       )}
-      <Nav onBack={onBack} onNext={onNext} disabled={!mapping.includes('name')} hint={!mapping.includes('name') ? 'One column must be the name' : undefined} />
+      <Nav onBack={onBack} onNext={onNext} disabled={!mapping.includes('name')} hint={!mapping.includes('name') ? t('One column must be the name') : undefined} />
     </>
   );
 }
@@ -791,7 +795,7 @@ function ColumnCheck({ field, target, values, dateFormat, optionMap, type }: { f
         if ('error' in r && !example) example = r.error;
       } else if (target === 'status') {
         good = type.statuses.some((s) => foldText(s.label) === foldText(v) || s.value === v);
-        if (!good && !example) example = `“${v}” is not a status of ${type.name}`;
+        if (!good && !example) example = t('“{value}” is not a status of {type}', { value: v, type: type.name });
       }
       if (good) ok++;
       else bad++;
@@ -799,11 +803,13 @@ function ColumnCheck({ field, target, values, dateFormat, optionMap, type }: { f
     return { ok, bad, example };
   }, [field, target, values, dateFormat, optionMap, type]);
   if (target === 'skip') return null;
-  if (field?.kind === 'user' || target === 'owner') return <p className="text-xs text-muted">People are matched by email, username or full name in the next step.</p>;
-  if (field?.kind === 'assetRef') return <p className="text-xs text-muted">Items are matched by ID (HW-12) or exact name in the next step.</p>;
+  if (field?.kind === 'user' || target === 'owner') return <p className="text-xs text-muted">{t('People are matched by email, username or full name in the next step.')}</p>;
+  if (field?.kind === 'assetRef') return <p className="text-xs text-muted">{t('Items are matched by ID (HW-12) or exact name in the next step.')}</p>;
   return (
     <p className={cn('text-xs', stats.bad ? 'text-warning' : 'text-muted')}>
-      {stats.ok.toLocaleString(intlLocale())} ok{stats.bad ? ` · ${stats.bad} won’t fit — e.g. ${stats.example}` : ''}
+      {stats.bad
+        ? t('{ok} ok · {bad} won’t fit — e.g. {example}', { ok: stats.ok.toLocaleString(intlLocale()), bad: stats.bad.toLocaleString(intlLocale()), example: tMaybe(stats.example) })
+        : t('{ok} ok', { ok: stats.ok.toLocaleString(intlLocale()) })}
     </p>
   );
 }
@@ -822,7 +828,7 @@ function OptionMapper({ field, values, map, onChange }: { field: Extract<FieldDe
   if (!unknown.length && !mapped.length) return null;
   return (
     <div className="space-y-1 rounded-lg bg-surface-2/60 p-2">
-      <p className="text-xs text-muted">Values that are not options of “{field.label}”:</p>
+      <p className="text-xs text-muted">{t('Values that are not options of “{field}”:', { field: field.label })}</p>
       {[...unknown, ...mapped].map((v) => (
         <div key={v} className="flex items-center gap-2 text-xs">
           <span className="w-32 truncate">{v}</span>
@@ -834,8 +840,8 @@ function OptionMapper({ field, values, map, onChange }: { field: Extract<FieldDe
               onChange(e.target.value === '__' ? rest : { ...rest, [v]: e.target.value || null });
             }}
           >
-            <option value="__">Choose…</option>
-            <option value="">Leave empty</option>
+            <option value="__">{t('Choose…')}</option>
+            <option value="">{t('Leave empty')}</option>
             {field.config.options.map((o) => (
               <option key={o.value} value={o.value}>
                 {o.label}
@@ -867,37 +873,37 @@ function ExtendDialog({ table, type, columns, unitId, variantId, onClose, onDone
       const fields = [...(current?.fields ?? []), ...proposed.map((p) => p.field)];
       return current
         ? api.put<TypeVariant>(`/api/registry/variants/${current.id}`, { name: current.name, description: current.description, sections: current.sections, fields, version: current.version })
-        : api.post<TypeVariant>(`/api/registry/asset-types/${type.id}/variants`, { unitId, name, description: 'Created while importing', sections: [], fields });
+        : api.post<TypeVariant>(`/api/registry/asset-types/${type.id}/variants`, { unitId, name, description: t('Created while importing'), sections: [], fields });
     },
     onSuccess: (v) => {
       void qc.invalidateQueries({ queryKey: keys.variants });
-      toast.success(current ? `Added ${proposed.length} fields to “${v.name}”` : `“${v.name}” created`, { description: 'Edit it any time from the unit’s Templates tab.' });
+      toast.success(current ? plural(proposed.length, 'Added {n} field to “{name}”', 'Added {n} fields to “{name}”', { name: v.name }) : t('“{name}” created', { name: v.name }), { description: t('Edit it any time from the unit’s Templates tab.') });
       onDone(v, new Map(proposed.map((p) => [p.col, p.field.key])));
     },
-    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Could not save the team fields'),
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : t('Could not save the team fields')),
   });
   return (
     <Dialog
       open
       onOpenChange={(o) => !o && onClose()}
-      title={current ? `Add fields to “${current.name}”` : 'Keep these columns as team fields'}
-      description={`A team variant of ${type.name} for ${unitById.get(unitId)?.name}: the template stays the same for everyone else.`}
+      title={current ? t('Add fields to “{name}”', { name: current.name }) : t('Keep these columns as team fields')}
+      description={t('A team variant of {type} for {unit}: the template stays the same for everyone else.', { type: type.name, unit: unitById.get(unitId)?.name ?? '' })}
       footer={
         <>
-          <Button onClick={onClose}>Cancel</Button>
+          <Button onClick={onClose}>{t('Cancel')}</Button>
           <Button variant="primary" loading={save.isPending} disabled={!name.trim()} onClick={() => save.mutate()}>
-            {current ? 'Add fields' : 'Create variant'}
+            {current ? t('Add fields') : t('Create variant')}
           </Button>
         </>
       }
     >
       <div className="space-y-3 text-[13px]">
-        {!current && <Field label="Name of the variant">{(id) => <Input id={id} value={name} onChange={(e) => setName(e.target.value)} />}</Field>}
+        {!current && <Field label={t('Name of the variant')}>{(id) => <Input id={id} value={name} onChange={(e) => setName(e.target.value)} />}</Field>}
         <ul className="divide-y divide-border rounded-lg border border-border">
           {proposed.map((p) => (
             <li key={p.col} className="flex items-center justify-between px-3 py-2">
               <span>{p.field.label}</span>
-              <Badge>{p.field.kind}</Badge>
+              <Badge>{tMaybe(fieldKindMeta[p.field.kind]?.label ?? p.field.kind)}</Badge>
             </li>
           ))}
         </ul>
@@ -973,10 +979,10 @@ function useRows({
       });
       const ownerCell = cell(r, col('owner'));
       const ownerId = ownerCell ? peopleMap.get(ownerCell) : undefined;
-      if (ownerCell && !ownerId) issues.owner = `No person matches “${ownerCell}”`;
+      if (ownerCell && !ownerId) issues.owner = t('No person matches “{value}”', { value: ownerCell });
       const statusCell = cell(r, col('status'));
       const status = statusCell ? type.statuses.find((s) => foldText(s.label) === foldText(statusCell) || s.value === statusCell)?.value : undefined;
-      if (statusCell && !status) issues.status = `“${statusCell}” is not a status of ${type.name}`;
+      if (statusCell && !status) issues.status = t('“{value}” is not a status of {type}', { value: statusCell, type: type.name });
       const unitId = dest.unitMode === 'one' ? dest.unitId : (unitMap[cell(r, col('unit'))] ?? null);
       return {
         line: n + 2,
@@ -1035,7 +1041,7 @@ function ReviewStep(props: {
     try {
       setReview(await sendInChunks(rows, { ...base, dryRun: true }, setProgress));
     } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : 'The check failed');
+      toast.error(e instanceof ApiError ? e.message : t('The check failed'));
     } finally {
       setRunning(null);
     }
@@ -1047,7 +1053,8 @@ function ReviewStep(props: {
 
   const problems = review?.rows.filter((r) => r.action === 'error') ?? [];
   const byLine = new Map(rows.map((r) => [r.line, r]));
-  const label = (k: string) => (k === 'row' ? '' : k === 'owner' ? 'Owner: ' : k === 'status' ? 'Status: ' : k === 'name' ? 'Name: ' : `${schema.fields.find((f) => f.key === k)?.label ?? k}: `);
+  const problem = (k: string, m: string) =>
+    k === 'row' ? m : t('{label}: {message}', { label: k === 'owner' ? t('Owner') : k === 'status' ? t('Status') : k === 'name' ? t('Name') : (schema.fields.find((f) => f.key === k)?.label ?? k), message: m });
   const good = review ? review.counts.create + review.counts.update + review.counts.unchanged : 0;
 
   const run = async () => {
@@ -1062,7 +1069,7 @@ function ReviewStep(props: {
       setTimeout(() => void qc.invalidateQueries({ queryKey: keys.obligations }), 2000);
       onDone(result);
     } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : 'The import failed');
+      toast.error(e instanceof ApiError ? e.message : t('The import failed'));
     } finally {
       setRunning(null);
     }
@@ -1073,19 +1080,19 @@ function ReviewStep(props: {
       <Card className="space-y-4">
         {!ready || running === 'check' || !review ? (
           <div className="space-y-2">
-            <p className="text-[13px] font-medium">{!ready ? 'Matching people and linked items…' : `Checking every row — ${progress.toLocaleString(intlLocale())} of ${rows.length.toLocaleString(intlLocale())}`}</p>
+            <p className="text-[13px] font-medium">{!ready ? t('Matching people and linked items…') : t('Checking every row — {done} of {total}', { done: progress.toLocaleString(intlLocale()), total: rows.length.toLocaleString(intlLocale()) })}</p>
             <div className="h-1.5 overflow-hidden rounded-full bg-surface-2">
               <div className="h-full bg-accent transition-all" style={{ width: `${rows.length ? (progress / rows.length) * 100 : 5}%` }} />
             </div>
-            <p className="text-xs text-muted">Nothing is saved yet: this runs the real import and throws it away, so what you see is exactly what will happen.</p>
+            <p className="text-xs text-muted">{t('Nothing is saved yet: this runs the real import and throws it away, so what you see is exactly what will happen.')}</p>
           </div>
         ) : (
           <>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
-              <Summary tone="success" value={review.counts.create} label="new items" />
-              <Summary tone="accent" value={review.counts.update} label="updated" />
-              <Summary value={review.counts.unchanged} label="already up to date" />
-              <Summary tone={problems.length ? 'warning' : undefined} value={problems.length} label="with problems" />
+              <Summary tone="success" value={review.counts.create} label={t('new items')} />
+              <Summary tone="accent" value={review.counts.update} label={t('updated')} />
+              <Summary value={review.counts.unchanged} label={t('already up to date')} />
+              <Summary tone={problems.length ? 'warning' : undefined} value={problems.length} label={t('with problems')} />
             </div>
             {problems.length > 0 && (
               <>
@@ -1093,9 +1100,9 @@ function ReviewStep(props: {
                   <table className="w-full text-[13px]">
                     <thead className="sticky top-0 bg-surface-2 text-start text-xs text-muted">
                       <tr>
-                        <th className="px-3 py-1.5 font-medium">Row</th>
-                        <th className="px-3 py-1.5 font-medium">Name</th>
-                        <th className="px-3 py-1.5 font-medium">Problem</th>
+                        <th className="px-3 py-1.5 font-medium">{t('Row')}</th>
+                        <th className="px-3 py-1.5 font-medium">{t('Name')}</th>
+                        <th className="px-3 py-1.5 font-medium">{t('Problem')}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1106,8 +1113,7 @@ function ReviewStep(props: {
                           <td className="px-3 py-1.5 text-warning">
                             {Object.entries(p.errors ?? {}).map(([k, m]) => (
                               <span key={k} className="block">
-                                {label(k)}
-                                {m}
+                                {problem(k, m)}
                               </span>
                             ))}
                           </td>
@@ -1121,8 +1127,8 @@ function ReviewStep(props: {
                     value={skipProblems ? 'skip' : 'stop'}
                     onChange={(v) => setSkipProblems(v === 'skip')}
                     options={[
-                      { value: 'skip', label: `Import the ${good.toLocaleString(intlLocale())} good rows` },
-                      { value: 'stop', label: 'Fix the file first' },
+                      { value: 'skip', label: plural(good, 'Import the {n} good row', 'Import the {n} good rows') },
+                      { value: 'stop', label: t('Fix the file first') },
                     ]}
                   />
                   <Button
@@ -1130,20 +1136,20 @@ function ReviewStep(props: {
                     variant="ghost"
                     onClick={() =>
                       downloadCsv(
-                        `${fileName.replace(/\.[^.]+$/, '')} problems`,
-                        ['Row', ...table.headers, 'Problems'],
-                        problems.map((p) => [p.line, ...(table.rows[p.line - 2] ?? []), Object.entries(p.errors ?? {}).map(([k, m]) => `${label(k)}${m}`).join(' | ')]),
+                        t('{file} problems', { file: fileName.replace(/\.[^.]+$/, '') }),
+                        [t('Row'), ...table.headers, t('Problems')],
+                        problems.map((p) => [p.line, ...(table.rows[p.line - 2] ?? []), Object.entries(p.errors ?? {}).map(([k, m]) => problem(k, m)).join(' | ')]),
                       )
                     }
                   >
-                    Download problem rows (CSV)
+                    {t('Download problem rows (CSV)')}
                   </Button>
                 </div>
               </>
             )}
             {running === 'import' && (
               <div className="space-y-1">
-                <p className="text-[13px] font-medium">Importing — {progress.toLocaleString(intlLocale())} rows done</p>
+                <p className="text-[13px] font-medium">{plural(progress, 'Importing — {n} row done', 'Importing — {n} rows done')}</p>
                 <div className="h-1.5 overflow-hidden rounded-full bg-surface-2">
                   <div className="h-full bg-success transition-all" style={{ width: `${(progress / Math.max(1, skipProblems ? good : rows.length)) * 100}%` }} />
                 </div>
@@ -1155,8 +1161,8 @@ function ReviewStep(props: {
       <Nav
         onBack={running ? undefined : onBack}
         onNext={review && (good > 0 || (!skipProblems && rows.length)) && !running ? (skipProblems || !problems.length ? run : undefined) : undefined}
-        nextLabel={`Import ${(skipProblems ? good : rows.length).toLocaleString(intlLocale())} ${type.name.toLowerCase()}${good === 1 ? '' : 's'}`}
-        hint={review ? `Into ${schema.name}${dest.catalogId ? ', in the chosen catalog' : ''}` : undefined}
+        nextLabel={plural(skipProblems ? good : rows.length, 'Import {n} {type}', 'Import {n} {type}s', { type: inSentence(type.name) })}
+        hint={review ? t(dest.catalogId ? 'Into {type}, in the chosen catalog' : 'Into {type}', { type: schema.name }) : undefined}
       />
     </>
   );
@@ -1181,36 +1187,40 @@ function DoneStep({ result, type, onAgain }: { result: ImportResult; type: Asset
     mutationFn: () => api.delete<{ removed: number }>(`/api/registry/imports/${result.batchId}`),
     onSuccess: (r) => {
       setUndone(true);
-      toast.success(`Undone — ${r.removed} items removed`);
+      toast.success(plural(r.removed, 'Undone — {n} item removed', 'Undone — {n} items removed'));
       void qc.invalidateQueries({ queryKey: keys.assets });
       void qc.invalidateQueries({ queryKey: ['imports'] });
     },
-    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Undo failed'),
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : t('Undo failed')),
   });
   return (
     <Card className="space-y-4 text-center">
       <CheckCircle2 className="mx-auto size-8 text-success" />
       <div>
-        <p className="text-[15px] font-semibold">{undone ? 'Import undone' : 'Imported'}</p>
+        <p className="text-[15px] font-semibold">{undone ? t('Import undone') : t('Imported')}</p>
         <p className="text-[13px] text-muted">
-          {result.counts.create.toLocaleString(intlLocale())} added · {result.counts.update.toLocaleString(intlLocale())} updated · {result.counts.unchanged.toLocaleString(intlLocale())} unchanged
-          {result.counts.error ? ` · ${result.counts.error} skipped` : ''}
+          {t(result.counts.error ? '{added} added · {updated} updated · {unchanged} unchanged · {skipped} skipped' : '{added} added · {updated} updated · {unchanged} unchanged', {
+            added: result.counts.create.toLocaleString(intlLocale()),
+            updated: result.counts.update.toLocaleString(intlLocale()),
+            unchanged: result.counts.unchanged.toLocaleString(intlLocale()),
+            skipped: result.counts.error.toLocaleString(intlLocale()),
+          })}
         </p>
-        <p className="mt-1 text-xs text-muted">Their dates are being picked up for reminders now. Each item’s history shows it came from this import.</p>
+        <p className="mt-1 text-xs text-muted">{t('Their dates are being picked up for reminders now. Each item’s history shows it came from this import.')}</p>
       </div>
       <div className="flex flex-wrap justify-center gap-2">
         {!undone && result.counts.create > 0 && (
           <Button variant="primary" onClick={() => void navigate({ to: '/assets', search: { type: type.id, import: result.batchId ?? undefined } })}>
-            See the new items
+            {t('See the new items')}
           </Button>
         )}
         {!undone && result.counts.create > 0 && (
           <Button icon={<Undo2 className="size-3.5" />} loading={undo.isPending} onClick={() => undo.mutate()}>
-            Undo import
+            {t('Undo import')}
           </Button>
         )}
         <Button variant="ghost" onClick={onAgain}>
-          Import another table
+          {t('Import another table')}
         </Button>
       </div>
     </Card>

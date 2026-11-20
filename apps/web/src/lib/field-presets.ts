@@ -1,4 +1,5 @@
 import { fieldKindMeta, type DateKind, type FieldDefinition, type FieldKind } from '@am/core';
+import { t, tMaybe } from './i18n';
 import { slugKey } from './utils';
 
 /**
@@ -6,6 +7,8 @@ import { slugKey } from './utils';
  * template takes a few clicks instead of configuring each field by hand.
  */
 export interface FieldPreset {
+  /** The field's key: stable English, whatever the language of `label`. */
+  key: string;
   label: string;
   kind: FieldKind;
   hint: string;
@@ -17,23 +20,23 @@ export interface FieldPreset {
 }
 
 export const fieldPresets: FieldPreset[] = [
-  { label: 'Vendor', kind: 'text', hint: 'Who you buy it from', showInTable: true },
-  { label: 'Cost', kind: 'currency', hint: 'Counts toward spend', config: { currency: 'USD', countsTowardSpend: true }, showInTable: true },
-  { label: 'Renewal date', kind: 'date', hint: 'Tracked, reminds', dateKind: 'renewal', showInTable: true },
-  { label: 'Expiry date', kind: 'date', hint: 'Tracked, reminds', dateKind: 'expiry', showInTable: true },
-  { label: 'Warranty end', kind: 'date', hint: 'Tracked, reminds', dateKind: 'warranty_end' },
-  { label: 'Purchase date', kind: 'date', hint: 'When it started', dateKind: 'start' },
-  { label: 'Seats', kind: 'number', hint: 'Whole number', config: { integer: true, min: 0 }, showInTable: true },
-  { label: 'Serial number', kind: 'text', hint: 'Single line' },
-  { label: 'Contact', kind: 'user', hint: 'A person to ask' },
-  { label: 'Website', kind: 'url', hint: 'Portal or product page' },
-  { label: 'License key', kind: 'secret', hint: 'Always restricted' },
-  { label: 'Notes', kind: 'longText', hint: 'Anything else' },
+  { key: 'vendor', label: t('Vendor'), kind: 'text', hint: t('Who you buy it from'), showInTable: true },
+  { key: 'cost', label: t('Cost'), kind: 'currency', hint: t('Counts toward spend'), config: { currency: 'USD', countsTowardSpend: true }, showInTable: true },
+  { key: 'renewal_date', label: t('Renewal date'), kind: 'date', hint: t('Tracked, reminds'), dateKind: 'renewal', showInTable: true },
+  { key: 'expiry_date', label: t('Expiry date'), kind: 'date', hint: t('Tracked, reminds'), dateKind: 'expiry', showInTable: true },
+  { key: 'warranty_end', label: t('Warranty end'), kind: 'date', hint: t('Tracked, reminds'), dateKind: 'warranty_end' },
+  { key: 'purchase_date', label: t('Purchase date'), kind: 'date', hint: t('When it started'), dateKind: 'start' },
+  { key: 'seats', label: t('Seats'), kind: 'number', hint: t('Whole number'), config: { integer: true, min: 0 }, showInTable: true },
+  { key: 'serial_number', label: t('Serial number'), kind: 'text', hint: t('Single line') },
+  { key: 'contact', label: t('Contact'), kind: 'user', hint: t('A person to ask') },
+  { key: 'website', label: t('Website'), kind: 'url', hint: t('Portal or product page') },
+  { key: 'license_key', label: t('License key'), kind: 'secret', hint: t('Always restricted') },
+  { key: 'notes', label: t('Notes'), kind: 'longText', hint: t('Anything else') },
 ];
 
 const defaults = (kind: FieldKind): Record<string, unknown> =>
   kind === 'select' || kind === 'multiSelect'
-    ? { options: [{ value: 'option_1', label: 'Option 1' }, { value: 'option_2', label: 'Option 2' }] }
+    ? { options: [{ value: 'option_1', label: t('Option 1') }, { value: 'option_2', label: t('Option 2') }] }
     : kind === 'currency'
       ? { currency: 'USD', countsTowardSpend: false }
       : kind === 'number'
@@ -55,7 +58,9 @@ export function uniqueKey(label: string, existing: ReadonlySet<string>): string 
 export function makeField(from: FieldKind | FieldPreset, existing: ReadonlySet<string>, kinds: readonly DateKind[], label?: string): FieldDefinition {
   const preset = typeof from === 'string' ? undefined : from;
   const kind = preset?.kind ?? (from as FieldKind);
-  const name = label ?? preset?.label ?? fieldKindMeta[kind].label;
+  const name = label ?? preset?.label ?? tMaybe(fieldKindMeta[kind].label);
+  // Keys stay English (and readable) when the label is the preset's or the kind's translated name.
+  const keyFrom = label ?? preset?.key ?? fieldKindMeta[kind].label;
   const config: Record<string, unknown> = { ...defaults(kind), ...preset?.config };
   const dateKind = preset?.dateKind && kinds.find((k) => k.key === preset.dateKind);
   if (dateKind)
@@ -66,7 +71,7 @@ export function makeField(from: FieldKind | FieldPreset, existing: ReadonlySet<s
     };
   return {
     id: crypto.randomUUID(),
-    key: uniqueKey(name, existing),
+    key: uniqueKey(keyFrom, existing),
     label: name,
     required: preset?.required ?? false,
     restricted: false,

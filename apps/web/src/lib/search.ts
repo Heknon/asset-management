@@ -1,5 +1,6 @@
 import { foldText, searchTerms, type OrgUnit, type SearchHit, type UserSummary } from '@am/core';
 import { useMemo } from 'react';
+import { tMaybe } from './i18n';
 import { useLookups, usePeopleSearch, useSearch } from './queries';
 
 /**
@@ -20,7 +21,7 @@ export function useUniversalSearch(q: string, limit = 8) {
           .filter((u: OrgUnit) => !u.archived && terms.every((t) => foldText(unitPathNames(u.id).join(' ')).includes(t)))
           .sort((a, b) => a.path.length - b.path.length)
           .slice(0, limit)
-          .map((u) => ({ kind: 'unit', id: u.id, title: u.name, subtitle: unitPathNames(u.id).slice(0, -1).join(' › ') || u.kind, snippet: null, unitId: u.id }))
+          .map((u) => ({ kind: 'unit', id: u.id, title: u.name, subtitle: unitPathNames(u.id).slice(0, -1).join(' › ') || tMaybe(u.kind), snippet: null, unitId: u.id }))
       : [];
     const personHits: SearchHit[] =
       query.length >= 2

@@ -8,6 +8,7 @@ import { HitIcon, hitLink } from '@/components/search-hit';
 import { Card, EmptyState, PageHeader, Spinner } from '@/components/ui/display';
 import { Input } from '@/components/ui/form';
 import { useUniversalSearch } from '@/lib/search';
+import { t } from '@/lib/i18n';
 
 function Section({ title, hits, more }: { title: string; hits: SearchHit[]; more?: ReactNode }) {
   if (!hits.length) return null;
@@ -55,33 +56,33 @@ export function SearchPage() {
 
   return (
     <>
-      <PageHeader title="Search" description="Every field of every asset you can see, plus requests, teams and people. Partial words and small typos are fine.">
+      <PageHeader title={t('Search')} description={t('Every field of every asset you can see, plus requests, teams and people. Partial words and small typos are fine.')}>
         <div className="relative max-w-2xl">
           <Search className="pointer-events-none absolute top-1/2 start-3 size-4 -translate-y-1/2 text-subtle" />
-          <Input autoFocus className="h-11 ps-10 text-[15px]" placeholder="Try “adobe”, a serial number, a person, “renews march”…" value={q} onChange={(e) => setQ(e.target.value)} />
+          <Input autoFocus className="h-11 ps-10 text-[15px]" placeholder={t('Try “adobe”, a serial number, a person, “renews march”…')} value={q} onChange={(e) => setQ(e.target.value)} />
           {r.loading && <Spinner className="absolute top-1/2 end-3 -translate-y-1/2" />}
         </div>
       </PageHeader>
       <div className="mx-auto w-full max-w-4xl space-y-6 px-4 sm:px-6 py-6">
         {!debounced.trim() ? (
-          <EmptyState icon={<Search />} title="Search everything" description="Names, vendors, serials, phone numbers, license tiers, owners, teams — any field except restricted ones." />
+          <EmptyState icon={<Search />} title={t('Search everything')} description={t('Names, vendors, serials, phone numbers, license tiers, owners, teams — any field except restricted ones.')} />
         ) : r.empty ? (
-          <EmptyState icon={<Inbox />} title={`Nothing found for “${debounced}”`} description="Try fewer or shorter words. Restricted fields such as license keys aren’t searchable." />
+          <EmptyState icon={<Inbox />} title={t('Nothing found for “{query}”', { query: debounced })} description={t('Try fewer or shorter words. Restricted fields such as license keys aren’t searchable.')} />
         ) : (
           <>
             <Section
-              title="Assets"
+              title={t('Assets')}
               hits={r.assets}
               more={
                 <Link to="/assets" search={{ q: debounced }} className="text-xs text-accent-fg hover:underline">
-                  Open in the asset table
+                  {t('Open in the asset table')}
                 </Link>
               }
             />
-            <Section title="Requests" hits={r.requests} />
-            <Section title="Teams & units" hits={r.units} />
-            <Section title="People" hits={r.people} />
-            <Section title="Asset types" hits={r.types} />
+            <Section title={t('Requests')} hits={r.requests} />
+            <Section title={t('Teams & units')} hits={r.units} />
+            <Section title={t('People')} hits={r.people} />
+            <Section title={t('Asset types')} hits={r.types} />
           </>
         )}
       </div>

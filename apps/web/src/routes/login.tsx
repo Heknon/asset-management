@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/display';
 import { Field, Input, Segmented } from '@/components/ui/form';
 import { api, ApiError, isUnreachable } from '@/lib/api';
+import { t } from '@/lib/i18n';
 import { keys, useProviders } from '@/lib/queries';
 import { inBrowser } from '@/lib/run-mode';
 import { LocalSignIn } from '@/components/local-sign-in';
@@ -37,7 +38,7 @@ export function LoginPage() {
     e.preventDefault();
     if (active === 'local' || active === 'ldap') login.mutate({ provider: active, username, password });
   };
-  const error = login.error instanceof ApiError ? login.error.message : login.error ? 'Sign-in failed' : search.error;
+  const error = login.error instanceof ApiError ? login.error.message : login.error ? t('Sign-in failed') : search.error;
 
   return (
     <div className="flex min-h-full items-center justify-center bg-bg px-4 py-10">
@@ -46,12 +47,12 @@ export function LoginPage() {
           <div className="mb-4 flex size-11 items-center justify-center rounded-xl bg-accent text-white shadow-pop">
             <Shapes className="size-5" />
           </div>
-          <h1 className="text-xl font-semibold tracking-tight">Sign in to Assets</h1>
-          <p className="mt-1 text-[13px] text-muted">Licenses, contracts and everything you renew.</p>
+          <h1 className="text-xl font-semibold tracking-tight">{t('Sign in to Assets')}</h1>
+          <p className="mt-1 text-[13px] text-muted">{t('Licenses, contracts and everything you renew.')}</p>
         </div>
         {isUnreachable(providers.error) && (
           <p role="alert" className="mb-4 rounded-xl bg-warning-soft px-4 py-3 text-[13px] text-warning">
-            Can’t reach the Assets server, so signing in won’t work right now. It may be restarting, or this address serves only the web app.
+            {t('Can’t reach the Assets server, so signing in won’t work right now. It may be restarting, or this address serves only the web app.')}
           </p>
         )}
         {/* In the browser, one-click sign-in comes first; the form below is for any other account. */}
@@ -66,7 +67,7 @@ export function LoginPage() {
           )}
           {redirect && passwordProviders.length > 0 && (
             <div className="flex items-center gap-3 text-xs text-subtle">
-              <span className="h-px flex-1 bg-border" /> or <span className="h-px flex-1 bg-border" />
+              <span className="h-px flex-1 bg-border" /> {t('or')} <span className="h-px flex-1 bg-border" />
             </div>
           )}
           {passwordProviders.length > 0 && (
@@ -74,17 +75,17 @@ export function LoginPage() {
               {passwordProviders.length > 1 && (
                 <Segmented className="w-full [&>button]:flex-1" value={active!} onChange={setProvider} options={passwordProviders.map((p) => ({ value: p.id, label: p.label }))} />
               )}
-              <Field label="Username">
-                {(id) => <Input id={id} autoFocus autoComplete="username" value={username} placeholder={active === 'ldap' ? 'jdoe or CORP\\jdoe' : 'admin'} onChange={(e) => setUsername(e.target.value)} />}
+              <Field label={t('Username')}>
+                {(id) => <Input id={id} autoFocus autoComplete="username" value={username} placeholder={active === 'ldap' ? t('jdoe or CORP\\jdoe') : 'admin'} onChange={(e) => setUsername(e.target.value)} />}
               </Field>
-              <Field label="Password">{(id) => <Input id={id} type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />}</Field>
+              <Field label={t('Password')}>{(id) => <Input id={id} type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />}</Field>
               {error && <p className="rounded-lg bg-danger-soft px-3 py-2 text-xs text-danger">{error}</p>}
               <Button type="submit" variant="primary" className="w-full justify-center" loading={login.isPending} disabled={!username || !password}>
-                Sign in
+                {t('Sign in')}
               </Button>
             </form>
           )}
-          {providers.isSuccess && !providers.data.length && <p className="text-center text-[13px] text-muted">No sign-in method is configured.</p>}
+          {providers.isSuccess && !providers.data.length && <p className="text-center text-[13px] text-muted">{t('No sign-in method is configured.')}</p>}
           {providers.isLoading && (
             <div className="flex justify-center py-6">
               <Spinner />
