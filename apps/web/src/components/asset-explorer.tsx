@@ -18,6 +18,7 @@ import { Button } from './ui/button';
 import { BulkActions } from './bulk-actions';
 import { DataTable, ExportButton, exportRows, type DataColumn, type SortState } from './ui/data-table';
 import { downloadUrl } from '@/lib/download';
+import { useMediaQuery } from '@/lib/hooks';
 import { EmptyState } from './ui/display';
 import { Checkbox, Field, Input, Select } from './ui/form';
 import { Dialog, Popover } from './ui/overlay';
@@ -40,10 +41,17 @@ function matchedPart(snippet: string): string {
  * `visible` (column ids, in order) is the person's own choice; without it the
  * template's "Show as table column" fields are shown.
  */
-function columnsFor(type: AssetType | undefined, variant: TypeVariant | undefined, lookups: ReturnType<typeof useLookups>, searching: boolean, visible?: string[]) {
+function columnsFor(type: AssetType | undefined, variant: TypeVariant | undefined, lookups: ReturnType<typeof useLookups>, searching: boolean, visible?: string[], width: 'narrow' | 'medium' | 'wide' = 'wide') {
+  const compact = width !== 'wide';
+  /** Left out by default when space is short (in this order), still offered in the Columns menu. */
+  const dropped = width === 'narrow' ? ['updated', 'owner', 'kind'] : width === 'medium' ? ['updated'] : [];
   const all = allColumnsFor(type, variant, lookups, searching);
   const fields = [...(type?.fields ?? []), ...(variant?.fields ?? [])];
-  const defaults = all.filter((c) => !c.id!.startsWith('attributes.') || fields.filter((f) => f.showInTable).slice(0, 6).some((f) => `attributes.${f.key}` === c.id)).map((c) => c.id!);
+  // Narrower screens (tablets) start with fewer columns so the table fits; the Columns menu still offers every one.
+  const shownFields = fields.filter((f) => f.showInTable).slice(0, width === 'narrow' ? 2 : compact ? 3 : 6);
+  const defaults = all
+    .filter((c) => (c.id!.startsWith('attributes.') ? shownFields.some((f) => `attributes.${f.key}` === c.id) : !dropped.includes(c.id!)))
+    .map((c) => c.id!);
   const chosen = visible?.length ? ['name', ...visible.filter((id) => id !== 'name')].filter((id) => all.some((c) => c.id === id)) : defaults;
   return { all, defaults, columns: chosen.map((id) => all.find((c) => c.id === id)!) };
 }
@@ -68,7 +76,7 @@ function allColumnsFor(type: AssetType | undefined, variant: TypeVariant | undef
           <span className="flex min-w-0 items-start gap-2.5">
             {!type && t && <TypeIcon icon={t.icon} color={t.color} size={22} />}
             <span className="min-w-0">
-              <span className="flex max-w-80 items-baseline gap-1.5">
+              <span className="flex max-w-56 items-baseline gap-1.5 xl:max-w-80">
                 <span className="truncate font-medium">{row.original.name}</span>
                 <span className="shrink-0 font-mono text-[11px] text-subtle">{row.original.reference}</span>
               </span>
@@ -80,13 +88,22 @@ function allColumnsFor(type: AssetType | undefined, variant: TypeVariant | undef
     },
     ...(type
       ? []
-      : [{ id: 'type', header: 'Type', meta: { sortKey: 'type', csvValue: (a: Asset) => lookups.schemaOf(a.assetTypeId, a.variantId)?.name }, cell: ({ row }: { row: { original: Asset } }) => <span className="text-muted">{lookups.schemaOf(row.original.assetTypeId, row.original.variantId)?.name}</span> }]),
+      : [{ id: 'type', header: 'Type', meta: { sortKey: 'type', csvValue: (a: Asset) => lookups.schemaOf(a.assetTypeId, a.variantId)?.name }, cell: ({ row }: { row: { original: Asset } }) => {
+            const name = lookups.schemaOf(row.original.assetTypeId, row.original.variantId)?.name;
+            return (
+              <span className="block max-w-32 truncate text-muted xl:max-w-none" title={name}>
+                {name}
+              </span>
+            );
+          },
+        },
+      ]),
     ...(type && !variant && lookups.variants.some((v) => v.assetTypeId === type.id)
       ? [{ id: 'kind', header: 'Kind', cell: ({ row }: { row: { original: Asset } }) => <span className="text-muted">{row.original.variantId ? lookups.variantById.get(row.original.variantId)?.name : 'Standard'}</span> }]
       : []),
     { id: 'status', header: 'Status', meta: { sortKey: 'status', csvValue: (a: Asset) => lookups.typeById.get(a.assetTypeId)?.statuses.find((x) => x.value === a.status)?.label ?? a.status }, cell: ({ row }) => <StatusBadge type={lookups.typeById.get(row.original.assetTypeId)} status={row.original.status} /> },
     ...fieldCols,
-    { id: 'unit', header: 'Team', meta: { sortKey: 'unit', csvValue: (a: Asset) => (lookups.unitById.get(a.unitId)?.path ?? []).map((id) => lookups.unitById.get(id)?.name).join(' > ') }, cell: ({ row }) => <UnitPath id={row.original.unitId} className="max-w-56" /> },
+    { id: 'unit', header: 'Team', meta: { sortKey: 'unit', csvValue: (a: Asset) => (lookups.unitById.get(a.unitId)?.path ?? []).map((id) => lookups.unitById.get(id)?.name).join(' > ') }, cell: ({ row }) => <UnitPath id={row.original.unitId} className="max-w-40 xl:max-w-56" /> },
     { id: 'owner', header: 'Owner', meta: { sortKey: 'owner' }, cell: ({ row }) => <PersonName id={row.original.ownerId} /> },
     { id: 'updated', header: 'Updated', meta: { sortKey: 'updatedAt', csvValue: (a: Asset) => a.updatedAt }, cell: ({ row }) => <span className="text-muted">{formatDateTime(row.original.updatedAt)}</span> },
   ];
@@ -218,7 +235,11 @@ export function AssetExplorer({
   const variant = query.variantId ? lookups.variantById.get(query.variantId) : undefined;
   const typeVariants = type ? lookups.variants.filter((v) => v.assetTypeId === type.id && !v.archived) : [];
   const chosenColumns = query.columns ?? (view ? undefined : rememberedColumns(query.assetTypeId));
-  const layout = useMemo(() => columnsFor(type, variant, lookups, !!search, chosenColumns), [type, variant, lookups, search, JSON.stringify(chosenColumns)]);
+  // By the room the table gets: from 1024px the sidebar takes 16rem, so landscape tablets have less room than portrait ones.
+  const narrow = useMediaQuery('(max-width: 1279px)');
+  const medium = useMediaQuery('(max-width: 1535px)');
+  const width = narrow ? 'narrow' : medium ? 'medium' : 'wide';
+  const layout = useMemo(() => columnsFor(type, variant, lookups, !!search, chosenColumns, width), [type, variant, lookups, search, JSON.stringify(chosenColumns), width]);
   const columns = layout.columns;
   const setColumns = (ids: string[] | undefined) => {
     if (!view) rememberColumns(query.assetTypeId, ids);
