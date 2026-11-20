@@ -1,0 +1,244 @@
+# ─── Images ──────────────────────────────────────────────────────────────────
+image:
+  # Our images are named <registry>/<prefix><component>:<tag>, e.g. .../asset-management-registry:0.1.0.
+  # Air-gapped: the Artifactory Docker repository CI pushes to (IMAGE_REGISTRY in .gitlab-ci.yml).
+  registry: image-registry.openshift-image-registry.svc:5000/asset-management
+  prefix: asset-management-
+  tag: ""                     # defaults to the chart appVersion
+  pullPolicy: IfNotPresent
+  # e.g. [{ name: artifactory-pull }] — a dockerconfigjson Secret for the registries above.
+  pullSecrets: []
+  # Third-party images (in-cluster Postgres and MinIO) are pulled from this mirror instead of
+  # their public registries when set, e.g. artifactory.example.com/docker-remote.
+  mirrorRegistry: ""
+
+# Externally visible URL of the app (used for links in emails, OIDC redirects, calendar feeds).
+publicUrl: https://assets.apps.example.com
+
+# ─── Exposure ────────────────────────────────────────────────────────────────
+route:
+  enabled: true               # OpenShift Route to the web component
+  host: ""                    # empty = cluster-generated host
+  annotations: {}
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+
+ingress:
+  enabled: false              # for non-OpenShift clusters
+  className: ""
+  host: assets.example.com
+  annotations: {}
+  tlsSecretName: ""
+
+# ─── Data stores ─────────────────────────────────────────────────────────────
+# managed: true  → an external service (Crunchy/CloudNativePG, RDS, Azure, …) — DATABASE_URL
+#                  comes from the secrets Secret.
+# managed: false → the chart runs a single PostgreSQL StatefulSet in the namespace and
+#                  generates its password (kept across upgrades). Good for small or test installs.
+postgresql:
+  managed: true
+  inCluster:
+    image:
+      registry: registry.redhat.io
+      repository: rhel9/postgresql-16
+      tag: latest
+    database: assets
+    username: assets
+    storage: 10Gi
+    storageClass: ""           # empty = cluster default
+    resources:
+      requests: { cpu: 100m, memory: 256Mi }
+      limits: { memory: 1Gi }
+
+# managed: true  → an S3 bucket (AWS, ODF/NooBaa, Ceph, …) set under services.files.env, keys in
+#                  the secrets Secret; Terraform's document-bucket module creates one on AWS.
+# managed: false → the chart runs MinIO in the namespace, generates its keys, creates the bucket,
+#                  and exposes it on its own Route so browsers can upload and preview directly.
+objectStorage:
+  managed: true
+  inCluster:
+    image:
+      registry: quay.io
+      repository: minio/minio
+      tag: RELEASE.2025-04-22T22-12-26Z
+    bucket: asset-management-documents
+    storage: 20Gi
+    storageClass: ""
+    # Host of the Route browsers use for presigned URLs; empty = cluster-generated.
+    # Set it when you need a stable value for web.s3Origin's Content-Security-Policy.
+    publicHost: ""
+    resources:
+      requests: { cpu: 50m, memory: 256Mi }
+      limits: { memory: 1Gi }
+
+# ─── Configuration ───────────────────────────────────────────────────────────
+# Non-secret settings shared by every backend service.
+config:
+  LOG_LEVEL: info
+  DATABASE_SSL: "true"
+  DATABASE_POOL_MAX: "10"
+
+# Secrets are read from an existing Secret (created by Terraform, Vault, ExternalSecrets, ...).
+# Each service only receives the keys it lists under `secretKeys`.
+secrets:
+  existingSecret: asset-management
+  # For throwaway environments only: let the chart create the Secret from `values`.
+  create: false
+  values: {}
+
+# ─── Components ──────────────────────────────────────────────────────────────
+# Every backend service shares one template; only these values differ.
+services:
+  identity:
+    replicas: 2
+    env:
+      # Sign-in methods, comma-separated: manual (accounts kept here), ldap, adfs. Empty = the *_ENABLED switches below.
+      AUTH_MODE: manual
+      SESSION_TTL_HOURS: "12"
+      ACCESS_TOKEN_TTL_SECONDS: "900"
+      LOCAL_AUTH_ENABLED: "true"
+      LOCAL_ADMIN_USERNAME: admin
+      LDAP_ENABLED: "false"
+      LDAP_LABEL: Corporate directory
+      LDAP_URL: ldaps://ad.example.com:636
+      LDAP_BIND_DN: CN=svc-assets,OU=Service Accounts,DC=corp,DC=example,DC=com
+      LDAP_USER_BASE_DN: OU=Users,DC=corp,DC=example,DC=com
+      LDAP_ADMIN_GROUPS: CN=Asset Admins,OU=Groups,DC=corp,DC=example,DC=com
+      # User attributes that place people in org units, matched as attribute=value on a unit's directory links.
+      LDAP_UNIT_ATTRIBUTES: department
+      OIDC_ENABLED: "false"
+      OIDC_LABEL: Sign in with ADFS
+      OIDC_ISSUER: https://adfs.example.com/adfs
+      OIDC_CLIENT_ID: asset-management
+      OIDC_ADMIN_GROUPS: Asset Admins
+      OIDC_UNIT_CLAIMS: department
+    secretKeys: [DATABASE_URL, AUTH_SIGNING_KEY, COOKIE_SECRET, LOCAL_ADMIN_PASSWORD, LDAP_BIND_PASSWORD, LDAP_CA_CERT, OIDC_CLIENT_SECRET, AUTH_GOOGLE_SECRET, AUTH_SECRET]
+    resources:
+      requests: { cpu: 50m, memory: 128Mi }
+      limits: { memory: 384Mi }
+  registry:
+    replicas: 2
+    env:
+      # CSV export of tables (for anyone who can see the rows). "false" hides it for everyone.
+      CSV_EXPORT_ENABLED: "true"
+    secretKeys: [DATABASE_URL]
+    resources:
+      requests: { cpu: 100m, memory: 160Mi }
+      limits: { memory: 512Mi }
+  files:
+    replicas: 2
+    env:
+      S3_BUCKET: asset-management-documents
+      S3_REGION: us-east-1
+      S3_ENDPOINT: ""          # set for S3-compatible storage (ODF/NooBaa, Ceph, MinIO)
+      S3_PUBLIC_ENDPOINT: ""   # set when browsers reach storage under a different URL
+      S3_FORCE_PATH_STYLE: "false"
+      S3_SSE: AES256           # none for MinIO / Ceph without a KMS
+      S3_CREATE_BUCKET: "false" # true creates the bucket on start if it is missing
+      MAX_UPLOAD_BYTES: "52428800"
+      URL_TTL_SECONDS: "300"
+    secretKeys: [DATABASE_URL, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY, S3_KMS_KEY_ID]
+    resources:
+      requests: { cpu: 50m, memory: 128Mi }
+      limits: { memory: 384Mi }
+  scheduler:
+    replicas: 2                # cron runs once per tick across replicas
+    env:
+      MAIL_FROM: Asset Management <assets@example.com>
+      REMINDER_TIMEZONE: UTC
+      DISPATCH_CRON: "*/15 * * * *"
+      # Shared mailboxes told about every new request.
+      REQUEST_INBOX_EMAILS: procurement@example.com
+    secretKeys: [DATABASE_URL, SMTP_URL]
+    resources:
+      requests: { cpu: 50m, memory: 128Mi }
+      limits: { memory: 384Mi }
+
+  # MCP server for AI assistants (Claude, IDEs, any MCP client) at <publicUrl>/mcp. People connect
+  # a client by signing in and pressing Accept; it then acts with exactly their access.
+  mcp:
+    enabled: true
+    replicas: 2
+    env: {}
+    secretKeys: [DATABASE_URL]
+    resources:
+      requests: { cpu: 50m, memory: 128Mi }
+      limits: { memory: 384Mi }
+
+web:
+  replicas: 2
+  # Origin browsers use for presigned S3 URLs (allowed by the Content-Security-Policy).
+  # With in-cluster storage this defaults to its Route (objectStorage.inCluster.publicHost).
+  s3Origin: https://asset-management-documents.s3.us-east-1.amazonaws.com
+  resources:
+    requests: { cpu: 20m, memory: 32Mi }
+    limits: { memory: 128Mi }
+
+# ─── Observability (all opt-in) ──────────────────────────────────────────────
+observability:
+  environment: production          # deployment.environment.name on traces
+  logs:
+    format: json                   # json | ecs (Elastic Common Schema, links logs to Elastic APM traces)
+  metrics:
+    enabled: false                 # serve Prometheus metrics on :8080/metrics
+    interval: 30s
+    # Pick whichever your cluster runs (both can be on):
+    serviceMonitor:                # Prometheus Operator / OpenShift user-workload monitoring
+      enabled: false
+      labels: {}
+    vmServiceScrape:               # VictoriaMetrics operator
+      enabled: false
+      labels: {}
+    prometheusRule:                # alerts (VictoriaMetrics' operator converts PrometheusRule too)
+      enabled: false
+      labels: {}
+    grafanaDashboard:              # ConfigMap picked up by the Grafana sidecar / grafana-operator
+      enabled: false
+      labels:
+        grafana_dashboard: "1"
+    # Namespaces allowed to scrape (NetworkPolicy). OpenShift monitoring by default.
+    scraperNamespaceSelector:
+      matchLabels:
+        network.openshift.io/policy-group: monitoring
+  tracing:
+    enabled: false
+    # otlp: any OpenTelemetry collector (Jaeger, Tempo, Grafana Alloy, Datadog, …)
+    # elastic: Elastic APM Server / Elastic Agent APM integration (native OTLP intake)
+    backend: otlp
+    endpoint: http://otel-collector.observability.svc:4318
+    protocol: http/protobuf        # http/protobuf | grpc (grpc endpoint usually :4317)
+    samplingRatio: "0.1"           # parent-based: follows upstream decisions, samples 10% of new traces
+    elastic:
+      serverUrl: https://apm.example.com:8200
+    # Auth headers (e.g. "Authorization=Bearer <APM secret token>" or "Authorization=ApiKey <key>")
+    # are read from the secrets Secret, key OTEL_EXPORTER_OTLP_HEADERS.
+
+# ─── Platform ────────────────────────────────────────────────────────────────
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 75
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+networkPolicy:
+  enabled: true
+  # Namespaces allowed to reach the web pods (the OpenShift router by default).
+  ingressNamespaceSelector:
+    matchLabels:
+      network.openshift.io/policy-group: ingress
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpread: true

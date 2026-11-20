@@ -1,0 +1,19 @@
+import { formatReference, withVariant, type AssetType, type TypeVariant } from '@am/core';
+import type { RegistryStore } from './ports.js';
+
+/** What an item follows: its template plus its team variant's fields. */
+export interface ItemSchema {
+  type: AssetType;
+  variant: TypeVariant | null;
+  /** Template + variant fields; named after the variant ("Design license") when there is one. */
+  schema: AssetType;
+}
+
+export async function itemSchema(store: RegistryStore, assetTypeId: string, variantId: string | null | undefined): Promise<ItemSchema | null> {
+  const type = await store.getType(assetTypeId);
+  if (!type) return null;
+  const variant = variantId ? await store.getVariant(variantId) : null;
+  return { type, variant, schema: variant ? { ...withVariant(type, variant), name: variant.name } : type };
+}
+
+export const referenceOf = (type: Pick<AssetType, 'refPrefix'>, refNo: number) => formatReference(type.refPrefix, refNo);

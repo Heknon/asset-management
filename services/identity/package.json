@@ -1,0 +1,26 @@
+{
+  "name": "@am/identity",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "PORT=4001 bun --watch --env-file=../../.env src/main.ts",
+    "migrate": "bun --env-file=../../.env src/main.ts migrate",
+    "build": "bun ../../scripts/build-service.mjs"
+  },
+  "dependencies": {
+    "@am/core": "workspace:*",
+    "@am/platform": "workspace:*",
+    "fastify": "~5.6.2",
+    "jose": "^6.2.18",
+    "kysely": "0.28.20",
+    "ldapts": "^8.2.0",
+    "openid-client": "6.9.0",
+    "pino": "^9.14.0",
+    "zod": "3.25.76"
+  },
+  "exports": {
+    "./service": "./src/service.ts",
+    "./node": "./src/node.ts"
+  }
+}

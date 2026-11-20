@@ -1,0 +1,168 @@
+@import '@fontsource-variable/inter';
+/* Hebrew: Heebo pairs with Inter (similar proportions); bundled, so air-gapped installs need no font CDN. */
+@import '@fontsource-variable/heebo';
+@import 'tailwindcss';
+
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+/* Fingers, not mice: phones and tablets get bigger targets and always-visible controls. */
+@custom-variant touch (@media (pointer: coarse));
+
+/* Semantic tokens; components only ever use these names. */
+:root {
+  --bg: #fbfbfc;
+  --surface: #ffffff;
+  --surface-2: #f4f5f7;
+  --surface-3: #eceef2;
+  --border: #e4e6eb;
+  --border-strong: #d3d6dd;
+  --text: #0f1115;
+  --text-muted: #5f6672;
+  --text-subtle: #8b919c;
+  --accent: #5b5bd6;
+  --accent-hover: #4c4cc4;
+  --accent-soft: #eeeefc;
+  --accent-text: #4646b8;
+  --danger: #e5484d;
+  --danger-soft: #fdecec;
+  --warning: #f59e0b;
+  --warning-soft: #fef5e3;
+  --success: #12a594;
+  --success-soft: #e4f7f4;
+  --ring: rgb(91 91 214 / 0.35);
+  --shadow-pop: 0 1px 2px rgb(15 17 21 / 0.04), 0 8px 24px -6px rgb(15 17 21 / 0.12);
+  color-scheme: light;
+}
+
+[data-theme='dark'] {
+  --bg: #0d0e11;
+  --surface: #131418;
+  --surface-2: #1a1c21;
+  --surface-3: #22252b;
+  --border: #262930;
+  --border-strong: #343842;
+  --text: #ecedef;
+  --text-muted: #a0a5ae;
+  --text-subtle: #6f7580;
+  --accent: #7172e8;
+  --accent-hover: #8384f0;
+  --accent-soft: #1e1f3a;
+  --accent-text: #a3a4f7;
+  --danger: #f2555a;
+  --danger-soft: #3a1618;
+  --warning: #f5b440;
+  --warning-soft: #36280f;
+  --success: #2bc4ae;
+  --success-soft: #0f2e2a;
+  --ring: rgb(113 114 232 / 0.45);
+  --shadow-pop: 0 1px 2px rgb(0 0 0 / 0.3), 0 12px 32px -8px rgb(0 0 0 / 0.6);
+  color-scheme: dark;
+}
+
+@theme inline {
+  --font-sans: 'Inter Variable', 'Heebo Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-fg: var(--text);
+  --color-muted: var(--text-muted);
+  --color-subtle: var(--text-subtle);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-fg: var(--accent-text);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --shadow-pop: var(--shadow-pop);
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-bg text-fg font-sans antialiased;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-text-size-adjust: 100%;
+    overscroll-behavior-y: none;
+    font-size: 14px;
+    font-feature-settings: 'cv11', 'ss01';
+  }
+  * {
+    @apply border-border;
+  }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 1px;
+  }
+  ::selection {
+    background: var(--accent-soft);
+  }
+}
+
+/*
+ * A user-chosen colour (a type's, a date kind's) as a soft tile with coloured
+ * text. Dark mode lifts the text and the tint so dark hues stay readable.
+ */
+.tint {
+  background: color-mix(in srgb, var(--c) 12%, transparent);
+  color: var(--c);
+}
+[data-theme='dark'] .tint {
+  background: color-mix(in srgb, var(--c) 22%, transparent);
+  color: color-mix(in oklab, var(--c) 62%, white);
+}
+
+@keyframes overlay-in {
+  from { opacity: 0; }
+}
+@keyframes panel-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+}
+@keyframes drawer-in {
+  from { transform: translateX(-100%); }
+}
+@keyframes rise-in {
+  from { transform: translateY(24px); opacity: 0; }
+}
+@keyframes sheet-in {
+  from { transform: translateX(24px); opacity: 0; }
+}
+.animate-overlay { animation: overlay-in 140ms ease-out; }
+.animate-panel { animation: panel-in 160ms cubic-bezier(0.16, 1, 0.3, 1); }
+.animate-drawer { animation: drawer-in 220ms cubic-bezier(0.16, 1, 0.3, 1); }
+.animate-dialog { animation: rise-in 200ms cubic-bezier(0.16, 1, 0.3, 1); }
+@media (min-width: 40rem) {
+  .animate-dialog { animation: panel-in 160ms cubic-bezier(0.16, 1, 0.3, 1); }
+}
+.animate-sheet { animation: sheet-in 200ms cubic-bezier(0.16, 1, 0.3, 1); }
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-overlay, .animate-panel, .animate-dialog, .animate-sheet, .animate-drawer { animation: none; }
+}
+
+/* Right-to-left: arrows and chevrons point the way the text reads. */
+[dir='rtl'] :is(.lucide-chevron-right, .lucide-chevron-left, .lucide-arrow-right, .lucide-arrow-left, .lucide-chevrons-right, .lucide-chevrons-left, .lucide-arrow-up-right, .lucide-corner-down-left, .lucide-undo-2, .lucide-redo-2, .lucide-log-out, .lucide-external-link) {
+  transform: scaleX(-1);
+}
+/* Hebrew reads best a touch larger and looser than Latin at the same size. */
+:root[lang='he'] body {
+  line-height: 1.55;
+}
+
+/*
+ * Mixed languages: on Hebrew pages, names, titles and descriptions typed in English (or the other
+ * way round) take their direction from their own text, so punctuation sits on the right side and
+ * long English names are cut at their end ("Load-testing tool…"), not their start.
+ */
+[dir='rtl'] :is(p, h1, h2, h3, .truncate, li) {
+  unicode-bidi: plaintext;
+}

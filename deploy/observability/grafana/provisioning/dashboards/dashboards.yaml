@@ -1,0 +1,7 @@
+apiVersion: 1
+providers:
+  # The same dashboard the Helm chart ships (deploy/helm/asset-management/dashboards).
+  - name: asset-management
+    type: file
+    options:
+      path: /var/lib/grafana/dashboards

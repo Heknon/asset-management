@@ -1,0 +1,14 @@
+Asset Management {{ .Chart.AppVersion }} is deployed as release "{{ .Release.Name }}".
+
+  URL:      {{ include "am.publicUrl" . }}
+  Secret:   {{ .Values.secrets.existingSecret }} (must contain DATABASE_URL, AUTH_SIGNING_KEY, COOKIE_SECRET, SMTP_URL, and S3 / LDAP / OIDC keys as enabled)
+
+Check rollout:
+  oc get pods -l app.kubernetes.io/instance={{ .Release.Name }}
+  oc logs deploy/{{ include "am.fullname" . }}-identity -c migrate
+
+{{- if and .Values.services.identity.env.OIDC_ENABLED (eq (toString .Values.services.identity.env.OIDC_ENABLED) "true") }}
+
+ADFS: register the relying party redirect URI
+  {{ include "am.publicUrl" . }}/api/identity/auth/oidc/callback
+{{- end }}

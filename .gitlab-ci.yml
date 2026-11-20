@@ -1,0 +1,226 @@
+# Asset Management on GitLab, for an air-gapped network:
+#   verify  install from Artifactory, typecheck, unit tests, Helm lint, Terraform validate
+#   build   one image per component with Buildah (rootless), pushed to Artifactory
+#   deploy  Terraform → one Helm release (six Deployments) on OpenShift — branch main only
+#
+# Nothing is fetched from the internet. Set these as CI/CD variables (Settings → CI/CD →
+# Variables); mark tokens and passwords Masked + Protected:
+#
+#   Artifactory (packages and base images)
+#     NPM_REGISTRY            npm remote, e.g. https://artifactory.example.com/artifactory/api/npm/npm-remote/
+#     NPM_AUTH_TOKEN          token for it (masked)
+#     DOCKER_MIRROR           Docker Hub remote, e.g. artifactory.example.com/docker-remote
+#     QUAY_MIRROR             quay.io remote (Buildah, MinIO)
+#     REDHAT_MIRROR           registry.access.redhat.com / registry.redhat.io remote (UBI, PostgreSQL)
+#     ARTIFACTORY_USER        user for pulling base images from the mirrors
+#     ARTIFACTORY_TOKEN       its token (masked)
+#     TF_PROVIDER_MIRROR      Terraform provider network mirror,
+#                             e.g. https://artifactory.example.com/artifactory/api/terraform/terraform-remote/providers/
+#
+#   Where images are pushed (and pulled from by OpenShift)
+#     IMAGE_REGISTRY          e.g. artifactory.example.com/docker-local/asset-management
+#     IMAGE_REGISTRY_USER     push credentials
+#     IMAGE_REGISTRY_PASSWORD (masked)
+#     PULL_USER / PULL_PASSWORD   read-only credentials OpenShift pulls with (default: the push ones)
+#     THIRD_PARTY_MIRROR      only with in-cluster data stores: a (virtual) Docker repository serving
+#                             rhel9/postgresql-16 and minio/minio, e.g. artifactory.example.com/docker-virtual
+#
+#   OpenShift and the app (deploy job)
+#     OPENSHIFT_SERVER        https://api.ocp.example.com:6443
+#     OPENSHIFT_TOKEN         token of a service account allowed to deploy to the namespace (masked)
+#     OPENSHIFT_CA            CA bundle of the API server (File variable); omit to use the system trust
+#     TF_VAR_public_url       https://assets.apps.ocp.example.com
+#     TF_VAR_namespace        asset-management
+#     TF_VAR_auth_mode        manual | ldap | adfs, comma-separated (e.g. "ldap,adfs")
+#     TF_VAR_managed_postgres        true (use TF_VAR_database_url) | false (PostgreSQL in the namespace)
+#     TF_VAR_object_storage   s3 (any S3-compatible: your MinIO, ODF/NooBaa, Ceph) | in-cluster (MinIO in the
+#                             namespace) | aws (Terraform creates an AWS bucket)
+#     TF_VAR_s3               with "s3": { endpoint, bucket, browser_origin, access_key_id, … } (masked)
+#     TF_VAR_database_url     when managed_postgres (masked)
+#     TF_VAR_smtp_url         mail relay for reminders (masked)
+#     TF_VAR_ldap / TF_VAR_oidc   HCL objects, as in terraform.tfvars.example (masked)
+#   Terraform state is kept in GitLab's own Terraform state (no extra service needed).
+
+stages: [verify, build, deploy]
+
+variables:
+  DOCKER_MIRROR: docker.io
+  QUAY_MIRROR: quay.io
+  REDHAT_MIRROR: registry.access.redhat.com
+  BUN_VERSION: "1.4.4"
+  TERRAFORM_VERSION: "1.9.8"
+  IMAGE_TAG: $CI_COMMIT_SHORT_SHA
+  TF_ROOT: deploy/terraform/environments/production
+  TF_STATE_NAME: production
+  GIT_DEPTH: "20"
+
+default:
+  interruptible: true
+  retry:
+    max: 1
+    when: [runner_system_failure, stuck_or_timeout_failure]
+
+# Bun reads the registry from BUN_CONFIG_REGISTRY and the token from .npmrc.
+.bun-registry: &bun-registry
+  - |
+    if [ -n "${NPM_REGISTRY:-}" ]; then
+      export BUN_CONFIG_REGISTRY="$NPM_REGISTRY" NPM_CONFIG_REGISTRY="$NPM_REGISTRY"
+      printf '//%s:_authToken=%s\n' "${NPM_REGISTRY#*://}" "${NPM_AUTH_TOKEN:-}" > .npmrc
+    fi
+
+# Terraform providers from the Artifactory network mirror instead of registry.terraform.io.
+.terraform-mirror: &terraform-mirror
+  - |
+    if [ -n "${TF_PROVIDER_MIRROR:-}" ]; then
+      host="$(echo "$TF_PROVIDER_MIRROR" | sed -E 's#^https?://([^/]+).*#\1#')"
+      cat > "$HOME/.terraformrc" <<EOF
+    provider_installation {
+      network_mirror { url = "$TF_PROVIDER_MIRROR" }
+    }
+    EOF
+      # Credentials for the mirror host: TF_TOKEN_<host with dots as underscores>.
+      export "TF_TOKEN_$(echo "$host" | tr '.-' '__')=${ARTIFACTORY_TOKEN:-}"
+    fi
+
+# ─── verify ──────────────────────────────────────────────────────────────────
+
+test:
+  stage: verify
+  image: $DOCKER_MIRROR/oven/bun:$BUN_VERSION
+  cache:
+    key: { files: [bun.lock] }
+    paths: [.bun-cache/]
+  variables:
+    BUN_INSTALL_CACHE_DIR: $CI_PROJECT_DIR/.bun-cache
+  script:
+    - *bun-registry
+    - bun install --frozen-lockfile
+    - bun run typecheck
+    - bun scripts/i18n-check.mjs   # every UI string has its Hebrew translation
+    - bun test
+
+helm-lint:
+  stage: verify
+  image: { name: $DOCKER_MIRROR/alpine/helm:3.16.4, entrypoint: [''] }
+  script:
+    - helm lint deploy/helm/asset-management --set publicUrl=https://assets.example.com
+    - helm lint deploy/helm/asset-management --set publicUrl=https://assets.example.com --set postgresql.managed=false --set objectStorage.managed=false
+    - helm template ci deploy/helm/asset-management --set publicUrl=https://assets.example.com --kube-version 1.29.0 > /dev/null
+
+terraform-validate:
+  stage: verify
+  image: { name: $DOCKER_MIRROR/hashicorp/terraform:$TERRAFORM_VERSION, entrypoint: [''] }
+  script:
+    - *terraform-mirror
+    - terraform fmt -check -recursive deploy/terraform
+    - cd "$TF_ROOT" && terraform init -backend=false -input=false && terraform validate
+
+# ─── build ───────────────────────────────────────────────────────────────────
+# Rootless Buildah (no Docker daemon, no privileged runner): vfs storage, chroot isolation.
+
+images:
+  stage: build
+  image: $QUAY_MIRROR/buildah/stable:v1.38
+  needs: [test]
+  parallel:
+    matrix:
+      - COMPONENT: [identity, registry, files, scheduler, mcp, web]
+  variables:
+    STORAGE_DRIVER: vfs
+    BUILDAH_ISOLATION: chroot
+    BUILDAH_FORMAT: docker
+  script:
+    - |
+      set -eu
+      registry_host() { echo "${1%%/*}"; }
+      # Base images come from the mirrors, which need credentials too.
+      for mirror in "$DOCKER_MIRROR" "$QUAY_MIRROR" "$REDHAT_MIRROR"; do
+        if [ -n "${ARTIFACTORY_USER:-}" ] && [ "$(registry_host "$mirror")" != docker.io ]; then
+          echo "$ARTIFACTORY_TOKEN" | buildah login -u "$ARTIFACTORY_USER" --password-stdin "$(registry_host "$mirror")" || true
+        fi
+      done
+      echo "$IMAGE_REGISTRY_PASSWORD" | buildah login -u "$IMAGE_REGISTRY_USER" --password-stdin "$(registry_host "$IMAGE_REGISTRY")"
+    - *bun-registry
+    - touch .npmrc
+    - |
+      if [ "$COMPONENT" = web ]; then target=web; else target=service; fi
+      image="$IMAGE_REGISTRY/asset-management-$COMPONENT"
+      buildah build \
+        --layers --target "$target" \
+        --build-arg SERVICE="$COMPONENT" \
+        --build-arg BUN_IMAGE="$DOCKER_MIRROR/oven/bun:$BUN_VERSION-alpine" \
+        --build-arg NODE_IMAGE="$DOCKER_MIRROR/library/node:22.20.0-alpine" \
+        --build-arg SERVICE_BASE_IMAGE="$REDHAT_MIRROR/ubi9/nodejs-22-minimal:latest" \
+        --build-arg WEB_BASE_IMAGE="$DOCKER_MIRROR/nginxinc/nginx-unprivileged:1.27-alpine" \
+        --build-arg NPM_REGISTRY="${NPM_REGISTRY:-}" \
+        --secret id=npmrc,src=.npmrc \
+        --label org.opencontainers.image.revision="$CI_COMMIT_SHA" \
+        --label org.opencontainers.image.source="$CI_PROJECT_URL" \
+        -t "$image:$IMAGE_TAG" .
+      buildah push "$image:$IMAGE_TAG"
+      if [ "$CI_COMMIT_BRANCH" = main ]; then
+        buildah tag "$image:$IMAGE_TAG" "$image:latest"
+        buildah push "$image:latest"
+      fi
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH
+
+# ─── deploy ──────────────────────────────────────────────────────────────────
+
+deploy:
+  stage: deploy
+  image: { name: $DOCKER_MIRROR/hashicorp/terraform:$TERRAFORM_VERSION, entrypoint: [''] }
+  needs: [images, helm-lint, terraform-validate]
+  resource_group: production
+  environment:
+    name: production
+    url: $TF_VAR_public_url
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+  variables:
+    TF_VAR_image_tag: $IMAGE_TAG
+    TF_VAR_kubeconfig_path: $CI_PROJECT_DIR/.kubeconfig
+    TF_VAR_kubeconfig_context: ci
+  script:
+    - *terraform-mirror
+    - |
+      set -eu
+      # Kubeconfig for the deploy service account.
+      {
+        echo "apiVersion: v1"
+        echo "kind: Config"
+        echo "clusters: [{ name: ocp, cluster: { server: \"$OPENSHIFT_SERVER\"$( [ -n "${OPENSHIFT_CA:-}" ] && echo ", certificate-authority: \"$OPENSHIFT_CA\"" ) } }]"
+        echo "users: [{ name: deployer, user: { token: \"$OPENSHIFT_TOKEN\" } }]"
+        echo "contexts: [{ name: ci, context: { cluster: ocp, user: deployer, namespace: \"${TF_VAR_namespace:-asset-management}\" } }]"
+        echo "current-context: ci"
+      } > "$TF_VAR_kubeconfig_path"
+      # Images and pull credentials (Artifactory) for the release.
+      export TF_VAR_image_registry="$IMAGE_REGISTRY"
+      # In-cluster PostgreSQL (rhel9/postgresql-16) and MinIO (minio/minio) images, when those are used.
+      export TF_VAR_mirror_registry="${THIRD_PARTY_MIRROR:-}"
+      export TF_VAR_image_pull_secret="{ server = \"${IMAGE_REGISTRY%%/*}\", username = \"${PULL_USER:-$IMAGE_REGISTRY_USER}\", password = \"${PULL_PASSWORD:-$IMAGE_REGISTRY_PASSWORD}\" }"
+    - cd "$TF_ROOT"
+    # GitLab-managed Terraform state.
+    - |
+      cat > backend_override.tf <<'EOF'
+      terraform {
+        backend "http" {}
+      }
+      EOF
+    - >
+      terraform init -input=false
+      -backend-config="address=${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/terraform/state/${TF_STATE_NAME}"
+      -backend-config="lock_address=${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/terraform/state/${TF_STATE_NAME}/lock"
+      -backend-config="unlock_address=${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/terraform/state/${TF_STATE_NAME}/lock"
+      -backend-config="username=gitlab-ci-token"
+      -backend-config="password=${CI_JOB_TOKEN}"
+      -backend-config="lock_method=POST"
+      -backend-config="unlock_method=DELETE"
+      -backend-config="retry_wait_min=5"
+    - terraform plan -input=false -out=plan.tfplan
+    - terraform apply -input=false plan.tfplan
+    - terraform output -raw url && echo
+    - terraform output -raw mcp_url && echo
+  after_script:
+    - rm -f "$CI_PROJECT_DIR/.kubeconfig"

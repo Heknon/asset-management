@@ -1,0 +1,28 @@
+{
+  "name": "@am/scheduler",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "PORT=4004 bun --watch --env-file=../../.env src/main.ts",
+    "migrate": "bun --env-file=../../.env src/main.ts migrate",
+    "build": "bun ../../scripts/build-service.mjs"
+  },
+  "dependencies": {
+    "@am/core": "workspace:*",
+    "@am/platform": "workspace:*",
+    "fastify": "~5.6.2",
+    "kysely": "0.28.20",
+    "nodemailer": "7.0.13",
+    "pg-boss": "10.4.2",
+    "pino": "^9.14.0",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@types/nodemailer": "^7.0.12"
+  },
+  "exports": {
+    "./service": "./src/service.ts",
+    "./node": "./src/node.ts"
+  }
+}

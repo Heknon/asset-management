@@ -1,0 +1,257 @@
+{{- /*
+In-cluster data stores, for clusters without managed ones (postgresql.managed /
+objectStorage.managed = false): a single PostgreSQL StatefulSet and a single
+MinIO, each with a generated password kept across upgrades. Production setups
+usually point at managed services instead (the default).
+*/ -}}
+{{- $fullname := include "am.fullname" . -}}
+{{- if not .Values.postgresql.managed }}
+{{- $pg := .Values.postgresql.inCluster }}
+{{- $name := printf "%s-postgresql" $fullname }}
+{{- $password := include "am.persistentSecret" (dict "root" . "name" $name "key" "POSTGRESQL_PASSWORD") }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "am.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql
+  annotations:
+    helm.sh/resource-policy: keep
+type: Opaque
+stringData:
+  POSTGRESQL_USER: {{ $pg.username | quote }}
+  POSTGRESQL_PASSWORD: {{ $password | quote }}
+  POSTGRESQL_DATABASE: {{ $pg.database | quote }}
+  DATABASE_URL: {{ printf "postgres://%s:%s@%s:5432/%s" $pg.username $password $name $pg.database | quote }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "am.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql
+spec:
+  selector:
+    {{- include "am.selectorLabels" (dict "root" . "name" "postgresql") | nindent 4 }}
+  ports:
+    - { name: postgres, port: 5432, targetPort: postgres }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "am.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql
+spec:
+  serviceName: {{ $name }}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "am.selectorLabels" (dict "root" . "name" "postgresql") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "am.selectorLabels" (dict "root" . "name" "postgresql") | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        {{- include "am.podSecurityContext" . | nindent 8 }}
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: postgresql
+          # Red Hat's image runs as any UID (OpenShift restricted-v2) and initialises from these variables.
+          image: {{ include "am.thirdPartyImage" (dict "root" . "image" $pg.image) }}
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - secretRef: { name: {{ $name }} }
+          ports:
+            - { name: postgres, containerPort: 5432, protocol: TCP }
+          readinessProbe:
+            exec: { command: [pg_isready, -h, 127.0.0.1, -p, "5432"] }
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket: { port: postgres }
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+          resources:
+            {{- toYaml $pg.resources | nindent 12 }}
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/pgsql/data }
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        {{- with $pg.storageClass }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests: { storage: {{ $pg.storage }} }
+{{- if .Values.networkPolicy.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}-ingress
+  labels:
+    {{- include "am.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "am.selectorLabels" (dict "root" . "name" "postgresql") | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - { port: 5432, protocol: TCP }
+{{- end }}
+{{- end }}
+{{- if not .Values.objectStorage.managed }}
+{{- $s3 := .Values.objectStorage.inCluster }}
+{{- $name := printf "%s-minio" $fullname }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "am.labels" . | nindent 4 }}
+    app.kubernetes.io/component: minio
+  annotations:
+    helm.sh/resource-policy: keep
+type: Opaque
+stringData:
+  MINIO_ROOT_USER: assets
+  MINIO_ROOT_PASSWORD: {{ include "am.persistentSecret" (dict "root" . "name" $name "key" "MINIO_ROOT_PASSWORD") | quote }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "am.labels" . | nindent 4 }}
+    app.kubernetes.io/component: minio
+spec:
+  selector:
+    {{- include "am.selectorLabels" (dict "root" . "name" "minio") | nindent 4 }}
+  ports:
+    - { name: s3, port: 9000, targetPort: s3 }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "am.labels" . | nindent 4 }}
+    app.kubernetes.io/component: minio
+spec:
+  serviceName: {{ $name }}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "am.selectorLabels" (dict "root" . "name" "minio") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "am.selectorLabels" (dict "root" . "name" "minio") | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        {{- include "am.podSecurityContext" . | nindent 8 }}
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: minio
+          image: {{ include "am.thirdPartyImage" (dict "root" . "image" $s3.image) }}
+          imagePullPolicy: IfNotPresent
+          args: [server, /data, --certs-dir, /tmp/certs]
+          env:
+            - { name: HOME, value: /tmp }
+            - { name: MINIO_BROWSER, value: "off" }
+          envFrom:
+            - secretRef: { name: {{ $name }} }
+          ports:
+            - { name: s3, containerPort: 9000, protocol: TCP }
+          readinessProbe:
+            httpGet: { path: /minio/health/ready, port: s3 }
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /minio/health/live, port: s3 }
+            periodSeconds: 10
+          securityContext:
+            {{- include "am.containerSecurityContext" . | nindent 12 }}
+          resources:
+            {{- toYaml $s3.resources | nindent 12 }}
+          volumeMounts:
+            - { name: data, mountPath: /data }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - { name: tmp, emptyDir: { sizeLimit: 64Mi } }
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        {{- with $s3.storageClass }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests: { storage: {{ $s3.storage }} }
+{{- if .Values.route.enabled }}
+---
+# Browsers upload to and preview from storage directly, with short-lived presigned URLs.
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "am.labels" . | nindent 4 }}
+  annotations:
+    haproxy.router.openshift.io/timeout: 300s
+spec:
+  host: {{ include "am.storageHost" . }}
+  to: { kind: Service, name: {{ $name }}, weight: 100 }
+  port: { targetPort: s3 }
+  tls:
+    {{- toYaml .Values.route.tls | nindent 4 }}
+  wildcardPolicy: None
+{{- end }}
+{{- if .Values.networkPolicy.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}-ingress
+  labels:
+    {{- include "am.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "am.selectorLabels" (dict "root" . "name" "minio") | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: {{ .Release.Name }}
+        - namespaceSelector:
+            {{- toYaml .Values.networkPolicy.ingressNamespaceSelector | nindent 12 }}
+      ports:
+        - { port: 9000, protocol: TCP }
+{{- end }}
+{{- end }}

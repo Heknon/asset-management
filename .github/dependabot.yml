@@ -1,0 +1,10 @@
+# Managed by project-kit (kit sync): new kit releases arrive as pull requests.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      project-kit:
+        patterns: ["Heknon/project-kit/*"]

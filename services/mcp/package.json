@@ -1,0 +1,24 @@
+{
+  "name": "@am/mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "PORT=4005 bun --watch --env-file=../../.env src/main.ts",
+    "migrate": "bun --env-file=../../.env src/main.ts migrate",
+    "build": "bun ../../scripts/build-service.mjs"
+  },
+  "dependencies": {
+    "@am/core": "workspace:*",
+    "@am/platform": "workspace:*",
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "fastify": "~5.6.2",
+    "jose": "^6.2.18",
+    "kysely": "0.28.20",
+    "pino": "^9.14.0",
+    "zod": "3.25.76"
+  },
+  "exports": {
+    "./service": "./src/service.ts"
+  }
+}

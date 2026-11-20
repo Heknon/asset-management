@@ -1,0 +1,66 @@
+# Copy to terraform.tfvars (git-ignored values belong in your secret store or TF_VAR_* env vars).
+kubeconfig_context = "asset-management/api-ocp-example-com:6443/admin"
+public_url         = "https://assets.apps.ocp.example.com"
+image_tag          = "0.1.0"
+reminder_timezone  = "Europe/London"
+mail_from          = "Asset Management <assets@example.com>"
+
+# Data stores. Nothing here is tied to a cloud:
+#   PostgreSQL: any server reachable at database_url (Crunchy, CloudNativePG, RDS, Azure, your own VM…),
+#               or managed_postgres = false to run it in the namespace.
+#   Documents:  object_storage = "s3" (any S3-compatible service), "in-cluster" (MinIO in the namespace)
+#               or "aws" (Terraform creates the bucket on AWS).
+# managed_postgres = false   # then database_url is not needed
+object_storage = "s3"
+s3 = {
+  # Your MinIO / OpenShift Data Foundation (NooBaa) / Ceph RGW endpoint; omit endpoint for AWS S3.
+  endpoint          = "https://minio.corp.example.com"
+  bucket            = "asset-management-documents"
+  browser_origin    = "https://minio.corp.example.com" # browsers upload and preview directly
+  force_path_style  = true
+  access_key_id     = "CHANGE_ME"
+  secret_access_key = "CHANGE_ME"
+  sse               = "none" # MinIO / Ceph without a KMS
+  create_bucket     = true
+}
+
+# Sign-in: manual accounts, the directory, ADFS, or a mix.
+auth_mode = "ldap,adfs"
+
+# Air-gapped: images come from Artifactory (CI pushes them there).
+# image_registry    = "artifactory.example.com/docker-local/asset-management"
+# mirror_registry   = "artifactory.example.com/docker-remote"
+# image_pull_secret = { server = "artifactory.example.com", username = "svc-openshift", password = "CHANGE_ME" }
+
+# Prefer TF_VAR_database_url / TF_VAR_smtp_url over writing these here.
+database_url = "postgres://assets:CHANGE_ME@postgres.example.com:5432/assets?sslmode=require"
+smtp_url     = "smtp://relay.corp.example.com:25"
+
+ldap = {
+  enabled       = true
+  url           = "ldaps://ad.corp.example.com:636"
+  bind_dn       = "CN=svc-assets,OU=Service Accounts,DC=corp,DC=example,DC=com"
+  bind_password = "CHANGE_ME"
+  user_base_dn  = "OU=Users,DC=corp,DC=example,DC=com"
+  admin_groups  = ["CN=Asset Admins,OU=Groups,DC=corp,DC=example,DC=com"]
+}
+
+oidc = {
+  enabled       = true
+  issuer        = "https://adfs.corp.example.com/adfs"
+  client_id     = "asset-management"
+  client_secret = "CHANGE_ME"
+  groups_claim  = "group"
+  admin_groups  = ["Asset Admins"]
+}
+
+# Optional: observability (passed straight to the Helm chart). Example for OpenShift
+# user-workload monitoring + Elastic APM; put "Authorization=Bearer <token>" in the
+# app Secret under OTEL_EXPORTER_OTLP_HEADERS.
+# extra_values = {
+#   observability = {
+#     logs    = { format = "ecs" }
+#     metrics = { enabled = true, serviceMonitor = { enabled = true }, prometheusRule = { enabled = true } }
+#     tracing = { enabled = true, backend = "elastic", elastic = { serverUrl = "https://apm.corp.example.com:8200" } }
+#   }
+# }

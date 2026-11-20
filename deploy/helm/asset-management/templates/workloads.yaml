@@ -1,0 +1,227 @@
+{{- /*
+One template renders every component (5 backend services + web): ConfigMap,
+Deployment, Service, PodDisruptionBudget and HorizontalPodAutoscaler.
+*/ -}}
+{{- $root := . -}}
+{{- $fullname := include "am.fullname" . -}}
+{{- $components := list -}}
+{{- range $name, $svc := .Values.services }}
+{{- if ne (toString $svc.enabled) "false" }}
+{{- $components = append $components (dict "name" $name "backend" true "spec" $svc) -}}
+{{- end }}
+{{- end }}
+{{- $dbSecret := include "am.databaseSecret" . -}}
+{{- $storageSecret := printf "%s-minio" $fullname -}}
+{{- $inClusterStorage := not .Values.objectStorage.managed -}}
+{{- $storageUrl := printf "https://%s" (include "am.storageHost" .) -}}
+{{- $components = append $components (dict "name" "web" "backend" false "spec" .Values.web) -}}
+
+{{- range $c := $components }}
+{{- $ctx := dict "root" $root "name" $c.name }}
+{{- $env := dict }}
+{{- if $c.backend }}
+{{- $stores := dict }}
+{{- if not $root.Values.postgresql.managed }}{{- $_ := set $stores "DATABASE_SSL" "false" }}{{- end }}
+{{- $env = mergeOverwrite (include "am.backendEnv" $root | fromYaml) (include "am.otelEnv" $ctx | fromYaml | default dict) $stores ($c.spec.env | default dict) }}
+{{- if and (eq $c.name "files") $inClusterStorage }}
+{{- /* In-cluster MinIO: path-style URLs, no SSE (MinIO has no KMS here), bucket made on start. */ -}}
+{{- $env = mergeOverwrite $env (dict "S3_BUCKET" $root.Values.objectStorage.inCluster.bucket "S3_ENDPOINT" (printf "http://%s-minio:9000" $fullname) "S3_PUBLIC_ENDPOINT" $storageUrl "S3_FORCE_PATH_STYLE" "true" "S3_SSE" "none" "S3_CREATE_BUCKET" "true") }}
+{{- end }}
+{{- else }}
+{{- $env = dict "IDENTITY_UPSTREAM" (printf "%s-identity:8080" $fullname) "REGISTRY_UPSTREAM" (printf "%s-registry:8080" $fullname) "FILES_UPSTREAM" (printf "%s-files:8080" $fullname) "SCHEDULER_UPSTREAM" (printf "%s-scheduler:8080" $fullname) "MCP_UPSTREAM" (printf "%s-mcp:8080" $fullname) "S3_ORIGIN" (ternary $storageUrl $c.spec.s3Origin $inClusterStorage) }}
+{{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "am.component" $ctx }}
+  labels:
+    {{- include "am.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: {{ $c.name }}
+data:
+  {{- range $k, $v := $env }}
+  {{- if ne (toString $v) "" }}
+  {{ $k }}: {{ $v | toString | quote }}
+  {{- end }}
+  {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "am.component" $ctx }}
+  labels:
+    {{- include "am.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: {{ $c.name }}
+spec:
+  {{- if not $root.Values.autoscaling.enabled }}
+  replicas: {{ $c.spec.replicas | default 1 }}
+  {{- end }}
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxUnavailable: 0, maxSurge: 1 }
+  selector:
+    matchLabels:
+      {{- include "am.selectorLabels" $ctx | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "am.selectorLabels" $ctx | nindent 8 }}
+      annotations:
+        checksum/config: {{ toJson $env | sha256sum }}
+        {{- with $root.Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "am.serviceAccountName" $root }}
+      automountServiceAccountToken: false
+      securityContext:
+        {{- include "am.podSecurityContext" $root | nindent 8 }}
+      {{- with $root.Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if $c.backend }}
+      # Each service migrates its own schema before it starts (Kysely holds a lock, so replicas are safe).
+      initContainers:
+        - name: migrate
+          image: {{ include "am.image" $ctx }}
+          imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+          args: [migrate]
+          envFrom:
+            - configMapRef: { name: {{ include "am.component" $ctx }} }
+          env:
+            - name: DATABASE_URL
+              valueFrom: { secretKeyRef: { name: {{ $dbSecret }}, key: DATABASE_URL } }
+          securityContext:
+            {{- include "am.containerSecurityContext" $root | nindent 12 }}
+          resources:
+            {{- toYaml $c.spec.resources | nindent 12 }}
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      {{- end }}
+      containers:
+        - name: {{ $c.name }}
+          image: {{ include "am.image" $ctx }}
+          imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+          ports:
+            - { name: http, containerPort: 8080, protocol: TCP }
+          envFrom:
+            - configMapRef: { name: {{ include "am.component" $ctx }} }
+          {{- if $c.backend }}
+          env:
+            {{- $keys := $c.spec.secretKeys }}
+            {{- if $root.Values.observability.tracing.enabled }}{{ $keys = append $keys "OTEL_EXPORTER_OTLP_HEADERS" }}{{ end }}
+            {{- range $key := $keys }}
+            {{- if eq $key "DATABASE_URL" }}
+            - name: DATABASE_URL
+              valueFrom: { secretKeyRef: { name: {{ $dbSecret }}, key: DATABASE_URL } }
+            {{- else if and $inClusterStorage (has $key (list "S3_ACCESS_KEY_ID" "S3_SECRET_ACCESS_KEY")) }}
+            - name: {{ $key }}
+              valueFrom: { secretKeyRef: { name: {{ $storageSecret }}, key: {{ ternary "MINIO_ROOT_USER" "MINIO_ROOT_PASSWORD" (eq $key "S3_ACCESS_KEY_ID") }} } }
+            {{- else }}
+            - name: {{ $key }}
+              valueFrom:
+                secretKeyRef: { name: {{ $root.Values.secrets.existingSecret }}, key: {{ $key }}, optional: true }
+            {{- end }}
+            {{- end }}
+          {{- end }}
+          startupProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 2
+            failureThreshold: 30
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: { path: {{ ternary "/readyz" "/healthz" $c.backend }}, port: http }
+            periodSeconds: 5
+          securityContext:
+            {{- include "am.containerSecurityContext" $root | nindent 12 }}
+          resources:
+            {{- toYaml $c.spec.resources | nindent 12 }}
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+            {{- if not $c.backend }}
+            - { name: nginx-cache, mountPath: /var/cache/nginx }
+            - { name: nginx-conf, mountPath: /etc/nginx/conf.d }
+            {{- end }}
+      volumes:
+        - { name: tmp, emptyDir: { sizeLimit: 64Mi } }
+        {{- if not $c.backend }}
+        - { name: nginx-cache, emptyDir: { sizeLimit: 64Mi } }
+        - { name: nginx-conf, emptyDir: { sizeLimit: 1Mi } }
+        {{- end }}
+      {{- if $root.Values.topologySpread }}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              {{- include "am.selectorLabels" $ctx | nindent 14 }}
+      {{- end }}
+      {{- with $root.Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $root.Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $root.Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "am.component" $ctx }}
+  labels:
+    {{- include "am.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: {{ $c.name }}
+    {{- if $c.backend }}
+    asset-management.io/metrics: {{ $root.Values.observability.metrics.enabled | toString | quote }}
+    {{- end }}
+spec:
+  selector:
+    {{- include "am.selectorLabels" $ctx | nindent 4 }}
+  ports:
+    - { name: http, port: 8080, targetPort: http }
+{{- if $root.Values.podDisruptionBudget.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "am.component" $ctx }}
+  labels:
+    {{- include "am.labels" $root | nindent 4 }}
+spec:
+  minAvailable: {{ $root.Values.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "am.selectorLabels" $ctx | nindent 6 }}
+{{- end }}
+{{- if $root.Values.autoscaling.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "am.component" $ctx }}
+  labels:
+    {{- include "am.labels" $root | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "am.component" $ctx }}
+  minReplicas: {{ $root.Values.autoscaling.minReplicas }}
+  maxReplicas: {{ $root.Values.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: {{ $root.Values.autoscaling.targetCPUUtilizationPercentage }} }
+{{- end }}
+{{- end }}

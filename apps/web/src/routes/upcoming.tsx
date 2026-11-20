@@ -1,0 +1,277 @@
+import { addDuration, type Obligation, type RenewalDecision } from '@am/core';
+import { AnswerDialog } from '@/components/renewal-check';
+import { CircleHelp } from 'lucide-react';
+import { formatDate } from '@/lib/utils';
+import { useMyOrg } from '@/lib/org';
+import { CheckCircle2, Inbox } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { DateKindBadge } from '@/components/badges';
+import { ObligationList } from '@/components/obligations';
+import { Card, EmptyState, PageHeader, Skeleton, Stat } from '@/components/ui/display';
+import { Segmented, Select } from '@/components/ui/form';
+import { useAssetTypes, useAssets, useDateKinds, useMe, useObligations, useRequestCounts, useRequests, useSummary, useUnits } from '@/lib/queries';
+import { useNewRequest } from '@/components/request-form';
+import { RequestStatusBadge } from '@/components/badges';
+import { Button } from '@/components/ui/button';
+import { Link } from '@tanstack/react-router';
+import { ArrowRight, Plus, ShoppingCart } from 'lucide-react';
+import { cn, formatMoney, todayIso } from '@/lib/utils';
+import { plural, t, tMaybe } from '@/lib/i18n';
+
+/** How many items a group shows before "Show all". */
+const PREVIEW = 8;
+
+const groupsOf = (items: Obligation[], today: string) => {
+  const week = addDuration(today, { amount: 7, unit: 'day' });
+  const month = addDuration(today, { amount: 30, unit: 'day' });
+  return [
+    { key: 'overdue', title: t('Overdue'), items: items.filter((o) => o.dueDate < today) },
+    { key: 'week', title: t('Next 7 days'), items: items.filter((o) => o.dueDate >= today && o.dueDate <= week) },
+    { key: 'month', title: t('Next 30 days'), items: items.filter((o) => o.dueDate > week && o.dueDate <= month) },
+    { key: 'later', title: t('Later'), items: items.filter((o) => o.dueDate > month) },
+  ].filter((g) => g.items.length);
+};
+
+/**
+ * A brand-new install: three steps to a working setup, for the people who can do them.
+ * Each step ticks off as it is done; the card goes away once all three are.
+ */
+function GetStarted() {
+  const { canManageOrganization } = useMyOrg();
+  const units = useUnits();
+  const types = useAssetTypes();
+  const assets = useAssets({ limit: 1 });
+  if (!canManageOrganization || !units.data || !types.data || !assets.data) return null;
+  const steps = [
+    { done: units.data.length > 0, title: t('Set up your organization'), text: t('Add the company, divisions and teams, or import your org chart.'), to: '/settings/organization', cta: t('Organization') },
+    { done: types.data.length > 0, title: t('Create a template'), text: t('Choose what you track — licenses, contracts, equipment — from a ready-made template or your own.'), to: '/templates', cta: t('Templates') },
+    { done: assets.data.total > 0, title: t('Add your items'), text: t('Add them one by one, or import a spreadsheet you already keep.'), to: '/import', cta: t('Import') },
+  ];
+  if (steps.every((st) => st.done)) return null;
+  return (
+    <Card className="space-y-4">
+      <div>
+        <h2 className="text-[15px] font-semibold">{t('Get started')}</h2>
+        <p className="text-[13px] text-muted">{t('Three steps and renewals start showing up here, with reminders by email.')}</p>
+      </div>
+      <ol className="grid gap-3 md:grid-cols-3">
+        {steps.map((st, i) => (
+          <li key={st.to} className={cn('flex flex-col gap-2 rounded-xl border p-4', st.done ? 'border-border bg-surface-2/50' : 'border-border-strong')}>
+            <div className="flex items-center gap-2">
+              {st.done ? <CheckCircle2 className="size-5 text-success" /> : <span className="flex size-5 items-center justify-center rounded-full bg-accent text-[11px] font-semibold text-white">{i + 1}</span>}
+              <span className={cn('text-[13px] font-semibold', st.done && 'text-muted line-through')}>{st.title}</span>
+            </div>
+            <p className="flex-1 text-xs text-muted">{st.text}</p>
+            {!st.done && (
+              <Link to={st.to} className="inline-flex items-center gap-1 self-start text-[13px] font-medium text-accent hover:underline">
+                {st.cta}
+                <ArrowRight className="size-3.5" />
+              </Link>
+            )}
+          </li>
+        ))}
+      </ol>
+    </Card>
+  );
+}
+
+export function UpcomingPage() {
+  const me = useMe().data!;
+  const [scope, setScope] = useState<'all' | 'mine'>('all');
+  const [kind, setKind] = useState('');
+  const [check, setCheck] = useState<'' | 'asked' | 'answered'>('');
+  const kinds = useDateKinds();
+  const summary = useSummary({ mine: scope === 'mine' });
+  const today = todayIso();
+  const obligations = useObligations({ state: 'active', to: addDuration(today, { amount: 1, unit: 'year' }), mine: scope === 'mine', dateKindId: kind || undefined, check: check || undefined, limit: 500 });
+  const groups = useMemo(() => groupsOf(obligations.data?.items ?? [], today), [obligations.data, today]);
+  // Long groups show their first items; "Show all" opens the rest in place.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const jump = (key: string) => () => document.getElementById(`due-${key}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const canEdit = useCanEditObligation();
+  const spend = summary.data?.spend[0];
+  const hour = new Date().getHours();
+
+  return (
+    <>
+      <PageHeader
+        title={t(hour < 12 ? 'Good morning, {name}' : hour < 18 ? 'Good afternoon, {name}' : 'Good evening, {name}', { name: tMaybe(me.displayName).split(' ')[0] })}
+        description={t('Renewals, deadlines and expiries that need attention.')}
+        actions={
+          <>
+            <Select className="w-auto" value={kind} onChange={(e) => setKind(e.target.value)}>
+              <option value="">{t('All date kinds')}</option>
+              {(kinds.data ?? [])
+                .filter((k) => k.behavior !== 'informational')
+                .map((k) => (
+                  <option key={k.id} value={k.id}>
+                    {tMaybe(k.name)}
+                  </option>
+                ))}
+            </Select>
+            <Select className="w-auto" value={check} onChange={(e) => setCheck(e.target.value as typeof check)} aria-label={t('Renewal checks')}>
+              <option value="">{t('Any renewal check')}</option>
+              <option value="asked">{t('Waiting for owner')}</option>
+              <option value="answered">{t('Owner answered')}</option>
+            </Select>
+            <Segmented value={scope} onChange={setScope} options={[{ value: 'all', label: t('Everything') }, { value: 'mine', label: t('Mine') }]} />
+          </>
+        }
+      />
+      <div className="mx-auto w-full max-w-5xl space-y-6 px-4 sm:px-6 py-6">
+        <GetStarted />
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <Stat label={t('Overdue')} value={summary.data?.overdue ?? '–'} tone={summary.data?.overdue ? 'danger' : undefined} onClick={jump('overdue')} />
+          <Stat label={t('Due in 7 days')} value={summary.data?.dueThisWeek ?? '–'} tone={summary.data?.dueThisWeek ? 'warning' : undefined} onClick={jump('week')} />
+          <Stat label={t('Due in 30 days')} value={summary.data?.dueThisMonth ?? '–'} onClick={jump('month')} />
+          <Stat label={t('Renewing in 90 days')} value={spend ? formatMoney(spend.next90, spend.currency, true) : '–'} hint={spend ? t('{amount} in the next 30 days', { amount: formatMoney(spend.next30, spend.currency, true) }) : t('Recurring spend')} />
+        </div>
+
+        <ChecksStrip />
+        <RequestsStrip />
+
+        {obligations.isLoading ? (
+          <Card className="space-y-3">
+            {Array.from({ length: 4 }, (_, i) => (
+              <Skeleton key={i} className="h-10" />
+            ))}
+          </Card>
+        ) : !groups.length ? (
+          <Card>
+            <EmptyState icon={scope === 'mine' ? <Inbox /> : <CheckCircle2 />} title={t("You're all caught up")} description={t('Nothing is due in the next year. Tracked dates on assets show up here automatically.')} />
+          </Card>
+        ) : (
+          groups.map((g) => (
+            <section key={g.key} id={`due-${g.key}`} className="scroll-mt-4">
+              <div className="mb-2 flex items-center gap-2 px-1">
+                <h2 className={g.key === 'overdue' ? 'text-[13px] font-semibold text-danger' : 'text-[13px] font-semibold'}>{g.title}</h2>
+                <span className="text-xs text-subtle">{g.items.length}</span>
+                <span className="ms-auto hidden flex-wrap justify-end gap-1 sm:flex">
+                  {[...new Map(g.items.map((o) => [o.dateKind.id, o.dateKind])).values()].slice(0, 4).map((k) => (
+                    <DateKindBadge key={k.id} kind={k} />
+                  ))}
+                </span>
+              </div>
+              <Card padded={false} className="overflow-hidden">
+                <ObligationList items={expanded.has(g.key) ? g.items : g.items.slice(0, PREVIEW)} canEdit={canEdit} />
+                {g.items.length > PREVIEW && (
+                  <button
+                    type="button"
+                    onClick={() => setExpanded((s) => (s.has(g.key) ? new Set([...s].filter((k) => k !== g.key)) : new Set([...s, g.key])))}
+                    className="flex w-full items-center justify-center gap-1.5 border-t border-border py-2.5 text-[13px] font-medium text-accent-fg transition-colors hover:bg-surface-2/60"
+                  >
+                    {expanded.has(g.key) ? t('Show fewer') : t('Show all {n}', { n: g.items.length })}
+                  </button>
+                )}
+              </Card>
+            </section>
+          ))
+        )}
+      </div>
+    </>
+  );
+}
+
+/** Acting on dates (renew, snooze, ask the owner) is the “Handle renewals” permission. */
+function useCanEditObligation() {
+  const { can } = useMyOrg();
+  return (o: Obligation) => can(o.unitId, 'renew', o.assetTypeId);
+}
+
+/** "Do you still need it?" questions waiting for me, with one-click answers. */
+function ChecksStrip() {
+  const me = useMe().data!;
+  const asked = useObligations({ check: 'asked', mine: true, limit: 20 });
+  const [answering, setAnswering] = useState<{ o: Obligation; decision?: RenewalDecision } | null>(null);
+  const mine = (asked.data?.items ?? []).filter((o) => o.ownerId === me.userId);
+  if (!mine.length) return null;
+  return (
+    <section>
+      <div className="mb-2 flex items-center gap-2 px-1">
+        <CircleHelp className="size-4 text-warning" />
+        <h2 className="text-[13px] font-semibold">{t('Waiting for your answer')}</h2>
+        <span className="text-xs text-subtle">{mine.length}</span>
+      </div>
+      <Card padded={false} className="divide-y divide-border overflow-hidden border-warning/40">
+        {mine.map((o) => (
+          <div key={o.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
+            <div className="min-w-0 flex-1 basis-64">
+              <p className="text-[13px]">
+                <Link to="/assets/$assetId" params={{ assetId: o.assetId }} className="font-medium hover:underline">
+                  {t('Do you still need {asset}?', { asset: o.assetName })}
+                </Link>
+              </p>
+              <p className="truncate text-xs text-muted">
+                {t('{label} {date} · asked by {name}', { label: tMaybe(o.label), date: formatDate(o.dueDate), name: o.check?.askedByName ?? '' })}
+                {o.check?.message ? ` — “${o.check.message}”` : ''}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              <Button size="sm" onClick={() => setAnswering({ o, decision: 'renew' })}>
+                {t('Renew')}
+              </Button>
+              <Button size="sm" onClick={() => setAnswering({ o, decision: 'change' })}>
+                {t('With changes')}
+              </Button>
+              <Button size="sm" onClick={() => setAnswering({ o, decision: 'cancel' })}>
+                {t('Don’t renew')}
+              </Button>
+            </div>
+          </div>
+        ))}
+      </Card>
+      <AnswerDialog obligation={answering?.o ?? null} initial={answering?.decision} onClose={() => setAnswering(null)} />
+    </section>
+  );
+}
+
+/** Handlers see what waits for them; everyone sees where their own requests stand. */
+function RequestsStrip() {
+  const counts = useRequestCounts();
+  const handles = (counts.data?.handle ?? 0) > 0;
+  const mine = useRequests({ scope: 'mine', status: 'open', limit: 3 });
+  const newRequest = useNewRequest();
+  if (!counts.data) return null;
+  return (
+    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+      {handles && (
+        <Link to="/requests" className="block">
+          <Card className="flex h-full items-center gap-3 border-accent/30 bg-accent-soft/40 transition-colors hover:border-accent/60">
+            <span className="flex size-9 items-center justify-center rounded-lg bg-accent text-white">
+              <ShoppingCart className="size-4" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[13px] font-semibold">
+                {plural(counts.data.handle, '{n} open request to handle', '{n} open requests to handle')}
+              </span>
+              <span className="block text-xs text-muted">{counts.data.unassigned ? t('{n} not picked up yet', { n: counts.data.unassigned }) : t('All picked up')}</span>
+            </span>
+            <ArrowRight className="size-4 text-muted" />
+          </Card>
+        </Link>
+      )}
+      <Card className={handles ? '' : 'md:col-span-2'}>
+        <div className="mb-2 flex items-center justify-between">
+          <span className="text-[13px] font-semibold">{t('Your requests')}</span>
+          <Button size="xs" variant="ghost" icon={<Plus className="size-3" />} onClick={newRequest}>
+            {t('Request something')}
+          </Button>
+        </div>
+        {mine.data?.items.length ? (
+          <ul className="space-y-1.5">
+            {mine.data.items.map((r) => (
+              <li key={r.id}>
+                <Link to="/requests/$requestId" params={{ requestId: r.id }} className="flex items-center gap-2 text-[13px] hover:underline">
+                  <span className="min-w-0 flex-1 truncate">{r.title}</span>
+                  <RequestStatusBadge status={r.statusInfo} />
+                </Link>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-xs text-muted">{t('Need software, hardware or a service? Ask here and follow it to delivery.')}</p>
+        )}
+      </Card>
+    </div>
+  );
+}

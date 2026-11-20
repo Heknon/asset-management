@@ -1,0 +1,8 @@
+apiVersion: v2
+name: asset-management
+description: Generic asset, license and renewal management — identity, registry, files, scheduler and web, for OpenShift.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.25.0-0"
+keywords: [assets, licenses, renewals, openshift]

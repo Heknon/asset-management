@@ -1,0 +1,14 @@
+node_modules
+dist
+.env
+*.log
+.terraform
+*.tfstate*
+coverage
+
+# Browser runtime build output (dev)
+apps/web/public/sw.js*
+apps/web/public/pglite
+
+# Vercel build output and local project link
+.vercel
