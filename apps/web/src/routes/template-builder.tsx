@@ -223,12 +223,15 @@ export function TemplateBuilderPage() {
           />
         }
         description={
-          <input
+          // Grows to fit, so a longer description wraps on phones instead of being cut off; Enter finishes editing.
+          <textarea
             aria-label="Description"
+            rows={1}
             value={draft.description ?? ''}
             placeholder="Add a short description: what goes here, when to use it"
-            onChange={(e) => update({ description: e.target.value })}
-            className="-mx-1 w-full min-w-0 rounded-md bg-transparent px-1 outline-none placeholder:text-subtle hover:bg-surface-2/70 focus:bg-surface-2/70"
+            onChange={(e) => update({ description: e.target.value.replace(/\n/g, ' ') })}
+            onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), e.currentTarget.blur())}
+            className="-mx-1 block w-full min-w-0 resize-none rounded-md bg-transparent px-1 outline-none field-sizing-content placeholder:text-subtle hover:bg-surface-2/70 focus:bg-surface-2/70"
           />
         }
         actions={
