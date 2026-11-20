@@ -1,10 +1,13 @@
 import { durationUnits, type Duration, type DurationUnit } from '@am/core';
 import { describeDuration } from '@/lib/utils';
+import { t } from '@/lib/i18n';
 import { Plus, X } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from './ui/button';
 import { Input, Select } from './ui/form';
 import { Popover } from './ui/overlay';
+
+const unitNames: Record<DurationUnit, string> = { day: t('days'), week: t('weeks'), month: t('months'), year: t('years') };
 
 export function DurationInput({ value, onChange, id }: { value: Duration; onChange: (d: Duration) => void; id?: string }) {
   return (
@@ -13,7 +16,7 @@ export function DurationInput({ value, onChange, id }: { value: Duration; onChan
       <Select className="w-28" value={value.unit} onChange={(e) => onChange({ ...value, unit: e.target.value as DurationUnit })}>
         {durationUnits.map((u) => (
           <option key={u} value={u}>
-            {u}s
+            {unitNames[u]}
           </option>
         ))}
       </Select>
@@ -24,7 +27,7 @@ export function DurationInput({ value, onChange, id }: { value: Duration; onChan
 const toDays = (d: Duration) => d.amount * { day: 1, week: 7, month: 30, year: 365 }[d.unit];
 
 /** Reminder offsets as removable chips; used for date kinds, fields and per-asset overrides. */
-export function DurationListEditor({ value, onChange, emptyLabel = 'No reminders' }: { value: Duration[]; onChange: (v: Duration[]) => void; emptyLabel?: string }) {
+export function DurationListEditor({ value, onChange, emptyLabel = t('No reminders') }: { value: Duration[]; onChange: (v: Duration[]) => void; emptyLabel?: string }) {
   const [draft, setDraft] = useState<Duration>({ amount: 14, unit: 'day' });
   const [open, setOpen] = useState(false);
   const sorted = [...value].sort((a, b) => toDays(b) - toDays(a));
@@ -33,8 +36,8 @@ export function DurationListEditor({ value, onChange, emptyLabel = 'No reminders
       {sorted.length === 0 && <span className="text-xs text-subtle">{emptyLabel}</span>}
       {sorted.map((d, i) => (
         <span key={`${d.amount}${d.unit}${i}`} className="inline-flex h-6 items-center gap-1 rounded-md bg-surface-2 pe-1 ps-2 text-xs">
-          {describeDuration(d)} before
-          <button type="button" aria-label="Remove" className="rounded p-0.5 text-subtle hover:bg-surface-3 hover:text-fg" onClick={() => onChange(value.filter((x) => x !== d))}>
+          {t('{duration} before', { duration: describeDuration(d) })}
+          <button type="button" aria-label={t('Remove')} className="rounded p-0.5 text-subtle hover:bg-surface-3 hover:text-fg" onClick={() => onChange(value.filter((x) => x !== d))}>
             <X className="size-3" />
           </button>
         </span>
@@ -43,7 +46,7 @@ export function DurationListEditor({ value, onChange, emptyLabel = 'No reminders
         open={open}
         onOpenChange={setOpen}
         className="p-3"
-        trigger={<Button size="xs" variant="ghost" icon={<Plus className="size-3" />}>Add</Button>}
+        trigger={<Button size="xs" variant="ghost" icon={<Plus className="size-3" />}>{t('Add')}</Button>}
       >
         <div className="space-y-2">
           <DurationInput value={draft} onChange={setDraft} />
@@ -56,7 +59,7 @@ export function DurationListEditor({ value, onChange, emptyLabel = 'No reminders
               setOpen(false);
             }}
           >
-            Add reminder
+            {t('Add reminder')}
           </Button>
         </div>
       </Popover>

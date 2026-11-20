@@ -15,6 +15,8 @@ import { api } from '@/lib/api';
 import { useMyOrg } from '@/lib/org';
 import { keys, useLookups, useViews } from '@/lib/queries';
 import { useShortcut } from '@/lib/shortcuts';
+import { t } from '@/lib/i18n';
+import { inSentence } from '@/lib/utils';
 
 /** Create button for a type, shown only where the person can add assets. */
 export function useCanCreate(assetTypeId: string | undefined) {
@@ -43,17 +45,17 @@ export function AssetsPage() {
   return (
     <>
       <PageHeader
-        title={type?.name ?? 'All assets'}
-        description={type?.description ?? 'Everything you can see, across every type and team.'}
+        title={type?.name ?? t('All assets')}
+        description={type?.description ?? t('Everything you can see, across every type and team.')}
         icon={type ? <TypeIcon icon={type.icon} color={type.color} size={36} /> : undefined}
         actions={
           <>
             <Link to="/import" search={{ type: typeId }}>
-              <Button icon={<FileUp className="size-4" />}>Import</Button>
+              <Button icon={<FileUp className="size-4" />}>{t('Import')}</Button>
             </Link>
             {canCreate && (
               <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setCreating(true)}>
-                New {type!.name.toLowerCase()}
+                {t('New {type}', { type: inSentence(type!.name) })}
               </Button>
             )}
           </>
@@ -61,9 +63,9 @@ export function AssetsPage() {
       >
         {importId && (
           <p className="mt-2 flex items-center gap-2 text-xs text-muted">
-            Showing the items one import added.
+            {t('Showing the items one import added.')}
             <Link to="/assets" search={{ type: typeId }} className="text-accent-fg hover:underline">
-              Show everything
+              {t('Show everything')}
             </Link>
           </p>
         )}
@@ -74,9 +76,9 @@ export function AssetsPage() {
         empty={
           <EmptyState
             icon={<Shapes />}
-            title="No assets yet"
-            description={type ? `Create the first ${type.name.toLowerCase()} to start tracking it.` : 'Pick an asset type in the sidebar to add one.'}
-            action={canCreate ? <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setCreating(true)}>New {type!.name.toLowerCase()}</Button> : undefined}
+            title={t('No assets yet')}
+            description={type ? t('Create the first {type} to start tracking it.', { type: inSentence(type.name) }) : t('Pick an asset type in the sidebar to add one.')}
+            action={canCreate ? <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setCreating(true)}>{t('New {type}', { type: inSentence(type!.name) })}</Button> : undefined}
           />
         }
       />
@@ -101,34 +103,34 @@ export function SavedViewPage() {
     mutationFn: () => api.delete(`/api/registry/views/${viewId}`),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: keys.views });
-      toast.success('View deleted');
+      toast.success(t('View deleted'));
       void navigate({ to: '/assets' });
     },
   });
 
   if (views.isLoading) return <div className="flex h-full items-center justify-center"><Spinner /></div>;
-  if (!view) return <EmptyState title="View not found" description="It may have been deleted." />;
+  if (!view) return <EmptyState title={t('View not found')} description={t('It may have been deleted.')} />;
 
   return (
     <>
       <PageHeader
         title={view.name}
-        description="Saved view"
+        description={t('Saved view')}
         icon={
           <IconTile color="#6366f1" size={36}>
             <Bookmark />
           </IconTile>
         }
         actions={
-          <Menu trigger={<Button size="icon" aria-label="View options" icon={<MoreHorizontal className="size-4" />} />}>
+          <Menu trigger={<Button size="icon" aria-label={t('View options')} icon={<MoreHorizontal className="size-4" />} />}>
             <MenuItem icon={view.pinned ? <PinOff /> : <Pin />} onSelect={() => save.mutate({ ...view, pinned: !view.pinned })}>
-              {view.pinned ? 'Unpin from sidebar' : 'Pin to sidebar'}
+              {view.pinned ? t('Unpin from sidebar') : t('Pin to sidebar')}
             </MenuItem>
             <MenuItem icon={<Pencil />} onSelect={() => (setName(view.name), setRenaming(true))}>
-              Rename…
+              {t('Rename…')}
             </MenuItem>
             <MenuItem danger icon={<Trash2 />} onSelect={() => remove.mutate()}>
-              Delete view
+              {t('Delete view')}
             </MenuItem>
           </Menu>
         }
@@ -137,12 +139,12 @@ export function SavedViewPage() {
       <Dialog
         open={renaming}
         onOpenChange={setRenaming}
-        title="Rename view"
+        title={t('Rename view')}
         footer={
           <>
-            <Button onClick={() => setRenaming(false)}>Cancel</Button>
+            <Button onClick={() => setRenaming(false)}>{t('Cancel')}</Button>
             <Button variant="primary" disabled={!name.trim()} onClick={() => (save.mutate({ ...view, name: name.trim() }), setRenaming(false))}>
-              Save
+              {t('Save')}
             </Button>
           </>
         }

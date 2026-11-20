@@ -68,7 +68,9 @@ import { api, ApiError } from '@/lib/api';
 import { keys, useAssetType, useDateKinds, useOrgWorkflow, useLookups, useVariants } from '@/lib/queries';
 import { useMyOrg } from '@/lib/org';
 import { useRemember } from '@/lib/recent';
-import { cn, formatDurations, slugKey, inSentence } from '@/lib/utils';
+import { cn, describeDuration, formatDurations, slugKey, inSentence } from '@/lib/utils';
+import { isRtl, plural, t, tMaybe } from '@/lib/i18n';
+import { tj } from '@/lib/i18n-react';
 
 export const kindIcons: Record<FieldKind, LucideIcon> = {
   text: Text,
@@ -86,6 +88,9 @@ export const kindIcons: Record<FieldKind, LucideIcon> = {
   assetRef: Boxes,
   list: Tags,
 };
+
+const unitNames: Record<DurationUnit, string> = { day: t('days'), week: t('weeks'), month: t('months'), year: t('years') };
+const unitInNames: Record<DurationUnit, string> = { day: t('in days'), week: t('in weeks'), month: t('in months'), year: t('in years') };
 
 const blankType = (): AssetTypeInput & { version?: number } => ({
   key: '',
@@ -136,23 +141,23 @@ export function TemplateBuilderPage() {
       const body = { ...input, key: input.key || slugKey(input.name) };
       return isNew ? api.post<AssetType>('/api/registry/asset-types', body) : api.put<AssetType>(`/api/registry/asset-types/${typeId}`, { ...body, version });
     },
-    onSuccess: (t) => {
+    onSuccess: (saved) => {
       setIssues([]);
       setDirty(false);
       void qc.invalidateQueries({ queryKey: keys.assetTypes });
-      toast.success(isNew ? 'Template created' : `Saved as version ${t.version}`);
-      if (isNew) void navigate({ to: '/templates/$typeId', params: { typeId: t.id } });
+      toast.success(isNew ? t('Template created') : t('Saved as version {version}', { version: saved.version }));
+      if (isNew) void navigate({ to: '/templates/$typeId', params: { typeId: saved.id } });
     },
     onError: (e) => {
       if (e instanceof ApiError) {
         const list = (e.details?.issues as Array<{ path: string; message: string }>) ?? [];
         setIssues(list);
         toast.error(e.message, { description: list[0] ? `${list[0].path}: ${list[0].message}` : undefined });
-      } else toast.error('Save failed');
+      } else toast.error(t('Save failed'));
     },
   });
 
-  useRemember(!isNew && existing.data ? { kind: 'template', id: existing.data.id, title: existing.data.name, subtitle: 'Template', icon: existing.data.icon, color: existing.data.color } : null);
+  useRemember(!isNew && existing.data ? { kind: 'template', id: existing.data.id, title: existing.data.name, subtitle: t('Template'), icon: existing.data.icon, color: existing.data.color } : null);
   // ⌘S / Ctrl+S saves, as in any editor.
   const saveRef = useRef<() => void>(() => undefined);
   saveRef.current = () => {
@@ -171,9 +176,9 @@ export function TemplateBuilderPage() {
 
   const archive = useMutation({
     mutationFn: (archived: boolean) => api.post<AssetType>(`/api/registry/asset-types/${typeId}/archive`, { archived }),
-    onSuccess: (t) => {
+    onSuccess: (saved) => {
       void qc.invalidateQueries({ queryKey: keys.assetTypes });
-      toast.success(t.archived ? 'Template archived' : 'Template restored');
+      toast.success(saved.archived ? t('Template archived') : t('Template restored'));
     },
   });
 
@@ -190,11 +195,11 @@ export function TemplateBuilderPage() {
 
   const issueTab = (path: string) => (path.startsWith('fields') ? 'fields' : path.startsWith('statuses') ? 'statuses' : path.startsWith('requestWorkflow') ? 'requests' : 'settings');
   const tabs = [
-    { value: 'fields', label: 'Fields', count: draft.fields.length },
-    { value: 'statuses', label: 'Statuses', count: draft.statuses.length },
-    { value: 'requests', label: 'Requests' },
-    ...(!isNew ? [{ value: 'variants', label: 'Team variants' }] : []),
-    { value: 'settings', label: 'Settings' },
+    { value: 'fields', label: t('Fields'), count: draft.fields.length },
+    { value: 'statuses', label: t('Statuses'), count: draft.statuses.length },
+    { value: 'requests', label: t('Requests') },
+    ...(!isNew ? [{ value: 'variants', label: t('Team variants') }] : []),
+    { value: 'settings', label: t('Settings') },
   ];
 
   return (
@@ -204,7 +209,7 @@ export function TemplateBuilderPage() {
           <Popover
             className="w-[min(22rem,calc(100vw-2rem))] space-y-3 p-3"
             trigger={
-              <button type="button" aria-label="Change icon and color" className="rounded-xl transition-transform hover:scale-105 focus-visible:ring-2 focus-visible:ring-accent">
+              <button type="button" aria-label={t('Change icon and color')} className="rounded-xl transition-transform hover:scale-105 focus-visible:ring-2 focus-visible:ring-accent">
                 <TypeIcon icon={draft.icon} color={draft.color} size={40} />
               </button>
             }
@@ -215,9 +220,9 @@ export function TemplateBuilderPage() {
         }
         title={
           <input
-            aria-label="Template name"
+            aria-label={t('Template name')}
             value={draft.name}
-            placeholder="Name this template"
+            placeholder={t('Name this template')}
             onChange={(e) => update({ name: e.target.value, ...(isNew && { key: slugKey(e.target.value), ...(!iconPicked && { icon: guessIcon(e.target.value) ?? 'box' }) }) })}
             className="-mx-1 w-full min-w-0 rounded-md bg-transparent px-1 outline-none placeholder:text-subtle hover:bg-surface-2/70 focus:bg-surface-2/70"
           />
@@ -225,10 +230,10 @@ export function TemplateBuilderPage() {
         description={
           // Grows to fit, so a longer description wraps on phones instead of being cut off; Enter finishes editing.
           <textarea
-            aria-label="Description"
+            aria-label={t('Description')}
             rows={1}
             value={draft.description ?? ''}
-            placeholder="Add a short description: what goes here, when to use it"
+            placeholder={t('Add a short description: what goes here, when to use it')}
             onChange={(e) => update({ description: e.target.value.replace(/\n/g, ' ') })}
             onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), e.currentTarget.blur())}
             className="-mx-1 block w-full min-w-0 resize-none rounded-md bg-transparent px-1 outline-none field-sizing-content placeholder:text-subtle hover:bg-surface-2/70 focus:bg-surface-2/70"
@@ -236,21 +241,21 @@ export function TemplateBuilderPage() {
         }
         actions={
           <>
-            <span className="text-xs text-subtle">{isNew ? 'Not created yet' : dirty ? 'Unsaved changes' : `Version ${draft.version}${draft.archived ? ' · archived' : ''}`}</span>
+            <span className="text-xs text-subtle">{isNew ? t('Not created yet') : dirty ? t('Unsaved changes') : draft.archived ? t('Version {version} · archived', { version: draft.version }) : t('Version {version}', { version: draft.version })}</span>
             {!wide && (
               <Button icon={<Eye className="size-3.5" />} onClick={() => setPreviewOpen(true)}>
-                Preview
+                {t('Preview')}
               </Button>
             )}
             {!isNew && (
-              <Menu trigger={<Button size="icon" aria-label="More" icon={<MoreHorizontal className="size-4" />} />}>
+              <Menu trigger={<Button size="icon" aria-label={t('More')} icon={<MoreHorizontal className="size-4" />} />}>
                 <MenuItem icon={<Archive />} onSelect={() => archive.mutate(!draft.archived)}>
-                  {draft.archived ? 'Restore template' : 'Archive template'}
+                  {draft.archived ? t('Restore template') : t('Archive template')}
                 </MenuItem>
               </Menu>
             )}
-            <Button variant="primary" loading={save.isPending} disabled={!draft.name || (!dirty && !isNew)} onClick={() => save.mutate()} title="Save (⌘S)">
-              {isNew ? 'Create template' : 'Save'}
+            <Button variant="primary" loading={save.isPending} disabled={!draft.name || (!dirty && !isNew)} onClick={() => save.mutate()} title={t('Save (⌘S)')}>
+              {isNew ? t('Create template') : t('Save')}
             </Button>
           </>
         }
@@ -259,7 +264,7 @@ export function TemplateBuilderPage() {
       </PageHeader>
       {issues.length > 0 && (
         <div className="mx-4 mt-4 rounded-lg border border-danger/30 bg-danger-soft px-4 py-3 text-[13px] text-danger sm:mx-6">
-          <p className="font-medium">Fix these before saving:</p>
+          <p className="font-medium">{t('Fix these before saving:')}</p>
           <ul className="mt-1 list-disc ps-5">
             {issues.map((i, n) => (
               <li key={n}>
@@ -302,10 +307,10 @@ export function TemplateBuilderPage() {
       {tab === 'settings' && (
         <div className="mx-auto w-full max-w-2xl px-4 py-6 sm:px-6">
           <Card className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="Key" hint={isNew ? 'Stable identifier used in integrations and exports' : 'Cannot be changed'}>
+            <Field label={t('Key')} hint={isNew ? t('Stable identifier used in integrations and exports') : t('Cannot be changed')}>
               {(id) => <Input id={id} value={draft.key} disabled={!isNew} className="font-mono text-xs" onChange={(e) => update({ key: e.target.value })} />}
             </Field>
-            <Field label="Item ID prefix" hint={`Items are numbered ${draft.refPrefix || defaultRefPrefix(draft.key || 'item')}-1, -2, … Changing it renames every ID.`}>
+            <Field label={t('Item ID prefix')} hint={t('Items are numbered {prefix}-1, -2, … Changing it renames every ID.', { prefix: draft.refPrefix || defaultRefPrefix(draft.key || 'item') })}>
               {(id) => <Input id={id} className="w-28 font-mono uppercase" maxLength={6} value={draft.refPrefix ?? ''} placeholder={defaultRefPrefix(draft.key || 'item')} onChange={(e) => update({ refPrefix: e.target.value.toUpperCase() || undefined })} />}
             </Field>
           </Card>
@@ -417,8 +422,8 @@ function SchemaWorkbench({
         <Card padded={false}>
           <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-2.5">
             <div className="min-w-0">
-              <h2 className="text-[13px] font-semibold">{locked ? `Fields this team adds to ${locked.from}` : 'Fields'}</h2>
-              <p className="text-xs text-muted max-sm:hidden">Drag to reorder or move between sections. Click one to set it up.</p>
+              <h2 className="text-[13px] font-semibold">{locked ? t('Fields this team adds to {template}', { template: locked.from }) : t('Fields')}</h2>
+              <p className="text-xs text-muted max-sm:hidden">{t('Drag to reorder or move between sections. Click one to set it up.')}</p>
             </div>
             <AddFieldMenu taken={allKeys} onAdd={(f, l) => add(f, l)} />
           </div>
@@ -431,7 +436,7 @@ function SchemaWorkbench({
           )}
           {fields.length === 0 && !shownSections.length && (
             <p className="px-4 pt-4 pb-1 text-[13px] text-muted">
-              {locked ? 'Nothing added yet: e.g. the workstation, MAC addresses or the lab that uses it. The template’s fields above stay as they are.' : 'No fields yet. Pick the common ones below, or add any field with “Add field”. Tracked dates drive reminders and renewals.'}
+              {locked ? t('Nothing added yet: e.g. the workstation, MAC addresses or the lab that uses it. The template’s fields above stay as they are.') : t('No fields yet. Pick the common ones below, or add any field with “Add field”. Tracked dates drive reminders and renewals.')}
             </p>
           )}
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
@@ -471,15 +476,15 @@ function SchemaWorkbench({
         <Drawer
           open={!!field}
           onOpenChange={(o) => !o && onSelect(null)}
-          title={field?.label || 'Field'}
-          description={field ? fieldKindMeta[field.kind].label : undefined}
+          title={field?.label || t('Field')}
+          description={field ? tMaybe(fieldKindMeta[field.kind].label) : undefined}
           footer={
             <>
               <Button variant="danger-ghost" className="me-auto" icon={<Trash2 className="size-4" />} onClick={() => field && remove(field.id)}>
-                Remove
+                {t('Remove')}
               </Button>
               <Button variant="primary" onClick={() => onSelect(null)}>
-                Done
+                {t('Done')}
               </Button>
             </>
           }
@@ -507,19 +512,19 @@ function SectionRow({ id, name, count, own, onRename, onRemove, addMenu }: { id:
             setEditing(false);
           }}
         >
-          <Input autoFocus aria-label="Section name" className="h-7 text-xs font-semibold" value={value} onChange={(e) => setValue(e.target.value)} onBlur={() => (onRename(value), setEditing(false))} onKeyDown={(e) => e.key === 'Escape' && (setValue(name), setEditing(false))} />
+          <Input autoFocus aria-label={t('Section name')} className="h-7 text-xs font-semibold" value={value} onChange={(e) => setValue(e.target.value)} onBlur={() => (onRename(value), setEditing(false))} onKeyDown={(e) => e.key === 'Escape' && (setValue(name), setEditing(false))} />
         </form>
       ) : (
-        <button type="button" disabled={!own} onClick={() => (setValue(name), setEditing(true))} className="min-w-0 flex-1 truncate text-start text-[11px] font-semibold tracking-wide text-muted uppercase enabled:hover:text-fg" title={own ? 'Rename section' : 'From the template'}>
+        <button type="button" disabled={!own} onClick={() => (setValue(name), setEditing(true))} className="min-w-0 flex-1 truncate text-start text-[11px] font-semibold tracking-wide text-muted uppercase enabled:hover:text-fg" title={own ? t('Rename section') : t('From the template')}>
           {name} <span className="font-normal normal-case text-subtle">· {count}</span>
         </button>
       )}
       {addMenu}
       {own && (
-        <Menu trigger={<Button size="icon" variant="ghost" className="size-7" aria-label={`More for ${name}`} icon={<MoreHorizontal className="size-3.5" />} />}>
-          <MenuItem onSelect={() => (setValue(name), setEditing(true))}>Rename section</MenuItem>
+        <Menu trigger={<Button size="icon" variant="ghost" className="size-7" aria-label={t('More for {name}', { name })} icon={<MoreHorizontal className="size-3.5" />} />}>
+          <MenuItem onSelect={() => (setValue(name), setEditing(true))}>{t('Rename section')}</MenuItem>
           <MenuItem icon={<Trash2 />} danger onSelect={onRemove}>
-            Remove section (keeps its fields)
+            {t('Remove section (keeps its fields)')}
           </MenuItem>
         </Menu>
       )}
@@ -544,14 +549,14 @@ function NewSectionRow({ existing, onAdd }: { existing: string[]; onAdd: (name: 
         submit();
       }}
     >
-      <Input autoFocus aria-label="New section name" className="h-8" placeholder="Section name, e.g. Commercial" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Escape' && setOpen(false)} />
+      <Input autoFocus aria-label={t('New section name')} className="h-8" placeholder={t('Section name, e.g. Commercial')} value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Escape' && setOpen(false)} />
       <Button type="submit" size="sm" disabled={!name.trim()}>
-        Add
+        {t('Add')}
       </Button>
     </form>
   ) : (
     <button type="button" onClick={() => setOpen(true)} className="flex w-full items-center gap-2 border-t border-border px-4 py-2.5 text-start text-xs text-muted transition-colors hover:bg-surface-2/50 hover:text-fg">
-      <Plus className="size-3.5" /> Add a section <span className="text-subtle max-sm:hidden">— groups fields on the form, e.g. Commercial, Term, Access</span>
+      <Plus className="size-3.5" /> {t('Add a section')} <span className="text-subtle max-sm:hidden">{t('— groups fields on the form, e.g. Commercial, Term, Access')}</span>
     </button>
   );
 }
@@ -563,8 +568,8 @@ function TeamVariants({ typeId }: { typeId: string }) {
   return (
     <Card padded={false}>
       <div className="border-b border-border px-4 py-2.5">
-        <h2 className="text-[13px] font-semibold">Team variants</h2>
-        <p className="text-xs text-muted">Units extend this template with their own fields. Changes here flow into every variant.</p>
+        <h2 className="text-[13px] font-semibold">{t('Team variants')}</h2>
+        <p className="text-xs text-muted">{t('Units extend this template with their own fields. Changes here flow into every variant.')}</p>
       </div>
       {list.length ? (
         <ul className="divide-y divide-border">
@@ -574,16 +579,16 @@ function TeamVariants({ typeId }: { typeId: string }) {
                 <span className="min-w-0 flex-1">
                   <span className="block font-medium">{v.name}</span>
                   <span className="block truncate text-xs text-muted">
-                    <UnitPath id={v.unitId} /> · {v.fields.length} extra {v.fields.length === 1 ? 'field' : 'fields'}
+                    <UnitPath id={v.unitId} /> · {plural(v.fields.length, '{n} extra field', '{n} extra fields')}
                   </span>
                 </span>
-                {v.archived && <Badge>Archived</Badge>}
+                {v.archived && <Badge>{t('Archived')}</Badge>}
               </Link>
             </li>
           ))}
         </ul>
       ) : (
-        <p className="px-4 py-4 text-xs text-muted">None yet. A unit’s managers create them from the unit page (Templates tab).</p>
+        <p className="px-4 py-4 text-xs text-muted">{t('None yet. A unit’s managers create them from the unit page (Templates tab).')}</p>
       )}
     </Card>
   );
@@ -629,7 +634,7 @@ export function VariantBuilderPage() {
       setIssues([]);
       setDirty(false);
       void qc.invalidateQueries({ queryKey: keys.variants });
-      toast.success(isNew ? `“${v.name}” created` : 'Saved', { description: isNew ? `New ${inSentence(type.data?.name ?? '')} items in ${unitById.get(v.unitId)?.name} can now be a “${v.name}”.` : undefined });
+      toast.success(isNew ? t('“{name}” created', { name: v.name }) : t('Saved'), { description: isNew ? t('New {type} items in {unit} can now be a “{name}”.', { type: inSentence(type.data?.name ?? ''), unit: unitById.get(v.unitId)?.name, name: v.name }) : undefined });
       if (isNew) void navigate({ to: '/templates/$typeId/variants/$variantId', params: { typeId, variantId: v.id } });
     },
     onError: (e) => {
@@ -637,14 +642,14 @@ export function VariantBuilderPage() {
         const list = (e.details?.issues as Array<{ path: string; message: string }>) ?? [];
         setIssues(list);
         toast.error(e.message, { description: list[0] ? describeIssue(list[0], draft.fields) : undefined });
-      } else toast.error('Save failed');
+      } else toast.error(t('Save failed'));
     },
   });
   const archive = useMutation({
     mutationFn: (archived: boolean) => api.post<TypeVariant>(`/api/registry/variants/${variantId}/archive`, { archived }),
     onSuccess: (v) => {
       void qc.invalidateQueries({ queryKey: keys.variants });
-      toast.success(v.archived ? 'Variant archived' : 'Variant restored', { description: v.archived ? 'Existing items keep their fields; new items cannot use it.' : undefined });
+      toast.success(v.archived ? t('Variant archived') : t('Variant restored'), { description: v.archived ? t('Existing items keep their fields; new items cannot use it.') : undefined });
     },
   });
 
@@ -655,42 +660,42 @@ export function VariantBuilderPage() {
       </div>
     );
   }
-  const t = type.data;
+  const tpl = type.data;
   const canManage = canManageOrganization || (!!draft.unitId && unitPermissionsOn(draft.unitId).has('manage'));
 
   return (
     <>
       <PageHeader
-        icon={<TypeIcon icon={t.icon} color={t.color} size={36} />}
-        title={draft.name || `New ${inSentence(t.name)} variant`}
+        icon={<TypeIcon icon={tpl.icon} color={tpl.color} size={36} />}
+        title={draft.name || t('New {type} variant', { type: inSentence(tpl.name) })}
         description={
           <span>
-            A {t.name} variant{draft.unitId ? <> for <UnitPath id={draft.unitId} /></> : ''}
-            {existing ? ` · version ${existing.version}${existing.archived ? ' · archived' : ''}` : ''}
-            {dirty ? ' · unsaved changes' : ''}
+            {draft.unitId ? tj('A {type} variant for {unit}', { type: tpl.name, unit: <UnitPath id={draft.unitId} /> }) : t('A {type} variant', { type: tpl.name })}
+            {existing ? ` · ${existing.archived ? t('version {version} · archived', { version: existing.version }) : t('version {version}', { version: existing.version })}` : ''}
+            {dirty ? ` · ${t('unsaved changes')}` : ''}
           </span>
         }
         actions={
           <>
             <Button icon={<Eye className="size-3.5" />} onClick={() => setPreviewOpen(true)}>
-              Preview form
+              {t('Preview form')}
             </Button>
             {!isNew && canManage && (
-              <Menu trigger={<Button size="icon" aria-label="More" icon={<MoreHorizontal className="size-4" />} />}>
+              <Menu trigger={<Button size="icon" aria-label={t('More')} icon={<MoreHorizontal className="size-4" />} />}>
                 <MenuItem icon={<Archive />} onSelect={() => archive.mutate(!draft.archived)}>
-                  {draft.archived ? 'Restore variant' : 'Archive variant'}
+                  {draft.archived ? t('Restore variant') : t('Archive variant')}
                 </MenuItem>
               </Menu>
             )}
             <Button variant="primary" loading={save.isPending} disabled={!canManage || !draft.name || !draft.unitId || (!dirty && !isNew)} onClick={() => save.mutate()}>
-              {isNew ? 'Create variant' : 'Save'}
+              {isNew ? t('Create variant') : t('Save')}
             </Button>
           </>
         }
       />
       {issues.length > 0 && (
         <div className="mx-6 mt-4 rounded-lg border border-danger/30 bg-danger-soft px-4 py-3 text-[13px] text-danger">
-          <p className="font-medium">Fix these before saving:</p>
+          <p className="font-medium">{t('Fix these before saving:')}</p>
           <ul className="mt-1 list-disc ps-5">
             {issues.map((i, n) => (
               <li key={n}>{describeIssue(i, draft.fields)}</li>
@@ -707,14 +712,14 @@ export function VariantBuilderPage() {
         selected={selected}
         onSelect={setSelected}
         onChange={(patch) => update(patch)}
-        locked={{ fields: t.fields, sections: t.sections, from: t.name }}
-        preview={{ name: draft.name || t.name, fields: [...t.fields, ...draft.fields], sections: [...t.sections, ...draft.sections] }}
+        locked={{ fields: tpl.fields, sections: tpl.sections, from: tpl.name }}
+        preview={{ name: draft.name || tpl.name, fields: [...tpl.fields, ...draft.fields], sections: [...tpl.sections, ...draft.sections] }}
         info={
           <Card className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="Name" required hint="What this unit calls these items">
-              {(id) => <Input id={id} value={draft.name} placeholder={`e.g. Design ${inSentence(t.name)}`} onChange={(e) => update({ name: e.target.value })} />}
+            <Field label={t('Name')} required hint={t('What this unit calls these items')}>
+              {(id) => <Input id={id} value={draft.name} placeholder={t('e.g. Design {type}', { type: inSentence(tpl.name) })} onChange={(e) => update({ name: e.target.value })} />}
             </Field>
-            <Field label="For" required hint={isNew ? 'The unit and every team beneath it can use it' : 'Cannot be changed'}>
+            <Field label={t('For')} required hint={isNew ? t('The unit and every team beneath it can use it') : t('Cannot be changed')}>
               {(id) =>
                 isNew ? (
                   <UnitPicker id={id} value={draft.unitId || null} onChange={(v) => update({ unitId: v ?? '' })} filter={(u) => canManageOrganization || unitPermissionsOn(u.id).has('manage')} />
@@ -725,13 +730,13 @@ export function VariantBuilderPage() {
                 )
               }
             </Field>
-            <Field label="Description" className="sm:col-span-2">
-              {(id) => <Input id={id} value={draft.description ?? ''} placeholder="When to use it" onChange={(e) => update({ description: e.target.value || null })} />}
+            <Field label={t('Description')} className="sm:col-span-2">
+              {(id) => <Input id={id} value={draft.description ?? ''} placeholder={t('When to use it')} onChange={(e) => update({ description: e.target.value || null })} />}
             </Field>
           </Card>
         }
       />
-      <FormPreview open={previewOpen} onOpenChange={setPreviewOpen} draft={{ ...t, fields: [...t.fields, ...draft.fields], sections: [...t.sections, ...draft.sections] }} kinds={kinds.data ?? []} />
+      <FormPreview open={previewOpen} onOpenChange={setPreviewOpen} draft={{ ...tpl, fields: [...tpl.fields, ...draft.fields], sections: [...tpl.sections, ...draft.sections] }} kinds={kinds.data ?? []} />
     </>
   );
 }
@@ -751,10 +756,10 @@ function AddFieldMenu({ onAdd, taken, compact = false }: { onAdd: (from: FieldKi
   const [q, setQ] = useState('');
   const phone = useMediaQuery('(max-width: 639px)');
   const trigger = compact ? (
-    <Button size="icon" variant="ghost" className="size-7" aria-label="Add a field to this section" icon={<Plus className="size-3.5" />} onClick={phone ? () => setOpen(true) : undefined} />
+    <Button size="icon" variant="ghost" className="size-7" aria-label={t('Add a field to this section')} icon={<Plus className="size-3.5" />} onClick={phone ? () => setOpen(true) : undefined} />
   ) : (
     <Button size="sm" variant="primary" icon={<Plus className="size-3.5" />} onClick={phone ? () => setOpen(true) : undefined}>
-      Add field
+      {t('Add field')}
     </Button>
   );
   const close = () => {
@@ -765,7 +770,7 @@ function AddFieldMenu({ onAdd, taken, compact = false }: { onAdd: (from: FieldKi
   return phone ? (
     <>
       {trigger}
-      <Drawer open={open} onOpenChange={(o) => (o ? setOpen(true) : close())} title="Add a field" description="Pick common fields, or a kind of field to set up.">
+      <Drawer open={open} onOpenChange={(o) => (o ? setOpen(true) : close())} title={t('Add a field')} description={t('Pick common fields, or a kind of field to set up.')}>
         {body}
       </Drawer>
     </>
@@ -781,11 +786,11 @@ function AddFieldChooser({ q, onQ, taken, onAdd, onDone }: { q: string; onQ: (q:
   const presets = fieldPresets.filter((p) => !needle || p.label.toLowerCase().includes(needle) || p.hint.toLowerCase().includes(needle));
   const exact = presets.find((p) => p.label.toLowerCase() === needle);
   const quick = q.trim() && !exact ? q.trim() : null;
-  const matching = fieldKinds.filter((k) => !needle || fieldKindMeta[k].label.toLowerCase().includes(needle) || fieldKindMeta[k].description.toLowerCase().includes(needle));
+  const matching = fieldKinds.filter((k) => !needle || tMaybe(fieldKindMeta[k].label).toLowerCase().includes(needle) || tMaybe(fieldKindMeta[k].description).toLowerCase().includes(needle));
   // A new name can be any kind: offer them all.
   const kinds = quick && !matching.length ? [...fieldKinds] : matching;
   const first = () => {
-    if (exact && !taken.has(slugKey(exact.label))) onAdd(exact);
+    if (exact && !taken.has(exact.key)) onAdd(exact);
     else if (quick) {
       onAdd(guessKind(quick), quick);
       onDone();
@@ -798,8 +803,8 @@ function AddFieldChooser({ q, onQ, taken, onAdd, onDone }: { q: string; onQ: (q:
         autoFocus={!matchMedia('(pointer: coarse)').matches}
         value={q}
         onChange={(e) => onQ(e.target.value)}
-        placeholder="Field name, e.g. Contract owner"
-        aria-label="Field name"
+        placeholder={t('Field name, e.g. Contract owner')}
+        aria-label={t('Field name')}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && q.trim()) {
             e.preventDefault();
@@ -813,17 +818,17 @@ function AddFieldChooser({ q, onQ, taken, onAdd, onDone }: { q: string; onQ: (q:
             <Plus className="size-4" />
           </span>
           <span>
-            Add “<span className="font-medium">{quick}</span>”
-            <span className="block text-xs text-muted">as {fieldKindMeta[guessKind(quick)].label.toLowerCase()} · Enter</span>
+            {tj('Add “{name}”', { name: <span className="font-medium">{quick}</span> })}
+            <span className="block text-xs text-muted">{t('as {kind} · Enter', { kind: tMaybe(fieldKindMeta[guessKind(quick)].label).toLowerCase() })}</span>
           </span>
         </button>
       )}
       {presets.length > 0 && (
         <div>
-          <p className="px-1 pb-1.5 text-[11px] font-semibold tracking-wide text-subtle uppercase">Common fields</p>
+          <p className="px-1 pb-1.5 text-[11px] font-semibold tracking-wide text-subtle uppercase">{t('Common fields')}</p>
           <div className="grid grid-cols-2 gap-1">
             {presets.map((p) => {
-              const added = taken.has(slugKey(p.label));
+              const added = taken.has(p.key);
               const Icon = p.dateKind ? CalendarClock : kindIcons[p.kind];
               return (
                 <button
@@ -836,7 +841,7 @@ function AddFieldChooser({ q, onQ, taken, onAdd, onDone }: { q: string; onQ: (q:
                   <span className={cn('flex size-7 shrink-0 items-center justify-center rounded-md', added ? 'bg-success-soft text-success' : 'bg-surface-2 text-muted')}>{added ? <Check className="size-4" /> : <Icon className="size-4" />}</span>
                   <span className="min-w-0">
                     <span className="block truncate text-[13px] font-medium">{p.label}</span>
-                    <span className="block truncate text-xs text-muted">{added ? 'Added' : p.hint}</span>
+                    <span className="block truncate text-xs text-muted">{added ? t('Added') : p.hint}</span>
                   </span>
                 </button>
               );
@@ -846,7 +851,7 @@ function AddFieldChooser({ q, onQ, taken, onAdd, onDone }: { q: string; onQ: (q:
       )}
       {kinds.length > 0 && (
         <div>
-          <p className="px-1 pb-1.5 text-[11px] font-semibold tracking-wide text-subtle uppercase">{quick ? `Add “${quick}” as…` : 'Any kind of field'}</p>
+          <p className="px-1 pb-1.5 text-[11px] font-semibold tracking-wide text-subtle uppercase">{quick ? t('Add “{name}” as…', { name: quick }) : t('Any kind of field')}</p>
           <div className="grid grid-cols-2 gap-1">
             {kinds.map((k) => {
               const Icon = kindIcons[k];
@@ -864,8 +869,8 @@ function AddFieldChooser({ q, onQ, taken, onAdd, onDone }: { q: string; onQ: (q:
                     <Icon className="size-4" />
                   </span>
                   <span className="min-w-0">
-                    <span className="block text-[13px] font-medium">{fieldKindMeta[k].label}</span>
-                    <span className="block text-xs text-muted">{fieldKindMeta[k].description}</span>
+                    <span className="block text-[13px] font-medium">{tMaybe(fieldKindMeta[k].label)}</span>
+                    <span className="block text-xs text-muted">{tMaybe(fieldKindMeta[k].description)}</span>
                   </span>
                 </button>
               );
@@ -874,9 +879,9 @@ function AddFieldChooser({ q, onQ, taken, onAdd, onDone }: { q: string; onQ: (q:
         </div>
       )}
       <div className="flex items-center justify-between gap-2 border-t border-border px-1 pt-2">
-        <span className="text-xs text-subtle">Common fields come set up; change anything later.</span>
+        <span className="text-xs text-subtle">{t('Common fields come set up; change anything later.')}</span>
         <Button size="sm" onClick={onDone}>
-          Done
+          {t('Done')}
         </Button>
       </div>
     </div>
@@ -885,11 +890,11 @@ function AddFieldChooser({ q, onQ, taken, onAdd, onDone }: { q: string; onQ: (q:
 
 /** Common fields not added yet, one click each: building a template is mostly picking these. */
 function SuggestedFields({ taken, onAdd }: { taken: ReadonlySet<string>; onAdd: (p: FieldPreset) => void }) {
-  const left = fieldPresets.filter((p) => !taken.has(slugKey(p.label)));
+  const left = fieldPresets.filter((p) => !taken.has(p.key));
   if (taken.size >= 10 || !left.length) return null;
   return (
     <div className="flex flex-wrap items-center gap-1.5 border-t border-border px-4 py-3">
-      <span className="me-1 text-xs text-muted">Quick add</span>
+      <span className="me-1 text-xs text-muted">{t('Quick add')}</span>
       {left.slice(0, 8).map((p) => (
         <button key={p.label} type="button" onClick={() => onAdd(p)} className="inline-flex h-7 items-center gap-1 rounded-full border border-border px-2.5 text-xs font-medium transition-colors hover:border-border-strong hover:bg-surface-2 touch:h-8">
           <Plus className="size-3 text-subtle" />
@@ -926,7 +931,7 @@ function FieldRow({ field, kinds, active, onSelect, hasIssue }: { field: FieldDe
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className={cn('flex items-center gap-2 bg-surface px-2 py-2', isDragging && 'relative z-10 shadow-pop', active && 'bg-accent-soft/50')}
     >
-      <button type="button" className="cursor-grab rounded p-1 text-subtle hover:bg-surface-2 active:cursor-grabbing" aria-label="Reorder" {...attributes} {...listeners}>
+      <button type="button" className="cursor-grab rounded p-1 text-subtle hover:bg-surface-2 active:cursor-grabbing" aria-label={t('Reorder')} {...attributes} {...listeners}>
         <GripVertical className="size-4" />
       </button>
       <button type="button" onClick={onSelect} className="flex min-w-0 flex-1 items-center gap-3 text-start">
@@ -935,16 +940,16 @@ function FieldRow({ field, kinds, active, onSelect, hasIssue }: { field: FieldDe
         </span>
         <span className="min-w-0 flex-1">
           <span className={cn('block truncate text-[13px] font-medium', hasIssue && 'text-danger')}>{field.label}</span>
-          <span className="block truncate text-xs text-subtle">{fieldKindMeta[field.kind].label}{field.description ? ` · ${field.description}` : ''}</span>
+          <span className="block truncate text-xs text-subtle">{tMaybe(fieldKindMeta[field.kind].label)}{field.description ? ` · ${field.description}` : ''}</span>
         </span>
         <span className="flex shrink-0 items-center gap-1">
           {kind && (
             <Badge color={kind.color}>
               {tracking?.derive && <Sparkles className="size-3" />}
-              {kind.name}
+              {tMaybe(kind.name)}
             </Badge>
           )}
-          {field.required && <Badge>Required</Badge>}
+          {field.required && <Badge>{t('Required')}</Badge>}
           {(field.restricted || field.kind === 'secret') && (
             <Badge>
               <Lock className="size-3" />
@@ -966,9 +971,9 @@ function LockedFieldRow({ field, from }: { field: FieldDefinition; from: string 
       </span>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[13px]">{field.label}</span>
-        <span className="block truncate text-[11px] text-subtle">from {from}</span>
+        <span className="block truncate text-[11px] text-subtle">{t('from {template}', { template: from })}</span>
       </span>
-      <Lock className="size-3.5 shrink-0 text-subtle" aria-label="Defined by the template" />
+      <Lock className="size-3.5 shrink-0 text-subtle" aria-label={t('Defined by the template')} />
     </li>
   );
 }
@@ -1008,32 +1013,32 @@ function FieldInspector({
         <Icon className="size-4" />
       </span>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-[13px] font-semibold">{field.label || 'Untitled field'}</p>
-        <p className="text-xs text-muted">{fieldKindMeta[field.kind].label}</p>
+        <p className="truncate text-[13px] font-semibold">{field.label || t('Untitled field')}</p>
+        <p className="text-xs text-muted">{tMaybe(fieldKindMeta[field.kind].label)}</p>
       </div>
-      <Button size="icon" variant="danger-ghost" aria-label="Remove field" icon={<Trash2 className="size-4" />} onClick={onRemove} />
+      <Button size="icon" variant="danger-ghost" aria-label={t('Remove field')} icon={<Trash2 className="size-4" />} onClick={onRemove} />
       {onDone && (
         <Button size="sm" onClick={onDone}>
-          Done
+          {t('Done')}
         </Button>
       )}
     </div>
   );
   const body = (
     <div className={cn('space-y-4', !plain && 'p-4')}>
-      <Field label="Name on the form">
+      <Field label={t('Name on the form')}>
         {(id) => <Input id={id} value={field.label} autoFocus={!plain && !field.label} onChange={(e) => set({ label: e.target.value, ...(autoKey && { key: slugKey(e.target.value) }) })} />}
       </Field>
       {!kindIsAdvanced && <KindConfig field={field} fields={fields} kinds={kinds} setConfig={setConfig} />}
       <div className="space-y-2.5 rounded-lg bg-surface-2/60 p-3">
-        <Switch checked={field.required} onChange={(required) => set({ required })} label="Required" description="Items cannot be saved without it" />
-        <Switch checked={field.showInTable} onChange={(showInTable) => set({ showInTable })} label="Show as a table column" description="People can still add or hide columns themselves" />
+        <Switch checked={field.required} onChange={(required) => set({ required })} label={t('Required')} description={t('Items cannot be saved without it')} />
+        <Switch checked={field.showInTable} onChange={(showInTable) => set({ showInTable })} label={t('Show as a table column')} description={t('People can still add or hide columns themselves')} />
       </div>
       {sections.length > 0 && (
-        <Field label="Section">
+        <Field label={t('Section')}>
           {(id) => (
             <Select id={id} value={field.section ?? ''} onChange={(e) => set({ section: e.target.value || undefined })}>
-              <option value="">No section</option>
+              <option value="">{t('No section')}</option>
               {sections.map((s) => (
                 <option key={s} value={s}>
                   {s}
@@ -1045,22 +1050,22 @@ function FieldInspector({
       )}
       <details className="group rounded-lg border border-border">
         <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2 text-[13px] font-medium select-none">
-          More options
+          {t('More options')}
           <ChevronDown className="size-4 text-subtle transition-transform group-open:rotate-180" />
         </summary>
         <div className="space-y-4 border-t border-border p-3">
-          <Field label="Help text" hint="Shown under the field on the form">
+          <Field label={t('Help text')} hint={t('Shown under the field on the form')}>
             {(id) => <Input id={id} value={field.description ?? ''} onChange={(e) => set({ description: e.target.value || undefined })} />}
           </Field>
           <Switch
             checked={field.restricted || field.kind === 'secret'}
             disabled={field.kind === 'secret'}
             onChange={(restricted) => set({ restricted })}
-            label="Restricted"
-            description="Only people with the “See secrets” permission can see or change it; never searchable"
+            label={t('Restricted')}
+            description={t('Only people with the “See secrets” permission can see or change it; never searchable')}
           />
           {kindIsAdvanced && <KindConfig field={field} fields={fields} kinds={kinds} setConfig={setConfig} />}
-          <Field label="Key" hint={keyLocked ? 'Items already use it, so it cannot change' : 'Used in imports, exports and integrations'}>
+          <Field label={t('Key')} hint={keyLocked ? t('Items already use it, so it cannot change') : t('Used in imports, exports and integrations')}>
             {(id) => (
               <Input
                 id={id}
@@ -1089,11 +1094,11 @@ function FieldInspector({
 }
 
 const listPresets = [
-  { key: 'any', label: 'Any text', pattern: undefined, placeholder: undefined },
-  { key: 'mac', label: 'MAC address (AA:BB:CC:DD:EE:FF)', pattern: '^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$', placeholder: 'AA:BB:CC:DD:EE:FF' },
-  { key: 'ipv4', label: 'IPv4 address', pattern: '^((25[0-5]|2[0-4]\\d|1?\\d?\\d)\\.){3}(25[0-5]|2[0-4]\\d|1?\\d?\\d)$', placeholder: '10.0.0.12' },
-  { key: 'host', label: 'Hostname', pattern: '^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$', placeholder: 'lab-ws-07.corp.example.com' },
-  { key: 'email', label: 'Email address', pattern: '^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$', placeholder: 'name@example.com' },
+  { key: 'any', label: t('Any text'), pattern: undefined, placeholder: undefined },
+  { key: 'mac', label: t('MAC address (AA:BB:CC:DD:EE:FF)'), pattern: '^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$', placeholder: 'AA:BB:CC:DD:EE:FF' },
+  { key: 'ipv4', label: t('IPv4 address'), pattern: '^((25[0-5]|2[0-4]\\d|1?\\d?\\d)\\.){3}(25[0-5]|2[0-4]\\d|1?\\d?\\d)$', placeholder: '10.0.0.12' },
+  { key: 'host', label: t('Hostname'), pattern: '^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$', placeholder: 'lab-ws-07.corp.example.com' },
+  { key: 'email', label: t('Email address'), pattern: '^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$', placeholder: 'name@example.com' },
 ];
 
 function KindConfig({ field, fields, kinds, setConfig }: { field: FieldDefinition; fields: FieldDefinition[]; kinds: DateKind[]; setConfig: (p: Record<string, unknown>) => void }) {
@@ -1101,9 +1106,9 @@ function KindConfig({ field, fields, kinds, setConfig }: { field: FieldDefinitio
     case 'text':
       return (
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Placeholder">{(id) => <Input id={id} value={field.config.placeholder ?? ''} onChange={(e) => setConfig({ placeholder: e.target.value || undefined })} />}</Field>
-          <Field label="Max length">{(id) => <Input id={id} type="number" min={1} value={field.config.maxLength ?? ''} onChange={(e) => setConfig({ maxLength: e.target.value ? Number(e.target.value) : undefined })} />}</Field>
-          <Field label="Pattern (regex)" className="col-span-2" hint="Optional validation, e.g. ^[0-9]{18,22}$">
+          <Field label={t('Placeholder')}>{(id) => <Input id={id} value={field.config.placeholder ?? ''} onChange={(e) => setConfig({ placeholder: e.target.value || undefined })} />}</Field>
+          <Field label={t('Max length')}>{(id) => <Input id={id} type="number" min={1} value={field.config.maxLength ?? ''} onChange={(e) => setConfig({ maxLength: e.target.value ? Number(e.target.value) : undefined })} />}</Field>
+          <Field label={t('Pattern (regex)')} className="col-span-2" hint={t('Optional validation, e.g. ^[0-9]{18,22}$')}>
             {(id) => <Input id={id} className="font-mono text-xs" value={field.config.pattern ?? ''} onChange={(e) => setConfig({ pattern: e.target.value || undefined })} />}
           </Field>
         </div>
@@ -1111,19 +1116,19 @@ function KindConfig({ field, fields, kinds, setConfig }: { field: FieldDefinitio
     case 'number':
       return (
         <div className="grid grid-cols-3 gap-3">
-          <Field label="Min">{(id) => <Input id={id} type="number" value={field.config.min ?? ''} onChange={(e) => setConfig({ min: e.target.value === '' ? undefined : Number(e.target.value) })} />}</Field>
-          <Field label="Max">{(id) => <Input id={id} type="number" value={field.config.max ?? ''} onChange={(e) => setConfig({ max: e.target.value === '' ? undefined : Number(e.target.value) })} />}</Field>
-          <Field label="Unit">{(id) => <Input id={id} value={field.config.unit ?? ''} placeholder="mo" onChange={(e) => setConfig({ unit: e.target.value || undefined })} />}</Field>
+          <Field label={t('Min')}>{(id) => <Input id={id} type="number" value={field.config.min ?? ''} onChange={(e) => setConfig({ min: e.target.value === '' ? undefined : Number(e.target.value) })} />}</Field>
+          <Field label={t('Max')}>{(id) => <Input id={id} type="number" value={field.config.max ?? ''} onChange={(e) => setConfig({ max: e.target.value === '' ? undefined : Number(e.target.value) })} />}</Field>
+          <Field label={t('Unit')}>{(id) => <Input id={id} value={field.config.unit ?? ''} placeholder={t('mo')} onChange={(e) => setConfig({ unit: e.target.value || undefined })} />}</Field>
           <div className="col-span-3">
-            <Checkbox checked={field.config.integer} onChange={(integer) => setConfig({ integer })} label="Whole numbers only" />
+            <Checkbox checked={field.config.integer} onChange={(integer) => setConfig({ integer })} label={t('Whole numbers only')} />
           </div>
         </div>
       );
     case 'currency':
       return (
         <div className="space-y-3">
-          <Field label="Currency">{(id) => <Input id={id} className="w-24 uppercase" maxLength={3} value={field.config.currency} onChange={(e) => setConfig({ currency: e.target.value.toUpperCase() })} />}</Field>
-          <Switch checked={field.config.countsTowardSpend} onChange={(countsTowardSpend) => setConfig({ countsTowardSpend })} label="Counts toward spend" description="Included in 'renewing in 90 days' totals" />
+          <Field label={t('Currency')}>{(id) => <Input id={id} className="w-24 uppercase" maxLength={3} value={field.config.currency} onChange={(e) => setConfig({ currency: e.target.value.toUpperCase() })} />}</Field>
+          <Switch checked={field.config.countsTowardSpend} onChange={(countsTowardSpend) => setConfig({ countsTowardSpend })} label={t('Counts toward spend')} description={t('Included in “renewing in 90 days” totals')} />
         </div>
       );
     case 'select':
@@ -1132,15 +1137,15 @@ function KindConfig({ field, fields, kinds, setConfig }: { field: FieldDefinitio
     case 'assetRef':
       return (
         <div className="space-y-3">
-          <Field label="Linked asset type">{(id) => <AssetTypeSelect id={id} includeAll allLabel="Any type" value={field.config.assetTypeId ?? null} onChange={(v) => setConfig({ assetTypeId: v ?? undefined })} />}</Field>
-          <Checkbox checked={field.config.multiple} onChange={(multiple) => setConfig({ multiple })} label="Several items (e.g. the machines that use this license)" />
+          <Field label={t('Linked asset type')}>{(id) => <AssetTypeSelect id={id} includeAll allLabel={t('Any type')} value={field.config.assetTypeId ?? null} onChange={(v) => setConfig({ assetTypeId: v ?? undefined })} />}</Field>
+          <Checkbox checked={field.config.multiple} onChange={(multiple) => setConfig({ multiple })} label={t('Several items (e.g. the machines that use this license)')} />
         </div>
       );
     case 'list': {
       const preset = listPresets.find((x) => x.pattern === field.config.pattern)?.key ?? (field.config.pattern ? 'custom' : 'any');
       return (
         <div className="space-y-3">
-          <Field label="Each entry is" hint="Checked on every entry, also on import">
+          <Field label={t('Each entry is')} hint={t('Checked on every entry, also on import')}>
             {(id) => (
               <Select id={id} value={preset} onChange={(e) => {
                 const x = listPresets.find((p) => p.key === e.target.value);
@@ -1151,14 +1156,14 @@ function KindConfig({ field, fields, kinds, setConfig }: { field: FieldDefinitio
                     {x.label}
                   </option>
                 ))}
-                <option value="custom">Custom format (regex)…</option>
+                <option value="custom">{t('Custom format (regex)…')}</option>
               </Select>
             )}
           </Field>
           {preset === 'custom' && (
-            <Field label="Pattern (regex)">{(id) => <Input id={id} className="font-mono text-xs" value={field.config.pattern ?? ''} onChange={(e) => setConfig({ pattern: e.target.value || undefined })} />}</Field>
+            <Field label={t('Pattern (regex)')}>{(id) => <Input id={id} className="font-mono text-xs" value={field.config.pattern ?? ''} onChange={(e) => setConfig({ pattern: e.target.value || undefined })} />}</Field>
           )}
-          <Field label="At most">{(id) => <Input id={id} type="number" min={1} max={1000} className="w-28" value={field.config.maxItems} onChange={(e) => setConfig({ maxItems: Math.max(1, Number(e.target.value) || 1) })} />}</Field>
+          <Field label={t('At most')}>{(id) => <Input id={id} type="number" min={1} max={1000} className="w-28" value={field.config.maxItems} onChange={(e) => setConfig({ maxItems: Math.max(1, Number(e.target.value) || 1) })} />}</Field>
         </div>
       );
     }
@@ -1174,78 +1179,78 @@ function KindConfig({ field, fields, kinds, setConfig }: { field: FieldDefinitio
  * pick a date kind, optionally derive it from another date, and tune
  * recurrence, reminders and recipients.
  */
-function DateMeaning({ field, fields, kinds, onChange }: { field: Extract<FieldDefinition, { kind: 'date' }>; fields: FieldDefinition[]; kinds: DateKind[]; onChange: (t: DateTracking | undefined) => void }) {
-  const t = field.config.tracking;
-  const kind = t && kinds.find((k) => k.id === t.dateKindId);
+function DateMeaning({ field, fields, kinds, onChange }: { field: Extract<FieldDefinition, { kind: 'date' }>; fields: FieldDefinition[]; kinds: DateKind[]; onChange: (tr: DateTracking | undefined) => void }) {
+  const tr = field.config.tracking;
+  const kind = tr && kinds.find((k) => k.id === tr.dateKindId);
   const otherDates = fields.filter((f) => f.kind === 'date' && f.key !== field.key);
   const numbers = fields.filter((f) => f.kind === 'number');
   const users = fields.filter((f) => f.kind === 'user');
-  const set = (patch: Partial<DateTracking>) => onChange({ ...t!, ...patch });
+  const set = (patch: Partial<DateTracking>) => onChange({ ...tr!, ...patch });
 
   return (
     <div className="space-y-4 rounded-xl border border-border p-3">
       <div className="flex items-center gap-2">
         <CalendarClock className="size-4 text-accent" />
-        <p className="text-[13px] font-semibold">What is this date?</p>
+        <p className="text-[13px] font-semibold">{t('What is this date?')}</p>
       </div>
       <Select
-        value={t?.dateKindId ?? ''}
-        onChange={(e) => onChange(e.target.value ? { dateKindId: e.target.value, notify: t?.notify ?? { owner: true, userFields: [], emails: [], unitManagers: 'fallback' }, derive: t?.derive, recurrence: t?.recurrence, reminders: t?.reminders, confirmBefore: t?.confirmBefore ?? null } : undefined)}
+        value={tr?.dateKindId ?? ''}
+        onChange={(e) => onChange(e.target.value ? { dateKindId: e.target.value, notify: tr?.notify ?? { owner: true, userFields: [], emails: [], unitManagers: 'fallback' }, derive: tr?.derive, recurrence: tr?.recurrence, reminders: tr?.reminders, confirmBefore: tr?.confirmBefore ?? null } : undefined)}
       >
-        <option value="">Just a date (not tracked)</option>
+        <option value="">{t('Just a date (not tracked)')}</option>
         {kinds
-          .filter((k) => !k.archived || k.id === t?.dateKindId)
+          .filter((k) => !k.archived || k.id === tr?.dateKindId)
           .map((k) => (
             <option key={k.id} value={k.id}>
-              {k.name} — {k.behavior === 'recurring' ? 'repeats' : k.behavior === 'milestone' ? 'one-off' : 'no reminders'}
+              {tMaybe(k.name)} — {k.behavior === 'recurring' ? t('repeats') : k.behavior === 'milestone' ? t('one-off') : t('no reminders')}
             </option>
           ))}
       </Select>
 
-      {t && kind && (
+      {tr && kind && (
         <>
-          <Field label="Value">
+          <Field label={t('Value')}>
             {() => (
               <Segmented
-                value={t.derive ? 'derived' : 'entered'}
+                value={tr.derive ? 'derived' : 'entered'}
                 onChange={(v) =>
                   set({
                     derive: v === 'derived' && otherDates[0] ? { from: otherDates[0].key, direction: 'before', amount: { fixed: 30 }, unit: 'day' } : undefined,
                   })
                 }
                 options={[
-                  { value: 'entered', label: 'Entered by users' },
-                  { value: 'derived', label: 'Calculated' },
+                  { value: 'entered', label: t('Entered by users') },
+                  { value: 'derived', label: t('Calculated') },
                 ]}
               />
             )}
           </Field>
-          {t.derive && (
+          {tr.derive && (
             <div className="grid grid-cols-[auto_1fr] items-center gap-2 text-[13px]">
               {numbers.length > 0 && (
-                <Select className="col-span-2" value={'field' in t.derive.amount ? `field:${t.derive.amount.field}` : 'fixed'} onChange={(e) => set({ derive: { ...t.derive!, amount: e.target.value === 'fixed' ? { fixed: 30 } : { field: e.target.value.slice(6) } } })}>
-                  <option value="fixed">A fixed offset</option>
+                <Select className="col-span-2" value={'field' in tr.derive.amount ? `field:${tr.derive.amount.field}` : 'fixed'} onChange={(e) => set({ derive: { ...tr.derive!, amount: e.target.value === 'fixed' ? { fixed: 30 } : { field: e.target.value.slice(6) } } })}>
+                  <option value="fixed">{t('A fixed offset')}</option>
                   {numbers.map((n) => (
                     <option key={n.key} value={`field:${n.key}`}>
-                      The value of “{n.label}”
+                      {t('The value of “{field}”', { field: n.label })}
                     </option>
                   ))}
                 </Select>
               )}
               <div className="col-span-2 flex flex-wrap items-center gap-1.5">
-                {'fixed' in t.derive.amount && <Input type="number" min={0} className="w-20" value={t.derive.amount.fixed} onChange={(e) => set({ derive: { ...t.derive!, amount: { fixed: Math.max(0, Number(e.target.value) || 0) } } })} />}
-                <Select className="w-24" value={t.derive.unit} onChange={(e) => set({ derive: { ...t.derive!, unit: e.target.value as DurationUnit } })}>
+                {'fixed' in tr.derive.amount && <Input type="number" min={0} className="w-20" value={tr.derive.amount.fixed} onChange={(e) => set({ derive: { ...tr.derive!, amount: { fixed: Math.max(0, Number(e.target.value) || 0) } } })} />}
+                <Select className="w-24" value={tr.derive.unit} onChange={(e) => set({ derive: { ...tr.derive!, unit: e.target.value as DurationUnit } })}>
                   {durationUnits.map((u) => (
                     <option key={u} value={u}>
-                      {u}s
+                      {unitNames[u]}
                     </option>
                   ))}
                 </Select>
-                <Select className="w-24" value={t.derive.direction} onChange={(e) => set({ derive: { ...t.derive!, direction: e.target.value as 'before' | 'after' } })}>
-                  <option value="before">before</option>
-                  <option value="after">after</option>
+                <Select className="w-24" value={tr.derive.direction} onChange={(e) => set({ derive: { ...tr.derive!, direction: e.target.value as 'before' | 'after' } })}>
+                  <option value="before">{t('before')}</option>
+                  <option value="after">{t('after')}</option>
                 </Select>
-                <Select className="min-w-36 flex-1" value={t.derive.from} onChange={(e) => set({ derive: { ...t.derive!, from: e.target.value } })}>
+                <Select className="min-w-36 flex-1" value={tr.derive.from} onChange={(e) => set({ derive: { ...tr.derive!, from: e.target.value } })}>
                   {otherDates.map((d) => (
                     <option key={d.key} value={d.key}>
                       {d.label}
@@ -1253,35 +1258,35 @@ function DateMeaning({ field, fields, kinds, onChange }: { field: Extract<FieldD
                   ))}
                 </Select>
               </div>
-              {!otherDates.length && <p className="col-span-2 text-xs text-danger">Add another date field to calculate from.</p>}
+              {!otherDates.length && <p className="col-span-2 text-xs text-danger">{t('Add another date field to calculate from.')}</p>}
             </div>
           )}
 
-          {kind.behavior === 'recurring' && !t.derive && (
-            <Field label="Repeats every" hint={kind.defaultRecurrence ? `Default for ${kind.name}: every ${kind.defaultRecurrence.amount} ${kind.defaultRecurrence.unit}(s)` : undefined}>
+          {kind.behavior === 'recurring' && !tr.derive && (
+            <Field label={t('Repeats every')} hint={kind.defaultRecurrence ? t('Default for {kind}: every {duration}', { kind: tMaybe(kind.name), duration: describeDuration(kind.defaultRecurrence) }) : undefined}>
               {() => (
                 <div className="space-y-2">
                   <Select
-                    value={t.recurrence ? (t.recurrence.mode === 'fixed' ? 'fixed' : `field:${t.recurrence.field}`) : 'default'}
+                    value={tr.recurrence ? (tr.recurrence.mode === 'fixed' ? 'fixed' : `field:${tr.recurrence.field}`) : 'default'}
                     onChange={(e) => {
                       const v = e.target.value;
                       set({ recurrence: v === 'default' ? undefined : v === 'fixed' ? { mode: 'fixed', every: kind.defaultRecurrence ?? { amount: 1, unit: 'year' } } : { mode: 'field', field: v.slice(6), unit: 'month' } });
                     }}
                   >
-                    <option value="default">Use the date kind's default</option>
-                    <option value="fixed">A fixed interval</option>
+                    <option value="default">{t('Use the date kind’s default')}</option>
+                    <option value="fixed">{t('A fixed interval')}</option>
                     {numbers.map((n) => (
                       <option key={n.key} value={`field:${n.key}`}>
-                        The value of “{n.label}”
+                        {t('The value of “{field}”', { field: n.label })}
                       </option>
                     ))}
                   </Select>
-                  {t.recurrence?.mode === 'fixed' && <DurationInput value={t.recurrence.every} onChange={(every) => set({ recurrence: { mode: 'fixed', every } })} />}
-                  {t.recurrence?.mode === 'field' && (
-                    <Select className="w-32" value={t.recurrence.unit} onChange={(e) => set({ recurrence: { ...t.recurrence!, unit: e.target.value as DurationUnit } as DateTracking['recurrence'] })}>
+                  {tr.recurrence?.mode === 'fixed' && <DurationInput value={tr.recurrence.every} onChange={(every) => set({ recurrence: { mode: 'fixed', every } })} />}
+                  {tr.recurrence?.mode === 'field' && (
+                    <Select className="w-32" value={tr.recurrence.unit} onChange={(e) => set({ recurrence: { ...tr.recurrence!, unit: e.target.value as DurationUnit } as DateTracking['recurrence'] })}>
                       {durationUnits.map((u) => (
                         <option key={u} value={u}>
-                          in {u}s
+                          {unitInNames[u]}
                         </option>
                       ))}
                     </Select>
@@ -1293,52 +1298,52 @@ function DateMeaning({ field, fields, kinds, onChange }: { field: Extract<FieldD
 
           {kind.behavior !== 'informational' && (
             <>
-              <Field label="Reminders" aside={<Checkbox checked={!!t.reminders} onChange={(c) => set({ reminders: c ? kind.defaultReminders : undefined })} label={<span className="text-xs">Custom</span>} />}>
-                {() => (t.reminders ? <DurationListEditor value={t.reminders} onChange={(reminders) => set({ reminders })} /> : <p className="text-xs text-muted">{formatDurations(kind.defaultReminders)} (from {kind.name})</p>)}
+              <Field label={t('Reminders')} aside={<Checkbox checked={!!tr.reminders} onChange={(c) => set({ reminders: c ? kind.defaultReminders : undefined })} label={<span className="text-xs">{t('Custom')}</span>} />}>
+                {() => (tr.reminders ? <DurationListEditor value={tr.reminders} onChange={(reminders) => set({ reminders })} /> : <p className="text-xs text-muted">{t('{reminders} (from {kind})', { reminders: formatDurations(kind.defaultReminders), kind: tMaybe(kind.name) })}</p>)}
               </Field>
               {kind.behavior === 'recurring' && (
                 <Field
-                  label="Ask the owner first"
-                  hint="Before each renewal, the owner is asked whether to renew as is, renew with changes, or not renew. Buyers see the answer next to the date."
-                  aside={<Switch checked={!!t.confirmBefore} onChange={(c) => set({ confirmBefore: c ? { amount: 60, unit: 'day' } : null })} />}
+                  label={t('Ask the owner first')}
+                  hint={t('Before each renewal, the owner is asked whether to renew as is, renew with changes, or not renew. Buyers see the answer next to the date.')}
+                  aside={<Switch checked={!!tr.confirmBefore} onChange={(c) => set({ confirmBefore: c ? { amount: 60, unit: 'day' } : null })} />}
                 >
                   {() =>
-                    t.confirmBefore ? (
+                    tr.confirmBefore ? (
                       <div className="flex items-center gap-2 text-[13px]">
-                        <DurationInput value={t.confirmBefore} onChange={(confirmBefore) => set({ confirmBefore })} />
-                        <span className="text-muted">before the date</span>
+                        <DurationInput value={tr.confirmBefore} onChange={(confirmBefore) => set({ confirmBefore })} />
+                        <span className="text-muted">{t('before the date')}</span>
                       </div>
                     ) : (
-                      <p className="text-xs text-muted">Off — anyone handling the renewal can still ask with one click.</p>
+                      <p className="text-xs text-muted">{t('Off — anyone handling the renewal can still ask with one click.')}</p>
                     )
                   }
                 </Field>
               )}
-              <Field label="Notify">
+              <Field label={t('Notify')}>
                 {() => (
                   <div className="space-y-2">
-                    <Checkbox checked={t.notify.owner} onChange={(owner) => set({ notify: { ...t.notify, owner } })} label="Asset owner" />
+                    <Checkbox checked={tr.notify.owner} onChange={(owner) => set({ notify: { ...tr.notify, owner } })} label={t('Asset owner')} />
                     {users.map((u) => (
                       <Checkbox
                         key={u.key}
-                        checked={t.notify.userFields.includes(u.key)}
-                        onChange={(c) => set({ notify: { ...t.notify, userFields: c ? [...t.notify.userFields, u.key] : t.notify.userFields.filter((k) => k !== u.key) } })}
-                        label={`Person in “${u.label}”`}
+                        checked={tr.notify.userFields.includes(u.key)}
+                        onChange={(c) => set({ notify: { ...tr.notify, userFields: c ? [...tr.notify.userFields, u.key] : tr.notify.userFields.filter((k) => k !== u.key) } })}
+                        label={t('Person in “{field}”', { field: u.label })}
                       />
                     ))}
                     <TagInput
-                      value={t.notify.emails}
-                      onChange={(emails) => set({ notify: { ...t.notify, emails: emails.map((e) => e.toLowerCase()) } })}
+                      value={tr.notify.emails}
+                      onChange={(emails) => set({ notify: { ...tr.notify, emails: emails.map((e) => e.toLowerCase()) } })}
                       validate={(v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)}
-                      placeholder="Also email, e.g. procurement@corp.com"
+                      placeholder={t('Also email, e.g. procurement@corp.com')}
                     />
                     <Select
-                      value={t.notify.unitManagers}
-                      onChange={(e) => set({ notify: { ...t.notify, unitManagers: e.target.value as 'never' | 'fallback' | 'always' } })}
+                      value={tr.notify.unitManagers}
+                      onChange={(e) => set({ notify: { ...tr.notify, unitManagers: e.target.value as 'never' | 'fallback' | 'always' } })}
                     >
-                      <option value="fallback">Team managers — only if nobody else would be told</option>
-                      <option value="always">Team managers — always</option>
-                      <option value="never">Team managers — never</option>
+                      <option value="fallback">{t('Team managers — only if nobody else would be told')}</option>
+                      <option value="always">{t('Team managers — always')}</option>
+                      <option value="never">{t('Team managers — never')}</option>
                     </Select>
                   </div>
                 )}
@@ -1354,24 +1359,24 @@ function DateMeaning({ field, fields, kinds, onChange }: { field: Extract<FieldD
 function OptionsEditor({ value, onChange }: { value: SelectOption[]; onChange: (v: SelectOption[]) => void }) {
   const colors = ['#6366f1', '#10b981', '#f59e0b', '#f43f5e', '#0ea5e9', '#8b5cf6', '#64748b'];
   return (
-    <Field label="Options">
+    <Field label={t('Options')}>
       {() => (
         <div className="space-y-1.5">
           {value.map((o, i) => (
             <div key={i} className="flex items-center gap-1.5">
               <button
                 type="button"
-                aria-label="Change color"
+                aria-label={t('Change color')}
                 className="size-5 shrink-0 rounded-full"
                 style={{ background: o.color ?? '#94a3b8' }}
                 onClick={() => onChange(value.map((x, j) => (j === i ? { ...x, color: colors[(colors.indexOf(x.color ?? '') + 1) % colors.length] } : x)))}
               />
               <Input value={o.label} onChange={(e) => onChange(value.map((x, j) => (j === i ? { ...x, label: e.target.value, value: x.value.startsWith('option_') ? slugKey(e.target.value) || x.value : x.value } : x)))} />
-              <Button size="icon" variant="ghost" aria-label="Remove option" disabled={value.length === 1} icon={<Trash2 className="size-3.5" />} onClick={() => onChange(value.filter((_, j) => j !== i))} />
+              <Button size="icon" variant="ghost" aria-label={t('Remove option')} disabled={value.length === 1} icon={<Trash2 className="size-3.5" />} onClick={() => onChange(value.filter((_, j) => j !== i))} />
             </div>
           ))}
-          <Button size="sm" variant="ghost" icon={<Plus className="size-3.5" />} onClick={() => onChange([...value, { value: `option_${value.length + 1}`, label: `Option ${value.length + 1}` }])}>
-            Add option
+          <Button size="sm" variant="ghost" icon={<Plus className="size-3.5" />} onClick={() => onChange([...value, { value: `option_${value.length + 1}`, label: t('Option {n}', { n: value.length + 1 }) }])}>
+            {t('Add option')}
           </Button>
         </div>
       )}
@@ -1383,9 +1388,9 @@ function StatusesEditor({ value, onChange }: { value: AssetStatus[]; onChange: (
   return (
     <Card>
       <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-[13px] font-semibold">Item statuses</h2>
-        <Button size="xs" variant="ghost" icon={<Plus className="size-3" />} onClick={() => onChange([...value, { value: `status_${value.length + 1}`, label: 'New status', color: '#64748b', active: true }])}>
-          Add
+        <h2 className="text-[13px] font-semibold">{t('Item statuses')}</h2>
+        <Button size="xs" variant="ghost" icon={<Plus className="size-3" />} onClick={() => onChange([...value, { value: `status_${value.length + 1}`, label: t('New status'), color: '#64748b', active: true }])}>
+          {t('Add')}
         </Button>
       </div>
       <ul className="space-y-1.5">
@@ -1393,12 +1398,12 @@ function StatusesEditor({ value, onChange }: { value: AssetStatus[]; onChange: (
           <li key={i} className="flex items-center gap-2">
             <span className="size-2.5 shrink-0 rounded-full" style={{ background: s.color }} />
             <Input value={s.label} onChange={(e) => onChange(value.map((x, j) => (j === i ? { ...x, label: e.target.value, value: x.value.startsWith('status_') ? slugKey(e.target.value) : x.value } : x)))} />
-            <Checkbox checked={s.active} onChange={(active) => onChange(value.map((x, j) => (j === i ? { ...x, active } : x)))} label={<span className="text-xs whitespace-nowrap">Reminds</span>} />
-            <Button size="icon" variant="ghost" aria-label="Remove status" disabled={value.length === 1} icon={<Trash2 className="size-3.5" />} onClick={() => onChange(value.filter((_, j) => j !== i))} />
+            <Checkbox checked={s.active} onChange={(active) => onChange(value.map((x, j) => (j === i ? { ...x, active } : x)))} label={<span className="text-xs whitespace-nowrap">{t('Reminds')}</span>} />
+            <Button size="icon" variant="ghost" aria-label={t('Remove status')} disabled={value.length === 1} icon={<Trash2 className="size-3.5" />} onClick={() => onChange(value.filter((_, j) => j !== i))} />
           </li>
         ))}
       </ul>
-      <p className="mt-2 text-xs text-subtle">The first status is the default. Statuses without “Reminds” (e.g. Retired) pause all reminders.</p>
+      <p className="mt-2 text-xs text-subtle">{t('The first status is the default. Statuses without “Reminds” (e.g. Retired) pause all reminders.')}</p>
     </Card>
   );
 }
@@ -1411,7 +1416,7 @@ function FormBody({ draft, kinds, onPick }: { draft: Pick<AssetTypeInput, 'field
     for (const f of draft.fields) out.set(f.section ?? '', [...(out.get(f.section ?? '') ?? []), f]);
     return [...out.entries()].sort(([a], [b]) => (a === '' ? -1 : b === '' ? 1 : draft.sections.indexOf(a) - draft.sections.indexOf(b)));
   }, [draft.fields, draft.sections]);
-  if (!draft.fields.length) return <p className="text-[13px] text-muted">Add fields to see the form here.</p>;
+  if (!draft.fields.length) return <p className="text-[13px] text-muted">{t('Add fields to see the form here.')}</p>;
   return (
     <div className="space-y-6">
       {grouped.map(([section, fields]) => (
@@ -1419,20 +1424,20 @@ function FormBody({ draft, kinds, onPick }: { draft: Pick<AssetTypeInput, 'field
           {section && <legend className="mb-3 text-xs font-semibold tracking-wide text-subtle uppercase">{section}</legend>}
           <div className="grid grid-cols-2 gap-4">
             {fields.map((f) => {
-              const t = f.kind === 'date' ? f.config.tracking : undefined;
-              const k = t && kinds.find((x) => x.id === t.dateKindId);
+              const tr = f.kind === 'date' ? f.config.tracking : undefined;
+              const k = tr && kinds.find((x) => x.id === tr.dateKindId);
               return (
                 <div
                   key={f.id}
                   className={cn(f.kind === 'longText' || f.kind === 'multiSelect' || f.kind === 'list' ? 'col-span-2' : 'max-sm:col-span-2', onPick && '-m-1.5 cursor-pointer rounded-lg p-1.5 transition-colors hover:bg-surface-2/70')}
                   onClick={onPick ? (e) => !(e.target as HTMLElement).closest('input,select,textarea,button,[role=combobox]') && onPick(f.id) : undefined}
-                  title={onPick ? 'Click to edit this field' : undefined}
+                  title={onPick ? t('Click to edit this field') : undefined}
                 >
-                  <Field label={f.kind === 'boolean' ? '' : f.label} required={f.required} hint={k ? `${k.name}${t?.derive ? ' · calculated' : ''}` : f.description}>
+                  <Field label={f.kind === 'boolean' ? '' : f.label} required={f.required} hint={k ? (tr?.derive ? t('{kind} · calculated', { kind: tMaybe(k.name) }) : tMaybe(k.name)) : f.description}>
                     {(id) =>
-                      t?.derive ? (
+                      tr?.derive ? (
                         <div className="flex h-8 items-center gap-1.5 rounded-lg bg-surface-2 px-2.5 text-xs text-muted">
-                          <Sparkles className="size-3.5 text-accent" /> Calculated automatically
+                          <Sparkles className="size-3.5 text-accent" /> {t('Calculated automatically')}
                         </div>
                       ) : (
                         <AttributeInput id={id} field={f} value={values[f.key]} onChange={(v) => setValues((s) => ({ ...s, [f.key]: v }))} />
@@ -1456,8 +1461,8 @@ function LivePreview({ draft, kinds, onPick }: { draft: Pick<AssetTypeInput, 'na
       <div className="flex items-center gap-2 border-b border-border px-4 py-3">
         <Eye className="size-4 text-subtle" />
         <div className="min-w-0">
-          <p className="truncate text-[13px] font-semibold">New {inSentence(draft.name) || 'item'}</p>
-          <p className="text-xs text-muted">Live preview · click a field to edit it</p>
+          <p className="truncate text-[13px] font-semibold">{t('New {type}', { type: inSentence(draft.name) || t('item') })}</p>
+          <p className="text-xs text-muted">{t('Live preview · click a field to edit it')}</p>
         </div>
       </div>
       <div className="max-h-[calc(100dvh-12rem)] overflow-y-auto p-4">
@@ -1469,7 +1474,7 @@ function LivePreview({ draft, kinds, onPick }: { draft: Pick<AssetTypeInput, 'na
 
 function FormPreview({ open, onOpenChange, draft, kinds }: { open: boolean; onOpenChange: (o: boolean) => void; draft: Pick<AssetTypeInput, 'name' | 'fields' | 'sections'>; kinds: DateKind[] }) {
   return (
-    <Sheet open={open} onOpenChange={onOpenChange} title={`New ${inSentence(draft.name) || 'item'}`} description="Preview — nothing is saved">
+    <Sheet open={open} onOpenChange={onOpenChange} title={t('New {type}', { type: inSentence(draft.name) || t('item') })} description={t('Preview — nothing is saved')}>
       <FormBody draft={draft} kinds={kinds} />
     </Sheet>
   );
@@ -1480,12 +1485,12 @@ function RequestWorkflowCard({ value, saved, onChange }: { value: Workflow | nul
   const org = useOrgWorkflow();
   return (
     <Card className="space-y-3">
-      <SectionTitle>Requests</SectionTitle>
+      <SectionTitle>{t('Requests')}</SectionTitle>
       <Switch
         checked={!!value}
         onChange={(own) => onChange(own ? structuredClone(org.data ?? defaultWorkflow) : null)}
-        label="Own request workflow"
-        description={value ? 'Purchases and renewals of this template go through these statuses.' : <>Requests follow the organization’s workflow: {(org.data?.statuses ?? []).map((s) => s.label).join(' → ')}.</>}
+        label={t('Own request workflow')}
+        description={value ? t('Purchases and renewals of this template go through these statuses.') : t('Requests follow the organization’s workflow: {statuses}.', { statuses: (org.data?.statuses ?? []).map((s) => tMaybe(s.label)).join(isRtl() ? ' ← ' : ' → ') })}
       />
       {value && <WorkflowEditor value={value} onChange={onChange} lockedKeys={saved?.statuses.map((s) => s.key)} />}
     </Card>

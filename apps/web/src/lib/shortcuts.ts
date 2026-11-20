@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { t } from './i18n';
 
 /**
  * Keyboard shortcuts for people who live in the app. Single keys ("n", "?")
@@ -12,34 +13,34 @@ export interface ShortcutHelp {
 }
 
 export const goTo: Array<{ key: string; label: string; to: string; admin?: boolean }> = [
-  { key: 'u', label: 'Upcoming', to: '/' },
-  { key: 'r', label: 'Requests', to: '/requests' },
-  { key: 'a', label: 'All assets', to: '/assets' },
-  { key: 'c', label: 'Calendar', to: '/calendar' },
-  { key: 'l', label: 'Catalogs', to: '/catalogs' },
-  { key: 'i', label: 'Import', to: '/import' },
-  { key: 'p', label: 'Profile', to: '/profile' },
-  { key: 't', label: 'Templates', to: '/templates', admin: true },
-  { key: 'o', label: 'Organization', to: '/settings/organization', admin: true },
+  { key: 'u', label: t('Upcoming'), to: '/' },
+  { key: 'r', label: t('Requests'), to: '/requests' },
+  { key: 'a', label: t('All assets'), to: '/assets' },
+  { key: 'c', label: t('Calendar'), to: '/calendar' },
+  { key: 'l', label: t('Catalogs'), to: '/catalogs' },
+  { key: 'i', label: t('Import'), to: '/import' },
+  { key: 'p', label: t('Profile'), to: '/profile' },
+  { key: 't', label: t('Templates'), to: '/templates', admin: true },
+  { key: 'o', label: t('Organization'), to: '/settings/organization', admin: true },
 ];
 
 export const shortcutHelp: ShortcutHelp[] = [
-  { keys: ['⌘', 'K'], label: 'Search or run a command', group: 'Actions' },
-  { keys: ['/'], label: 'Search', group: 'Actions' },
-  { keys: ['N'], label: 'New item on this page (asset, template, catalog…)', group: 'Actions' },
-  { keys: ['R'], label: 'Request something', group: 'Actions' },
-  { keys: ['?'], label: 'Show these shortcuts', group: 'Actions' },
-  { keys: ['J'], label: 'Next row', group: 'Lists' },
-  { keys: ['K'], label: 'Previous row', group: 'Lists' },
-  { keys: ['↵'], label: 'Open the row', group: 'Lists' },
-  { keys: ['X'], label: 'Select the row', group: 'Lists' },
-  { keys: ['⇧', 'Click'], label: 'Select a range of rows', group: 'Lists' },
+  { keys: ['⌘', 'K'], label: t('Search or run a command'), group: 'Actions' },
+  { keys: ['/'], label: t('Search'), group: 'Actions' },
+  { keys: ['N'], label: t('New item on this page (asset, template, catalog…)'), group: 'Actions' },
+  { keys: ['R'], label: t('Request something'), group: 'Actions' },
+  { keys: ['?'], label: t('Show these shortcuts'), group: 'Actions' },
+  { keys: ['J'], label: t('Next row'), group: 'Lists' },
+  { keys: ['K'], label: t('Previous row'), group: 'Lists' },
+  { keys: ['↵'], label: t('Open the row'), group: 'Lists' },
+  { keys: ['X'], label: t('Select the row'), group: 'Lists' },
+  { keys: ['⇧', t('Click')], label: t('Select a range of rows'), group: 'Lists' },
   ...goTo.map((g) => ({ keys: ['G', g.key.toUpperCase()], label: g.label, group: 'Go to' as const })),
 ];
 
 export function isTyping(e: KeyboardEvent): boolean {
-  const t = e.target;
-  return t instanceof HTMLElement && (t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName));
+  const el = e.target;
+  return el instanceof HTMLElement && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName));
 }
 
 const blocked = (e: KeyboardEvent) => e.metaKey || e.ctrlKey || e.altKey || isTyping(e) || !!document.querySelector('[role=dialog],[role=menu],[data-radix-popper-content-wrapper]');

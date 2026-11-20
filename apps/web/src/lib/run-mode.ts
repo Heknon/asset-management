@@ -1,4 +1,5 @@
 import { request } from './api';
+import { t } from './i18n';
 
 /**
  * How the app gets its server:
@@ -34,7 +35,7 @@ export interface RuntimeStatus {
  * controls this page and its database is up. Reports progress on the way.
  */
 export async function startBrowserRuntime(onStatus: (s: RuntimeStatus) => void): Promise<void> {
-  if (!('serviceWorker' in navigator)) throw new Error('This browser cannot run Assets locally (no service workers — a private window, or an old browser).');
+  if (!('serviceWorker' in navigator)) throw new Error(t('This browser cannot run Assets locally (no service workers — a private window, or an old browser).'));
   const registration = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
 
   if (!navigator.serviceWorker.controller) {
@@ -54,7 +55,7 @@ export async function startBrowserRuntime(onStatus: (s: RuntimeStatus) => void):
       const s = e.data.status as RuntimeStatus;
       onStatus(s);
       if (s.state === 'ready') done(resolve);
-      if (s.state === 'failed') done(() => reject(new Error(s.error ?? 'The in-browser server could not start')));
+      if (s.state === 'failed') done(() => reject(new Error(s.error ?? t('The in-browser server could not start'))));
     };
     const done = (fn: () => void) => {
       navigator.serviceWorker.removeEventListener('message', onMessage);
