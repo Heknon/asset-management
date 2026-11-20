@@ -1,6 +1,6 @@
 import * as RTabs from '@radix-ui/react-tabs';
 import { Loader2 } from 'lucide-react';
-import type { CSSProperties, ReactNode } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { cn, initials } from '@/lib/utils';
 
 export function Card({ children, className, padded = true }: { children: ReactNode; className?: string; padded?: boolean }) {
@@ -97,10 +97,33 @@ export function Kbd({ children }: { children: ReactNode }) {
   return <kbd className="inline-flex h-5 min-w-5 items-center justify-center rounded border border-border bg-surface-2 px-1 font-sans text-[11px] text-muted">{children}</kbd>;
 }
 
+/** Which ends of a horizontal scroller have more content, to fade them as a hint. */
+function useScrollEdges<T extends HTMLElement>() {
+  const ref = useRef<T>(null);
+  const [edges, setEdges] = useState({ left: false, right: false });
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const update = () => setEdges({ left: el.scrollLeft > 2, right: el.scrollLeft + el.clientWidth < el.scrollWidth - 2 });
+    update();
+    el.addEventListener('scroll', update, { passive: true });
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => (el.removeEventListener('scroll', update), ro.disconnect());
+  }, []);
+  const mask = edges.left || edges.right ? `linear-gradient(to right, ${edges.left ? 'transparent, black 28px' : 'black'}, ${edges.right ? 'black calc(100% - 28px), transparent' : 'black'})` : undefined;
+  return { ref, style: mask ? { maskImage: mask, WebkitMaskImage: mask } : undefined };
+}
+
 export function Tabs({ value, onValueChange, tabs, children }: { value: string; onValueChange: (v: string) => void; tabs: Array<{ value: string; label: ReactNode; count?: number }>; children?: ReactNode }) {
+  const scroller = useScrollEdges<HTMLDivElement>();
+  // Keep the chosen tab in view on narrow screens (e.g. opened from a link to the last tab).
+  useEffect(() => {
+    scroller.ref.current?.querySelector<HTMLElement>('[data-state=active]')?.scrollIntoView({ block: 'nearest', inline: 'center' });
+  }, [value, scroller.ref]);
   return (
     <RTabs.Root value={value} onValueChange={onValueChange}>
-      <RTabs.List className="-mx-4 flex gap-4 overflow-x-auto border-b border-border px-4 [scrollbar-width:none] sm:mx-0 sm:px-0 [&::-webkit-scrollbar]:hidden">
+      <RTabs.List ref={scroller.ref} style={scroller.style} className="-mx-4 flex gap-4 overflow-x-auto border-b border-border px-4 [scrollbar-width:none] sm:mx-0 sm:px-0 [&::-webkit-scrollbar]:hidden">
         {tabs.map((t) => (
           <RTabs.Trigger
             key={t.value}
@@ -111,6 +134,8 @@ export function Tabs({ value, onValueChange, tabs, children }: { value: string; 
             {t.count !== undefined && <span className="rounded bg-surface-2 px-1 text-[11px] text-muted">{t.count}</span>}
           </RTabs.Trigger>
         ))}
+        {/* End padding that scrolls (a flex row's own padding-right does not), so the last tab clears the fade. */}
+        <span aria-hidden className="w-px shrink-0 sm:hidden" />
       </RTabs.List>
       {children}
     </RTabs.Root>
