@@ -157,3 +157,12 @@
 :root[lang='he'] body {
   line-height: 1.55;
 }
+
+/*
+ * Mixed languages: on Hebrew pages, names, titles and descriptions typed in English (or the other
+ * way round) take their direction from their own text, so punctuation sits on the right side and
+ * long English names are cut at their end ("Load-testing tool…"), not their start.
+ */
+[dir='rtl'] :is(p, h1, h2, h3, .truncate, li) {
+  unicode-bidi: plaintext;
+}

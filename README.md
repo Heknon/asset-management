@@ -247,6 +247,16 @@ People can connect Claude, an IDE or any other [Model Context Protocol](https://
 
 How it works: identity is an OAuth 2.1 authorization server (RFC 8414 metadata at `/.well-known/oauth-authorization-server`, open dynamic client registration per RFC 7591, PKCE S256 only, single-use two-minute codes, rotating refresh tokens). The MCP service publishes RFC 9728 protected-resource metadata, answers `401` with `WWW-Authenticate: Bearer resource_metadata=…`, and only accepts tokens whose audience includes `<public-url>/mcp` — an ordinary app session cannot be replayed against it. Redirect URIs must be `https`, `http://localhost` / `127.0.0.1`, or a native app scheme. It speaks stateless Streamable HTTP, so any replica (or serverless instance) answers any request. Set `services.mcp.enabled=false` (Terraform: `mcp_enabled = false`) to turn it off.
 
+## Languages (English, Hebrew)
+
+The app is in English and Hebrew (right-to-left). People pick a language on the sign-in page, in the account menu, or under Profile → Language; it is saved on their profile and follows them to other devices. With no choice, the browser's language decides. Dates, numbers, currencies and relative times ("in 3 days") follow the language, and the calendar starts on Sunday in Hebrew.
+
+- **Strings** are written in English in the code and looked up by their English text: `t('Save')`, `t('Signed in as {name}', { name })`, `plural(n, '{n} item', '{n} items')`, and `tj()` for sentences with links or bold text inside (`apps/web/src/lib/i18n.ts`). Hebrew lives in `apps/web/src/i18n/he.json`. `bun scripts/i18n-check.mjs` (run in CI) fails when a string has no translation or a `{placeholder}` differs.
+- **Built-in names** from the starter templates and defaults ("Software license", "Vendor", "Active", "Renewal"…) are shown in the person's language; names people type stay as typed.
+- **Right-to-left** layout uses logical spacing (`ps-`/`pe-`/`ms-`/`me-`/`start-`/`end-`), so it mirrors on its own; English names on Hebrew pages keep their own direction.
+- **Fonts**: Inter, with Heebo for Hebrew, bundled with the app (no font CDN, so air-gapped installs work).
+- Adding a language: a `<code>.json` next to `he.json` and an entry in `locales` (`lib/i18n.ts`).
+
 ## Organization and access at scale
 
 - **Import the org chart** (Organization → Import): paste one line per unit, `Wix / R&D / Editor / Platform | member links | manager links`. Missing parents are created; re-imports update links and never duplicate units.

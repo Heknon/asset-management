@@ -29,6 +29,7 @@ import type {
   UserSummary,
   Workflow,
 } from '@am/core';
+import { getLocale, tMaybe } from './i18n';
 import { withVariant } from '@am/core';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo } from 'react';
@@ -92,7 +93,40 @@ export const useComments = (assetId: string) =>
 export const useMe = () => useQuery({ queryKey: keys.me, queryFn: () => api.get<Me>('/api/identity/me'), retry: false, staleTime: 60_000 });
 export const useProviders = () => useQuery({ queryKey: keys.providers, queryFn: () => api.get<AuthProviderInfo[]>('/api/identity/auth/providers') });
 
-export const useAssetTypes = () => useQuery({ queryKey: keys.assetTypes, queryFn: () => api.get<AssetType[]>('/api/registry/asset-types'), staleTime: 30_000 });
+/**
+ * Built-in names (from the starter templates: "Software license", "Vendor", "Commercial",
+ * "Active"…) shown in the app's language. Only for display: the template editor reads the
+ * stored names through useAssetType, so nothing translated is ever saved. Names people
+ * typed themselves have no translation and show as they are.
+ */
+function localizeType(type: AssetType): AssetType {
+  return {
+    ...type,
+    name: tMaybe(type.name),
+    description: type.description ? tMaybe(type.description) : type.description,
+    sections: type.sections.map(tMaybe),
+    statuses: type.statuses.map((st) => ({ ...st, label: tMaybe(st.label) })),
+    fields: type.fields.map((f) => ({
+      ...f,
+      label: tMaybe(f.label),
+      ...(f.section && { section: tMaybe(f.section) }),
+      ...(f.description && { description: tMaybe(f.description) }),
+      ...('options' in (f.config ?? {}) && {
+        config: { ...f.config, options: (f.config as { options: Array<{ value: string; label: string }> }).options.map((o) => ({ ...o, label: tMaybe(o.label) })) },
+      }),
+    })) as AssetType['fields'],
+  };
+}
+
+const localizeTypes = (types: AssetType[]) => (getLocale() === 'en' ? types : types.map(localizeType));
+
+export const useAssetTypes = () =>
+  useQuery({
+    queryKey: keys.assetTypes,
+    queryFn: () => api.get<AssetType[]>('/api/registry/asset-types'),
+    staleTime: 30_000,
+    select: localizeTypes,
+  });
 export const useAssetType = (id: string | undefined) =>
   useQuery({ queryKey: keys.assetType(id ?? ''), queryFn: () => api.get<AssetType>(`/api/registry/asset-types/${id}`), enabled: !!id });
 export const useOrgWorkflow = () => useQuery({ queryKey: keys.workflow, queryFn: () => api.get<Workflow>('/api/registry/workflows/default'), staleTime: 60_000 });
