@@ -3,7 +3,8 @@ import * as RMenu from '@radix-ui/react-dropdown-menu';
 import * as RPopover from '@radix-ui/react-popover';
 import * as RTooltip from '@radix-ui/react-tooltip';
 import { X } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
+import { useMediaQuery } from '@/lib/hooks';
 import { cn } from '@/lib/utils';
 import { Button } from './button';
 
@@ -122,9 +123,46 @@ export function MenuItem({ children, onSelect, icon, danger, disabled }: { child
 
 export const MenuSeparator = () => <RMenu.Separator className="my-1 h-px bg-border" />;
 
-export function Popover({ trigger, children, className, align = 'start', open, onOpenChange }: { trigger: ReactNode; children: ReactNode; className?: string; align?: 'start' | 'end' | 'center'; open?: boolean; onOpenChange?: (o: boolean) => void }) {
+/**
+ * Anchored to its trigger on larger screens. With `phoneTitle`, phones get a
+ * panel rising from the bottom instead (a small floating box over a list is
+ * hard to use with a thumb and the on-screen keyboard).
+ */
+export function Popover({
+  trigger,
+  children,
+  className,
+  align = 'start',
+  open,
+  onOpenChange,
+  phoneTitle,
+}: {
+  trigger: ReactNode;
+  children: ReactNode;
+  className?: string;
+  align?: 'start' | 'end' | 'center';
+  open?: boolean;
+  onOpenChange?: (o: boolean) => void;
+  phoneTitle?: ReactNode;
+}) {
+  const phone = useMediaQuery('(max-width: 639px)');
+  const [own, setOwn] = useState(false);
+  const isOpen = open ?? own;
+  const setOpen = (o: boolean) => (onOpenChange ? onOpenChange(o) : setOwn(o));
+  if (phoneTitle && phone) {
+    return (
+      <>
+        <span className="contents" onClick={() => setOpen(true)}>
+          {trigger}
+        </span>
+        <Dialog open={isOpen} onOpenChange={setOpen} title={phoneTitle} className="[&>div:nth-child(2)]:p-0">
+          {children}
+        </Dialog>
+      </>
+    );
+  }
   return (
-    <RPopover.Root open={open} onOpenChange={onOpenChange}>
+    <RPopover.Root open={isOpen} onOpenChange={setOpen}>
       <RPopover.Trigger asChild>{trigger}</RPopover.Trigger>
       <RPopover.Portal>
         <RPopover.Content align={align} sideOffset={4} collisionPadding={8} className={cn(popClass, 'p-0', className)}>

@@ -135,7 +135,7 @@ function Editor({ fields, initial, onSave, onCancel }: { fields: FilterField[]; 
   const valid = !needsValue(activeOp) || (activeOp === 'between' ? range[0] !== undefined && range[1] !== undefined : value !== undefined && value !== '' && !(Array.isArray(value) && !value.length));
 
   return (
-    <div className="w-80 space-y-3 p-3">
+    <div className="w-full space-y-3 p-4 sm:w-80 sm:p-3">
       <Field label="Field">
         {(id) => (
           <Select
@@ -199,7 +199,7 @@ function Editor({ fields, initial, onSave, onCancel }: { fields: FilterField[]; 
           }
         </Field>
       )}
-      <div className="flex justify-end gap-2 pt-1">
+      <div className="flex justify-end gap-2 pt-1 max-sm:[&>*]:flex-1">
         <Button size="sm" onClick={onCancel}>
           Cancel
         </Button>
@@ -240,6 +240,7 @@ export function FilterBar({ type, value, onChange }: { type: AssetType | undefin
       {value.map((f, i) => (
         <Popover
           key={i}
+          phoneTitle="Edit filter"
           open={editing === i}
           onOpenChange={(o) => setEditing(o ? i : null)}
           trigger={
@@ -265,6 +266,7 @@ export function FilterBar({ type, value, onChange }: { type: AssetType | undefin
         </Popover>
       ))}
       <Popover
+        phoneTitle="Add a filter"
         open={editing === 'new'}
         onOpenChange={(o) => setEditing(o ? 'new' : null)}
         trigger={

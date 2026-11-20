@@ -317,7 +317,7 @@ export function AssetExplorer({
           </Select>
         )}
         <FilterBar type={type && variant ? { ...type, fields: [...type.fields, ...variant.fields] } : type} value={query.filters} onChange={(filters) => update({ filters })} />
-        <span className="ml-auto flex items-center gap-2">
+        <span className="ml-auto flex flex-wrap items-center justify-end gap-2">
           <span className="text-xs text-subtle">{assets.data ? `${assets.data.total.toLocaleString()} ${assets.data.total === 1 ? 'result' : 'results'}` : ''}</span>
           <ColumnsMenu all={layout.all} shown={columns.map((c) => c.id!)} defaults={layout.defaults} onChange={setColumns} />
           <ExportButton disabled={!assets.data?.total} onExport={() => downloadUrl(withQuery('/api/registry/assets/export.csv', { ...listQuery, title: exportTitle }))} />

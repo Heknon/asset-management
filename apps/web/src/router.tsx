@@ -1,10 +1,11 @@
 import type { Me } from '@am/core';
 import type { QueryClient } from '@tanstack/react-query';
-import { createRootRouteWithContext, createRoute, createRouter, Navigate, Outlet, redirect, useNavigate, useRouterState } from '@tanstack/react-router';
+import { createRootRouteWithContext, createRoute, createRouter, Link, Outlet, redirect, useNavigate, useRouterState } from '@tanstack/react-router';
 import { useEffect } from 'react';
 import { AppShell } from './components/app-shell';
 import { ErrorScreen } from './components/error-screen';
-import { Spinner } from './components/ui/display';
+import { EmptyState, Spinner } from './components/ui/display';
+import { Lock } from 'lucide-react';
 import { api, ApiError, sessionEvents } from './lib/api';
 import { useMyOrg } from './lib/org';
 import { keys, useLookups, useMe } from './lib/queries';
@@ -54,15 +55,33 @@ function Authenticated() {
   return <AppShell me={me.data} />;
 }
 
+/** Shown instead of a page the person may not open: says why, and who can help, rather than silently leaving. */
+function NoAccess({ who }: { who: string }) {
+  return (
+    <div className="flex flex-1 items-center justify-center p-6">
+      <EmptyState
+        icon={<Lock className="size-5" />}
+        title="You don’t have access to this page"
+        description={`Only ${who} can open it. Ask one of them if you need something changed here.`}
+        action={
+          <Link to="/" className="text-[13px] font-medium text-accent hover:underline">
+            Back to Upcoming
+          </Link>
+        }
+      />
+    </div>
+  );
+}
+
 function AdminOnly({ children }: { children: React.ReactNode }) {
   const me = useMe().data;
-  return me?.isAdmin ? <>{children}</> : <Navigate to="/" />;
+  return me?.isAdmin ? <>{children}</> : <NoAccess who="administrators" />;
 }
 
 /** Templates, date kinds and organization-wide access: admins and people who manage the whole organization. */
 function OrganizationManagers({ children }: { children: React.ReactNode }) {
   const { canManageOrganization } = useMyOrg();
-  return canManageOrganization ? <>{children}</> : <Navigate to="/" />;
+  return canManageOrganization ? <>{children}</> : <NoAccess who="administrators and people who manage the whole organization" />;
 }
 
 const root = createRootRouteWithContext<{ queryClient: QueryClient }>()({ component: Outlet, errorComponent: ({ error }) => <ErrorScreen error={error} /> });

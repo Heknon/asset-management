@@ -452,8 +452,6 @@ export function ProfilePage() {
     <>
       <PageHeader title="Profile & notifications" icon={<Avatar name={me.displayName} size={40} />} description={me.email ?? me.username} />
       <div className="mx-auto w-full max-w-2xl space-y-6 px-4 sm:px-6 py-6">
-        {me.source === 'local' && <ChangePassword />}
-        <SignedInDevices />
         <Card className="space-y-4">
           <h2 className="text-[13px] font-semibold">Notifications</h2>
           <Switch
@@ -505,6 +503,9 @@ export function ProfilePage() {
             <p className="text-xs text-muted">You don’t have access to any assets yet. Ask an administrator.</p>
           )}
         </Card>
+        {/* Security last: everyday settings first. */}
+        <SignedInDevices />
+        {me.source === 'local' && <ChangePassword />}
       </div>
     </>
   );
@@ -650,7 +651,9 @@ function SignedInDevices() {
   const end = useSave((id: string) => api.delete(`/api/identity/me/sessions/${id}`), [['my-sessions']], 'Signed out');
   const list = sessions.data ?? [];
   const apps = list.filter((s) => s.connectedApp);
-  const browsers = list.filter((s) => !s.connectedApp);
+  const allBrowsers = list.filter((s) => !s.connectedApp);
+  const [showAll, setShowAll] = useState(false);
+  const browsers = showAll ? allBrowsers : allBrowsers.slice(0, 4);
   const row = (s: SignedInSession) => (
     <li key={s.id} className="flex items-center gap-3 py-2.5">
       <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-surface-2 text-muted">
@@ -686,6 +689,11 @@ function SignedInDevices() {
           <div>
             {!!apps.length && <h3 className="pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted">Browsers</h3>}
             <ul className="divide-y divide-border">{browsers.map(row)}</ul>
+            {allBrowsers.length > browsers.length && (
+              <button type="button" className="pt-1 text-xs font-medium text-accent hover:underline" onClick={() => setShowAll(true)}>
+                Show all {allBrowsers.length}
+              </button>
+            )}
           </div>
         </>
       )}
