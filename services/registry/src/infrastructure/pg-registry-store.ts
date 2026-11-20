@@ -23,6 +23,7 @@ import {
   type RequestEvent,
   type RequestQuery,
   type RequestStatus,
+  type WorkflowStateValue,
   type SavedView,
   type SavedViewInput,
   type Scope,
@@ -67,6 +68,7 @@ const toType = (r: Selectable<RegistryDB['asset_types']>): AssetType => ({
   archived: r.archived,
   refPrefix: r.ref_prefix,
   requestWorkflow: r.request_workflow ?? null,
+  workflows: r.workflows ?? [],
   createdAt: r.created_at.toISOString(),
   updatedAt: r.updated_at.toISOString(),
 });
@@ -79,7 +81,7 @@ const toVariant = (r: Selectable<RegistryDB['type_variants']>): TypeVariant => (
   description: r.description,
   sections: r.sections,
   fields: r.fields,
-  followUp: r.follow_up ?? null,
+  workflows: r.workflows ?? [],
   version: r.version,
   archived: r.archived,
   createdByName: r.created_by_name,
@@ -103,6 +105,7 @@ const toAsset = (r: AssetRow): AssetState & { snippet?: string } => ({
   refNo: r.ref_no,
   values: { ...r.attributes, ...r.restricted_attributes },
   reminderOverrides: r.reminder_overrides,
+  workflowStates: r.workflow_states ?? {},
   version: r.version,
   createdAt: r.created_at,
   updatedAt: r.updated_at,
@@ -131,7 +134,8 @@ const toRequest = (r: RequestRowDb): RequestState & { snippet?: string } => ({
   neededBy: r.needed_by,
   link: r.link,
   assetId: r.asset_id,
-  team: r.team_variant_id && r.team_unit_id && r.team_status && r.team_status_category ? { variantId: r.team_variant_id, unitId: r.team_unit_id, status: r.team_status, category: r.team_status_category } : null,
+  workflowStates: r.workflow_states ?? {},
+  workflowVariantId: r.workflow_variant_id,
   createdAt: r.created_at,
   updatedAt: r.updated_at,
   commentCount: Number(r.comment_count ?? 0),
@@ -183,7 +187,8 @@ const toBatch = (r: Selectable<RegistryDB['import_batches']> & { undoable: numbe
 });
 
 const openBuying = sql<SqlBool>`requests.status_category in ('todo','active')`;
-const openTeam = sql<SqlBool>`requests.team_status_category in ('todo','active')`;
+/** Some added workflow of the request is still open. */
+const openTeam = sql<SqlBool>`exists (select 1 from jsonb_each(requests.workflow_states) w where w.value->>'category' in ('todo','active'))`;
 
 type RequestVisibility = { userId: string; viewScopes: Scope[]; editScopes: Scope[]; myUnitIds: string[] };
 
@@ -265,6 +270,7 @@ export class PgRegistryStore implements RegistryStore {
       key: input.key,
       ref_prefix: input.refPrefix ?? defaultRefPrefix(input.key),
       request_workflow: json(input.requestWorkflow ?? null),
+      workflows: json(input.workflows ?? []),
       name: input.name,
       description: input.description ?? null,
       icon: input.icon,
@@ -325,7 +331,7 @@ export class PgRegistryStore implements RegistryStore {
     try {
       const r = await this.db
         .insertInto('type_variants')
-        .values({ asset_type_id: assetTypeId, unit_id: input.unitId, name: input.name, description: input.description, sections: json(input.sections), fields: json(input.fields), follow_up: json(input.followUp ?? null), created_by_name: byName })
+        .values({ asset_type_id: assetTypeId, unit_id: input.unitId, name: input.name, description: input.description, sections: json(input.sections), fields: json(input.fields), workflows: json(input.workflows ?? []), created_by_name: byName })
         .returningAll()
         .executeTakeFirstOrThrow();
       return toVariant(r);
@@ -338,7 +344,7 @@ export class PgRegistryStore implements RegistryStore {
   async updateVariant(id: string, input: Omit<TypeVariantInput, 'unitId'>, expectedVersion: number) {
     const r = await this.db
       .updateTable('type_variants')
-      .set({ name: input.name, description: input.description, sections: json(input.sections), fields: json(input.fields), follow_up: json(input.followUp ?? null), version: sql`version + 1`, updated_at: sql`now()` })
+      .set({ name: input.name, description: input.description, sections: json(input.sections), fields: json(input.fields), workflows: json(input.workflows ?? []), version: sql`version + 1`, updated_at: sql`now()` })
       .where('id', '=', id)
       .where('version', '=', expectedVersion)
       .returningAll()
@@ -708,17 +714,24 @@ export class PgRegistryStore implements RegistryStore {
       .execute();
   }
 
-  async setRequestTeam(id: string, team: { variantId: string; unitId: string; key: string; category: StatusCategory } | null) {
+  async setRequestWorkflow(id: string, key: string, state: WorkflowStateValue) {
     await this.db
       .updateTable('requests')
-      .set({ team_variant_id: team?.variantId ?? null, team_unit_id: team?.unitId ?? null, team_status: team?.key ?? null, team_status_category: team?.category ?? null, updated_at: sql`now()` })
+      .set({ workflow_states: sql`workflow_states || jsonb_build_object(${key}::text, ${json(state)}::jsonb)`, updated_at: sql`now()` })
       .where('id', '=', id)
       .execute();
   }
 
-  async openTeamStages(variantId: string) {
-    const rows = await this.requests().where('requests.team_variant_id', '=', variantId).where(openTeam).forUpdate('requests').execute();
-    return rows.map((r) => toRequest(r as RequestRowDb));
+  async setRequestWorkflowVariant(id: string, variantId: string | null) {
+    await this.db.updateTable('requests').set({ workflow_variant_id: variantId }).where('id', '=', id).execute();
+  }
+
+  async setAssetWorkflow(id: string, key: string, state: WorkflowStateValue) {
+    await this.db
+      .updateTable('assets')
+      .set({ workflow_states: sql`workflow_states || jsonb_build_object(${key}::text, ${json(state)}::jsonb)`, updated_at: sql`now()` })
+      .where('id', '=', id)
+      .execute();
   }
 
   async openRenewals(assetId: string, fieldKey: string) {
@@ -769,12 +782,14 @@ export class PgRegistryStore implements RegistryStore {
     return sql<SqlBool>`(requests.requester_id = ${v.userId}::uuid or ${scopeFilter(v.viewScopes, 'units_ref.path', 'requests.asset_type_id')})`;
   }
 
-  /** The team's part is waiting on me: I am in the unit that owns its steps (down to the request's unit), or I own the item. */
-  private teamHandles(v: RequestVisibility) {
-    const mine = v.myUnitIds.length
-      ? sql<SqlBool>`units_ref.path[array_position(units_ref.path, requests.team_unit_id):] && ${sql.val(v.myUnitIds)}::uuid[]`
-      : sql<SqlBool>`false`;
-    return sql<SqlBool>`(requests.team_status is not null and (${mine} or exists (select 1 from assets a where a.id = coalesce(requests.asset_id, requests.renewal_asset_id) and a.owner_id = ${v.userId}::uuid)))`;
+  /**
+   * An added workflow waits on my unit: its responsible unit is one of my
+   * units or above one (R&D Lab's workflow is handled by Lab and its teams).
+   */
+  private workflowHandles(v: RequestVisibility, openOnly: boolean) {
+    if (!v.myUnitIds.length) return sql<SqlBool>`false`;
+    const open = openOnly ? sql`and w.value->>'category' in ('todo','active')` : sql``;
+    return sql<SqlBool>`exists (select 1 from jsonb_each(requests.workflow_states) w join units_ref mu on mu.id = any(${sql.val(v.myUnitIds)}::uuid[]) where (w.value->>'unitId')::uuid = any(mu.path) ${open})`;
   }
 
   /**
@@ -790,8 +805,8 @@ export class PgRegistryStore implements RegistryStore {
       case 'handle': {
         const buyers = scopeFilter(v.editScopes, 'units_ref.path', 'requests.asset_type_id');
         return openOnly
-          ? sql<SqlBool>`((${buyers} and ${openBuying}) or (${this.teamHandles(v)} and ${openTeam}))`
-          : sql<SqlBool>`(${buyers} or ${this.teamHandles(v)})`;
+          ? sql<SqlBool>`((${buyers} and ${openBuying}) or ${this.workflowHandles(v, true)})`
+          : sql<SqlBool>`(${buyers} or ${this.workflowHandles(v, false)})`;
       }
       case 'all':
         return this.visible(v);
@@ -803,8 +818,8 @@ export class PgRegistryStore implements RegistryStore {
     let base = this.db.selectFrom('requests').leftJoin('units_ref', 'units_ref.id', 'requests.unit_id').where(this.requestScope(q.scope, v, q.status === 'open'));
     // Open while either the buyers or the team still have something to do.
     if (q.status === 'open') base = base.where(sql<SqlBool>`(${openBuying} or ${openTeam})`);
-    else if (q.status === 'closed') base = base.where(sql<SqlBool>`(not ${openBuying} and not coalesce(${openTeam}, false))`);
-    else if (q.status !== 'all') base = base.where(sql<SqlBool>`(requests.status = ${q.status} or requests.team_status = ${q.status})`);
+    else if (q.status === 'closed') base = base.where(sql<SqlBool>`(not ${openBuying} and not ${openTeam})`);
+    else if (q.status !== 'all') base = base.where(sql<SqlBool>`(requests.status = ${q.status} or exists (select 1 from jsonb_each(requests.workflow_states) w where w.value->>'status' = ${q.status}))`);
     if (q.kind) base = base.where('requests.kind', '=', q.kind);
     if (q.renewalAssetId) base = base.where('requests.renewal_asset_id', '=', q.renewalAssetId);
     if (q.unitId) base = base.where(inSubtree(q.unitId, 'units_ref.path'));
@@ -841,10 +856,10 @@ export class PgRegistryStore implements RegistryStore {
     return { mine: Number(r.mine), team: Number(r.team), handle: Number(r.handle), unassigned: Number(r.unassigned) };
   }
 
-  async addRequestEvent(e: Omit<RequestEvent, 'id' | 'at' | 'stage'> & { stage?: RequestEvent['stage'] }) {
+  async addRequestEvent(e: Omit<RequestEvent, 'id' | 'at' | 'workflow'> & { workflow?: string | null }) {
     await this.db
       .insertInto('request_events')
-      .values({ request_id: e.requestId, actor_id: e.actorId, actor_name: e.actorName, kind: e.kind, body: e.body, from_status: e.fromStatus, to_status: e.toStatus, stage: e.stage ?? 'buying' })
+      .values({ request_id: e.requestId, actor_id: e.actorId, actor_name: e.actorName, kind: e.kind, body: e.body, from_status: e.fromStatus, to_status: e.toStatus, workflow: e.workflow ?? null })
       .execute();
   }
 
@@ -859,7 +874,7 @@ export class PgRegistryStore implements RegistryStore {
       body: r.body,
       fromStatus: r.from_status,
       toStatus: r.to_status,
-      stage: r.stage,
+      workflow: r.workflow,
       at: r.at.toISOString(),
     }));
   }

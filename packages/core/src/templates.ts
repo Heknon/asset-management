@@ -138,5 +138,5 @@ export function instantiateTemplate(template: AssetTemplate, dateKindIdByKey: Re
     }
     return { id: globalThis.crypto.randomUUID(), ...rest, config: resolved } as FieldDefinition;
   });
-  return { ...template, statuses: template.statuses ?? defaultStatuses, fields };
+  return { ...template, statuses: template.statuses ?? defaultStatuses, workflows: template.workflows ?? [], fields };
 }

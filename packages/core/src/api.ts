@@ -257,11 +257,47 @@ export interface Asset {
   reminderOverrides: Record<string, Duration[]>;
   /** What the caller may do with this asset (org grants and catalog shares combined). */
   permissions: Permission[];
+  /** The item's own workflows ("Machine status"), from its template and team variant. */
+  workflows: WorkflowView[];
   createdAt: string;
   updatedAt: string;
   /** When searching: where the query matched, with «highlights». */
   snippet?: string;
 }
+
+/**
+ * One workflow as an item or request shows it. Everyone who can see the item
+ * or request sees every workflow; the responsible unit moves it.
+ */
+export interface WorkflowView {
+  /** 'purchase' for the buying; otherwise the added workflow's key. */
+  key: string;
+  name: string;
+  /** Where it comes from: the purchase, the template, or the item's team variant. */
+  origin: 'purchase' | 'template' | 'variant';
+  appliesTo: 'item' | 'request';
+  /** The unit responsible for it (null for a purchase when no buying unit is set). */
+  responsibleUnitId: string | null;
+  /** False while it waits for the purchase to be done. */
+  started: boolean;
+  /** Null until it starts. */
+  statusInfo: RequestStatusInfo | null;
+  statuses: RequestStatusInfo[];
+  /** Statuses the caller may move it to now. */
+  moves: RequestStatusInfo[];
+  /** The caller is responsible for it (a member of the unit, or manages it) and can move it. */
+  canAct: boolean;
+}
+
+/** Everything together: open while any workflow is, with whom it is waiting on. */
+export interface CombinedStatus {
+  category: StatusCategory;
+  /** Keys of the open workflows ('purchase' included), in order. */
+  waitingOn: string[];
+}
+
+export const workflowMoveSchema = z.object({ status: fieldKeySchema, note: z.string().max(4000).optional() });
+export type WorkflowMove = z.infer<typeof workflowMoveSchema>;
 
 const attributesInput = z.record(z.string(), z.unknown());
 const reminderOverridesSchema = z.record(fieldKeySchema, z.array(durationSchema).max(10));
@@ -645,27 +681,13 @@ export interface PurchaseRequest {
   updatedAt: string;
   access: RequestAccess;
   commentCount: number;
-  /**
-   * The team's own part, once the buyers are done (see `followUp` on team
-   * variants): for the buyers the request is finished, for the team that uses
-   * the item it goes on ("Swapping on machines"). Null when the item's kind
-   * has no team steps, or the buying is not done yet.
-   */
-  team: RequestTeamStage | null;
+  /** The unit responsible for the purchase (Settings → Request workflow), if set. */
+  responsibleUnitId: string | null;
+  /** Workflows added by the template or the item's team variant ("Swap the new license"), with where each stands. */
+  workflows: WorkflowView[];
+  /** The purchase and every added workflow together. */
+  overall: CombinedStatus;
   snippet?: string;
-}
-
-export interface RequestTeamStage {
-  /** The team variant whose steps these are, and the unit that owns it. */
-  variantId: string;
-  variantName: string;
-  unitId: string;
-  statusInfo: RequestStatusInfo;
-  /** Statuses the caller may move the team's part to now. */
-  moves: RequestStatusInfo[];
-  statuses: RequestStatusInfo[];
-  /** The caller is one of the team (a member of the unit, or the item's owner) and can move it. */
-  canAct: boolean;
 }
 
 export const requestCreateSchema = z.object({
@@ -698,8 +720,8 @@ export type RequestQuery = z.infer<typeof requestQuerySchema>;
 
 export const requestActionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('comment'), body: z.string().trim().min(1).max(4000) }),
-  /** `stage: 'team'` moves the team's own part (after the buying is done) instead of the buyers'. */
-  z.object({ action: z.literal('status'), status: fieldKeySchema, note: z.string().max(4000).optional(), stage: z.enum(['buying', 'team']).default('buying') }),
+  /** `workflow`: move an added workflow (by key) instead of the purchase. */
+  z.object({ action: z.literal('status'), status: fieldKeySchema, note: z.string().max(4000).optional(), workflow: fieldKeySchema.optional() }),
   z.object({ action: z.literal('assign'), assigneeId: uuid.nullable() }),
 ]);
 export type RequestAction = z.infer<typeof requestActionSchema>;
@@ -713,8 +735,8 @@ export interface RequestEvent {
   body: string | null;
   fromStatus: RequestStatus | null;
   toStatus: RequestStatus | null;
-  /** Whose workflow the status belongs to: the buyers', or the team's own part. */
-  stage: 'buying' | 'team';
+  /** The added workflow the status belongs to; null: the purchase. */
+  workflow: string | null;
   at: string;
 }
 

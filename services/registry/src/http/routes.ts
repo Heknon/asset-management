@@ -5,6 +5,7 @@ import {
   catalogInputSchema,
   importRequestSchema,
   typeVariantInputSchema,
+  workflowMoveSchema,
   catalogQuerySchema,
   catalogShareInputSchema,
   commentInputSchema,
@@ -108,6 +109,15 @@ export function registerRoutes(app: FastifyInstance, { types, variants, assets, 
     await types.assertCanManage(requirePrincipal(req));
     return types.setOrganizationWorkflow(parse(workflowSchema, req.body));
   });
+  // Who is responsible for purchases (its members handle every request), shown next to the purchase status.
+  app.get(`${PREFIX}/workflows/purchase-unit`, async (req) => {
+    requirePrincipal(req);
+    return { unitId: await types.purchaseUnit() };
+  });
+  app.put(`${PREFIX}/workflows/purchase-unit`, async (req) => {
+    await types.assertCanManage(requirePrincipal(req));
+    return { unitId: await types.setPurchaseUnit(parse(z.object({ unitId: z.string().uuid().nullable() }), req.body).unitId) };
+  });
   app.post(`${PREFIX}/asset-types/:id/archive`, async (req) => {
     await types.assertCanManage(requirePrincipal(req));
     const { archived } = parse(z.object({ archived: z.boolean() }), req.body);
@@ -178,6 +188,11 @@ export function registerRoutes(app: FastifyInstance, { types, variants, assets, 
   app.post(`${PREFIX}/assets/:id/dates/:field/advance`, async (req) => {
     const p = parse(z.object({ id: z.string().uuid(), field: fieldKeySchema }), req.params);
     return assets.advance(requirePrincipal(req), p.id, p.field);
+  });
+  // One of the item's own workflows ("Machine status").
+  app.post(`${PREFIX}/assets/:id/workflows/:key`, async (req) => {
+    const p = parse(z.object({ id: z.string().uuid(), key: fieldKeySchema }), req.params);
+    return assets.moveWorkflow(requirePrincipal(req), p.id, p.key, parse(workflowMoveSchema, req.body));
   });
   app.get(`${PREFIX}/assets/:id/activity`, async (req) => assets.activity(requirePrincipal(req), parse(idParam, req.params).id));
   app.get(`${PREFIX}/assets/:id/access`, async (req) => assets.access(requirePrincipal(req), parse(idParam, req.params).id));

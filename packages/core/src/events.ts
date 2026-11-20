@@ -91,10 +91,10 @@ export interface RequestChanged {
   requestKind: 'purchase' | 'renewal';
   /** Renewals: the item and the date occurrence being renewed. */
   renewal: { assetId: string; fieldKey: string; obligationId: string | null } | null;
-  /** 'team': the change is to the team's own part (status* describe the team's status). Older events have none: 'buying'. */
-  stage?: 'buying' | 'team';
-  /** The team's own part, when it has started (the buying is done). */
-  team?: { unitId: string; variantName: string; status: string; label: string; category: 'todo' | 'active' | 'done' | 'closed' } | null;
+  /** The change is to an added workflow (status* then describe its status); absent: the purchase. */
+  workflow?: { key: string; name: string; responsibleUnitId: string } | null;
+  /** Added workflows that are open now, and the purchase status for those who track it. */
+  waitingOn?: Array<{ name: string; responsibleUnitId: string | null; label: string }>;
   /** When it changed; events can arrive out of order. */
   at: string;
 }

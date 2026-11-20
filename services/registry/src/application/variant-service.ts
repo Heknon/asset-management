@@ -1,6 +1,6 @@
 import { AppError, canManageTemplates, typeVariantInputSchema, unitPermissions, validateVariantStructure, type Principal, type TypeVariant, type TypeVariantInput } from '@am/core';
 import type { RegistryStore } from './ports.js';
-import { republishAssets } from './type-service.js';
+import { republishAssets, unknownResponsibleUnits } from './type-service.js';
 
 /**
  * Team variants: a unit extends an organization template with the fields it
@@ -34,7 +34,8 @@ export class VariantService {
   async update(p: Principal, id: string, input: Omit<TypeVariantInput, 'unitId'>, expectedVersion: number): Promise<TypeVariant> {
     const current = await this.get(id);
     await this.assertCanManage(p, current.unitId);
-    const parsed = typeVariantInputSchema.parse({ ...input, unitId: current.unitId });
+    // Older clients do not send workflows: keep the ones it has.
+    const parsed = typeVariantInputSchema.parse({ ...input, unitId: current.unitId, workflows: input.workflows ?? current.workflows ?? [] });
     await this.validated(current.assetTypeId, parsed);
     return this.store.transaction(async (tx) => {
       const saved = await tx.updateVariant(id, parsed, expectedVersion);
@@ -66,7 +67,7 @@ export class VariantService {
     const unit = await this.store.getUnit(input.unitId);
     if (!unit || unit.archived) throw AppError.validation('Unknown or archived unit');
     const kinds = await this.store.listDateKinds();
-    const issues = validateVariantStructure(type, input, new Set(kinds.map((k) => k.id)));
+    const issues = [...validateVariantStructure(type, input, new Set(kinds.map((k) => k.id))), ...(await unknownResponsibleUnits(this.store, input.workflows ?? []))];
     if (issues.length) throw AppError.validation('The variant has problems', { issues });
   }
 }
