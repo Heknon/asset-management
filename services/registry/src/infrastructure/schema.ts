@@ -99,7 +99,15 @@ export interface RegistryDB extends OutboxTable {
     path: ColumnType<string[], string[], string[]>;
     archived: boolean;
   };
-  users_ref: { id: string; display_name: string; active: boolean; group_ids: ColumnType<string[], string[] | undefined, string[]> };
+  users_ref: {
+    id: string;
+    display_name: string;
+    username: string | null;
+    email: string | null;
+    other_names: ColumnType<string[], string[] | undefined, string[]>;
+    active: boolean;
+    group_ids: ColumnType<string[], string[] | undefined, string[]>;
+  };
   groups_ref: { id: string; name: string; source: string; member_count: number };
   requests: {
     id: Generated<string>;
@@ -515,6 +523,12 @@ export const migrations: Record<string, Migration> = {
       await sql`create index requests_renewal on requests (renewal_asset_id, renewal_field_key) where kind = 'renewal'`.execute(db);
       // One open renewal request per date occurrence.
       await sql`create unique index requests_open_renewal on requests (renewal_obligation_id) where renewal_obligation_id is not null and status_category in ('todo','active')`.execute(db);
+    },
+  },
+  '0010_people_search_names': {
+    async up(db) {
+      // Asset search finds an owner or person field by any of these, not only the display name.
+      await sql`alter table users_ref add column username text, add column email text, add column other_names text[] not null default '{}'`.execute(db);
     },
   },
 };

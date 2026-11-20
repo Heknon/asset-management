@@ -8,6 +8,8 @@ export interface ExternalIdentity {
   username: string;
   displayName: string;
   email: string | null;
+  /** Other names the directory knows the person by (first name, surname, full name, account names), for search. */
+  otherNames: string[];
   /** Provider group identifiers (LDAP DNs / ADFS group claim values). */
   groups: string[];
   /** Directory attributes used to place people in units, as `attribute=value` (e.g. `department=Platform`). */
@@ -21,6 +23,7 @@ export interface UserRecord {
   username: string;
   displayName: string;
   email: string | null;
+  otherNames: string[];
   source: AuthSource;
   externalId: string | null;
   isAdmin: boolean;
@@ -49,4 +52,21 @@ export function normalizeUsername(input: string): string {
   const trimmed = input.trim();
   const withoutDomain = trimmed.includes('\\') ? trimmed.slice(trimmed.lastIndexOf('\\') + 1) : trimmed;
   return withoutDomain.toLowerCase();
+}
+
+/**
+ * The names worth searching besides the display name, username and email: trimmed, without
+ * duplicates (ignoring case) and without the ones already stored elsewhere.
+ */
+export function otherNamesOf(values: string[], known: (string | null)[]): string[] {
+  const seen = new Set(known.filter((v): v is string => !!v).map((v) => v.trim().toLowerCase()));
+  const out: string[] = [];
+  for (const raw of values) {
+    const value = raw.trim();
+    const key = value.toLowerCase();
+    if (!value || seen.has(key)) continue;
+    seen.add(key);
+    out.push(value);
+  }
+  return out;
 }

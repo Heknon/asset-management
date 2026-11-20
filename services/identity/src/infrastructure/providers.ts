@@ -3,7 +3,7 @@ import { Client, type Entry } from 'ldapts';
 import * as oidc from 'openid-client';
 import type { Logger } from 'pino';
 import type { PasswordProvider, RedirectProvider, RedirectState } from '../application/ports.js';
-import { normalizeUsername, type ExternalIdentity } from '../domain/model.js';
+import { normalizeUsername, otherNamesOf, type ExternalIdentity } from '../domain/model.js';
 
 // ─── LDAP / Active Directory ─────────────────────────────────────────────────
 
@@ -18,6 +18,8 @@ export interface LdapSettings {
   userFilter: string;
   usernameAttribute: string;
   displayNameAttribute: string;
+  /** Further name attributes kept for search, e.g. givenName, sn, cn. */
+  nameAttributes: string[];
   emailAttribute: string;
   membershipAttribute: string;
   groupBaseDn?: string;
@@ -74,7 +76,7 @@ export class LdapPasswordProvider implements PasswordProvider {
       const { searchEntries } = await service.search(this.s.userBaseDn, {
         scope: 'sub',
         filter: this.s.userFilter.replaceAll('{username}', escapeLdapFilter(login)),
-        attributes: ['dn', this.s.usernameAttribute, this.s.displayNameAttribute, this.s.emailAttribute, this.s.membershipAttribute, ...this.s.unitAttributes],
+        attributes: ['dn', this.s.usernameAttribute, this.s.displayNameAttribute, ...this.s.nameAttributes, this.s.emailAttribute, this.s.membershipAttribute, ...this.s.unitAttributes],
         sizeLimit: 2,
       });
       if (searchEntries.length !== 1) return null;
@@ -101,12 +103,16 @@ export class LdapPasswordProvider implements PasswordProvider {
       }
 
       const adminSet = new Set(this.s.adminGroups.map((g) => g.toLowerCase()));
+      const username = normalizeUsername(first(entry[this.s.usernameAttribute]) ?? login);
+      const displayName = first(entry[this.s.displayNameAttribute]) ?? login;
+      const email = first(entry[this.s.emailAttribute])?.toLowerCase() ?? null;
       return {
         source: 'ldap',
         externalId: entry.dn,
-        username: normalizeUsername(first(entry[this.s.usernameAttribute]) ?? login),
-        displayName: first(entry[this.s.displayNameAttribute]) ?? login,
-        email: first(entry[this.s.emailAttribute])?.toLowerCase() ?? null,
+        username,
+        displayName,
+        email,
+        otherNames: otherNamesOf(this.s.nameAttributes.flatMap((a) => all(entry![a])), [displayName, username, email]),
         groups,
         tags: attributeTags(this.s.unitAttributes, (a) => all(entry![a])),
         directoryAdmin: groups.some((g) => adminSet.has(g.toLowerCase())),
@@ -130,6 +136,8 @@ export interface OidcSettings {
   scopes: string;
   usernameClaim: string;
   displayNameClaim: string;
+  /** Further name claims kept for search, e.g. given_name, family_name. */
+  nameClaims: string[];
   emailClaim: string;
   groupsClaim: string;
   adminGroups: string[];
@@ -194,12 +202,15 @@ export class OidcRedirectProvider implements RedirectProvider {
     const groups = (Array.isArray(rawGroups) ? rawGroups : typeof rawGroups === 'string' ? [rawGroups] : []).map(String);
     const username = normalizeUsername(read(this.s.usernameClaim) ?? read('preferred_username') ?? claims.sub);
     const adminSet = new Set(this.s.adminGroups.map((g) => g.toLowerCase()));
+    const displayName = read(this.s.displayNameClaim) ?? read('name') ?? username;
+    const email = (read(this.s.emailClaim) ?? read('upn'))?.toLowerCase() ?? null;
     return {
       source: 'oidc',
       externalId: claims.sub,
       username,
-      displayName: read(this.s.displayNameClaim) ?? read('name') ?? username,
-      email: (read(this.s.emailClaim) ?? read('upn'))?.toLowerCase() ?? null,
+      displayName,
+      email,
+      otherNames: otherNamesOf(this.s.nameClaims.map(read).filter((v): v is string => !!v), [displayName, username, email]),
       groups,
       tags: attributeTags(this.s.unitClaims, (c) => {
         const v = (claims as Record<string, unknown>)[c];

@@ -12,6 +12,8 @@ export interface IdentityDB extends OutboxTable {
     username: string;
     display_name: string;
     email: string | null;
+    /** Other directory names (first name, surname, full name, account names), for search. */
+    other_names: ColumnType<string[], string[] | undefined, string[]>;
     source: AuthSource;
     external_id: string | null;
     password_hash: string | null;
@@ -244,6 +246,11 @@ export const migrations: Record<string, Migration> = {
         used_at timestamptz
       )`.execute(db);
       await sql`create index oauth_codes_expiry on oauth_codes (expires_at)`.execute(db);
+    },
+  },
+  '0006_other_names': {
+    async up(db) {
+      await sql`alter table users add column other_names text[] not null default '{}'`.execute(db);
     },
   },
 };

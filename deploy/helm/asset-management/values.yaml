@@ -99,12 +99,17 @@ services:
       ACCESS_TOKEN_TTL_SECONDS: "900"
       LOCAL_AUTH_ENABLED: "true"
       LOCAL_ADMIN_USERNAME: admin
+      # The break-glass administrator's email (optional; Google sign-in matches it):
+      # LOCAL_ADMIN_EMAIL: it-admin@corp.example.com
       LDAP_ENABLED: "false"
       LDAP_LABEL: Corporate directory
       LDAP_URL: ldaps://ad.example.com:636
       LDAP_BIND_DN: CN=svc-assets,OU=Service Accounts,DC=corp,DC=example,DC=com
       LDAP_USER_BASE_DN: OU=Users,DC=corp,DC=example,DC=com
       LDAP_ADMIN_GROUPS: CN=Asset Admins,OU=Groups,DC=corp,DC=example,DC=com
+      # The name shown for a person, and further names people can be searched by.
+      LDAP_DISPLAY_NAME_ATTRIBUTE: displayName
+      LDAP_NAME_ATTRIBUTES: givenName,sn,cn,name,userPrincipalName
       # User attributes that place people in org units, matched as attribute=value on a unit's directory links.
       LDAP_UNIT_ATTRIBUTES: department
       OIDC_ENABLED: "false"
@@ -112,6 +117,8 @@ services:
       OIDC_ISSUER: https://adfs.example.com/adfs
       OIDC_CLIENT_ID: asset-management
       OIDC_ADMIN_GROUPS: Asset Admins
+      OIDC_DISPLAY_NAME_CLAIM: unique_name
+      OIDC_NAME_CLAIMS: given_name,family_name,name,upn
       OIDC_UNIT_CLAIMS: department
     secretKeys: [DATABASE_URL, AUTH_SIGNING_KEY, COOKIE_SECRET, LOCAL_ADMIN_PASSWORD, LDAP_BIND_PASSWORD, LDAP_CA_CERT, OIDC_CLIENT_SECRET, AUTH_GOOGLE_SECRET, AUTH_SECRET]
     resources:

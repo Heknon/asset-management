@@ -145,6 +145,12 @@ variable "local_admin_enabled" {
   default     = true
 }
 
+variable "local_admin_email" {
+  description = "Email of the break-glass administrator. Google sign-in matches it; directory admins come from ldap.admin_groups / oidc.admin_groups."
+  type        = string
+  default     = null
+}
+
 variable "s3" {
   description = "Any S3-compatible storage. endpoint: omit for AWS; e.g. https://minio.corp.example.com or the NooBaa S3 route. browser_origin: the origin browsers fetch presigned URLs from (allowed by the CSP)."
   type = object({
@@ -168,16 +174,20 @@ variable "s3" {
 
 variable "ldap" {
   type = object({
-    enabled         = bool
-    url             = optional(string, "")
-    start_tls       = optional(bool, false)
-    ca_cert         = optional(string)
-    bind_dn         = optional(string, "")
-    bind_password   = optional(string)
-    user_base_dn    = optional(string, "")
-    user_filter     = optional(string, "(&(objectClass=person)(|(sAMAccountName={username})(userPrincipalName={username})))")
-    admin_groups    = optional(list(string), [])
-    unit_attributes = optional(list(string), ["department"])
+    enabled       = bool
+    url           = optional(string, "")
+    start_tls     = optional(bool, false)
+    ca_cert       = optional(string)
+    bind_dn       = optional(string, "")
+    bind_password = optional(string)
+    user_base_dn  = optional(string, "")
+    user_filter   = optional(string, "(&(objectClass=person)(|(sAMAccountName={username})(userPrincipalName={username})))")
+    # The name shown for a person, and further names they can be searched by.
+    display_name_attribute = optional(string, "displayName")
+    email_attribute        = optional(string, "mail")
+    name_attributes        = optional(list(string), ["givenName", "sn", "cn", "name", "userPrincipalName"])
+    admin_groups           = optional(list(string), [])
+    unit_attributes        = optional(list(string), ["department"])
   })
   default   = { enabled = false }
   sensitive = true
@@ -191,8 +201,11 @@ variable "oidc" {
     client_id     = optional(string, "")
     client_secret = optional(string)
     groups_claim  = optional(string, "group")
-    admin_groups  = optional(list(string), [])
-    unit_claims   = optional(list(string), ["department"])
+    # The name shown for a person, and further names they can be searched by.
+    display_name_claim = optional(string, "unique_name")
+    name_claims        = optional(list(string), ["given_name", "family_name", "name", "upn"])
+    admin_groups       = optional(list(string), [])
+    unit_claims        = optional(list(string), ["department"])
   })
   default   = { enabled = false }
   sensitive = true

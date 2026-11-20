@@ -261,7 +261,8 @@ export class AssetService {
     const { schema, type, variant } = sch;
     const refs = (kind: 'user' | 'assetRef') => schema.fields.filter((f) => f.kind === kind).flatMap((f) => [draft.values[f.key]].flat()).filter((v): v is string => typeof v === 'string');
     const unit = await store.getUnit(draft.unitId);
-    const [people, assets, unitNames] = await Promise.all([store.userNames([draft.ownerId, ...refs('user')].filter((v): v is string => !!v)), store.assetNames(refs('assetRef')), store.unitNames(unit?.path ?? [draft.unitId])]);
+    // Search names, so an asset is found by its owner's username, email or other names too.
+    const [people, assets, unitNames] = await Promise.all([store.userSearchNames([draft.ownerId, ...refs('user')].filter((v): v is string => !!v)), store.assetNames(refs('assetRef')), store.unitNames(unit?.path ?? [draft.unitId])]);
     return buildSearchText(schema, draft.name, draft.values, draft.ownerId ? people.get(draft.ownerId) : undefined, {
       typeName: type.name,
       variantName: variant?.name,

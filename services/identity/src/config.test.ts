@@ -23,3 +23,19 @@ describe('signInMethods', () => {
     expect(z.object({ AUTH_MODE: identityConfig.AUTH_MODE }).safeParse({ AUTH_MODE: 'manual,google' }).success).toBe(true);
   });
 });
+
+describe('directory name settings', () => {
+  const names = z.object({ LDAP_NAME_ATTRIBUTES: identityConfig.LDAP_NAME_ATTRIBUTES, OIDC_NAME_CLAIMS: identityConfig.OIDC_NAME_CLAIMS });
+  it('search first name, surname, full name and account names by default', () => {
+    expect(names.parse({})).toEqual({
+      LDAP_NAME_ATTRIBUTES: ['givenName', 'sn', 'cn', 'name', 'userPrincipalName'],
+      OIDC_NAME_CLAIMS: ['given_name', 'family_name', 'name', 'upn'],
+    });
+  });
+  it('take a comma-separated list instead', () => {
+    expect(names.parse({ LDAP_NAME_ATTRIBUTES: 'givenName, sn,hebrewName', OIDC_NAME_CLAIMS: 'upn' })).toEqual({
+      LDAP_NAME_ATTRIBUTES: ['givenName', 'sn', 'hebrewName'],
+      OIDC_NAME_CLAIMS: ['upn'],
+    });
+  });
+});

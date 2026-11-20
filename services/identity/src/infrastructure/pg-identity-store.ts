@@ -1,6 +1,6 @@
 import { AppError, consolidateGrants, normalizePermissions, roles, type AuthSource, type Grant, type GrantInput, type GrantRecord, type Group, type OrgUnit, type OrgUnitInput, type Page, type Permission, type SignedInSession, type Subject, type SubjectKind, type UnitPerson, type UnitRole, type User, type UserSummary } from '@am/core';
 import { enqueue } from '@am/platform';
-import { sql, type Kysely, type Selectable } from 'kysely';
+import { sql, type Kysely, type Selectable, type SqlBool } from 'kysely';
 import type { IdentityStore } from '../application/ports.js';
 import { defaultPreferences, isAdministrator, type ExternalIdentity, type Session, type UserRecord } from '../domain/model.js';
 import type { IdentityDB } from './schema.js';
@@ -12,6 +12,7 @@ const toUser = (r: UserRow): UserRecord => ({
   username: r.username,
   displayName: r.display_name,
   email: r.email,
+  otherNames: r.other_names ?? [],
   source: r.source,
   externalId: r.external_id,
   isAdmin: r.is_admin,
@@ -20,6 +21,9 @@ const toUser = (r: UserRow): UserRecord => ({
   preferences: { ...defaultPreferences, ...(r.preferences ?? {}) },
   lastLoginAt: r.last_login_at,
 });
+
+/** Any of a person's other names matches, e.g. a surname when the display name is the full name. */
+const otherNamesLike = (like: string) => sql<SqlBool>`array_to_string(other_names, ' ') ilike ${like}`;
 
 type UnitRow = Selectable<IdentityDB['org_units']> & { members?: number | string | null; managers?: number | string | null };
 
@@ -88,6 +92,7 @@ export class PgIdentityStore implements IdentityStore {
           username: identity.username,
           display_name: identity.displayName,
           email: identity.email,
+          other_names: identity.otherNames,
           external_id: identity.externalId,
           ...(identity.source === 'local' ? {} : { directory_admin: identity.directoryAdmin, directory_tags: identity.tags }),
           updated_at: sql`now()`,
@@ -103,6 +108,7 @@ export class PgIdentityStore implements IdentityStore {
         username: identity.username,
         display_name: identity.displayName,
         email: identity.email,
+        other_names: identity.otherNames,
         source: identity.source,
         external_id: identity.externalId,
         password_hash: null,
@@ -168,7 +174,7 @@ export class PgIdentityStore implements IdentityStore {
     if (ids?.length) query = query.where('id', 'in', ids);
     if (q) {
       const like = `%${q.replace(/[%_\\]/g, '\\$&')}%`;
-      query = query.where((eb) => eb.or([eb('username', 'ilike', like), eb('display_name', 'ilike', like), eb('email', 'ilike', like)]));
+      query = query.where((eb) => eb.or([eb('username', 'ilike', like), eb('display_name', 'ilike', like), eb('email', 'ilike', like), otherNamesLike(like)]));
     }
     return query;
   }
@@ -630,7 +636,7 @@ export class PgIdentityStore implements IdentityStore {
         .selectFrom('users')
         .select(['id', 'display_name', 'email', 'username'])
         .where('active', '=', true)
-        .where((eb) => eb.or([eb('display_name', 'ilike', like), eb('username', 'ilike', like), eb('email', 'ilike', like)]))
+        .where((eb) => eb.or([eb('display_name', 'ilike', like), eb('username', 'ilike', like), eb('email', 'ilike', like), otherNamesLike(like)]))
         .orderBy('display_name')
         .limit(limit)
         .execute();
@@ -738,6 +744,7 @@ export class PgIdentityStore implements IdentityStore {
       username: u.username,
       displayName: u.displayName,
       email: u.email,
+      otherNames: u.otherNames,
       active: u.active,
       preferences: u.preferences,
       groupIds: await this.groupIdsOf(u.id),

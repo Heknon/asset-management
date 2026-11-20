@@ -42,6 +42,8 @@ export interface UserChanged {
   username: string;
   displayName: string;
   email: string | null;
+  /** The person's other names from the directory (first name, surname, full name, account names), for search. */
+  otherNames?: string[];
   active: boolean;
   preferences: { emailReminders: boolean; outlookInvites: boolean };
   /** Directory groups the person is in (catalogs can be shared with groups). */

@@ -30,7 +30,7 @@ import {
 } from '@am/core';
 import { catalogSharePermissions, enqueue, inSubtree, scopeFilter, visibleFilter } from '@am/platform';
 import { sql, type Kysely, type Selectable, type SqlBool } from 'kysely';
-import type { RegistryStore, RequestRow, UnitRef } from '../application/ports.js';
+import type { RegistryStore, RequestRow, UnitRef, UserRef } from '../application/ports.js';
 import { splitRestricted, type AssetDraft, type AssetState } from '../domain/asset.js';
 import type { CatalogState } from '../domain/catalog.js';
 import type { RequestState } from '../domain/request.js';
@@ -602,15 +602,31 @@ export class PgRegistryStore implements RegistryStore {
     return new Map(rows.map((r) => [r.id, r.display_name]));
   }
 
-  async upsertUserRef(ref: { id: string; displayName: string; active: boolean; groupIds?: string[] }) {
-    const prev = await this.db.selectFrom('users_ref').select('display_name').where('id', '=', ref.id).executeTakeFirst();
-    const values = { display_name: ref.displayName, active: ref.active, ...(ref.groupIds && { group_ids: ref.groupIds }) };
+  async userSearchNames(ids: string[]) {
+    const unique = [...new Set(ids)];
+    if (!unique.length) return new Map<string, string>();
+    const rows = await this.db.selectFrom('users_ref').select(['id', 'display_name', 'username', 'email', 'other_names']).where('id', 'in', unique).execute();
+    return new Map(rows.map((r) => [r.id, personSearchName(r.display_name, [r.username, r.email, ...r.other_names])]));
+  }
+
+  async upsertUserRef(ref: UserRef) {
+    const prev = await this.db.selectFrom('users_ref').select(['display_name', 'username', 'email', 'other_names']).where('id', '=', ref.id).executeTakeFirst();
+    const values = {
+      display_name: ref.displayName,
+      active: ref.active,
+      ...(ref.username !== undefined && { username: ref.username }),
+      ...(ref.email !== undefined && { email: ref.email }),
+      ...(ref.otherNames && { other_names: ref.otherNames }),
+      ...(ref.groupIds && { group_ids: ref.groupIds }),
+    };
     await this.db
       .insertInto('users_ref')
       .values({ id: ref.id, ...values })
       .onConflict((oc) => oc.column('id').doUpdateSet(values))
       .execute();
-    return { renamed: !!prev && prev.display_name !== ref.displayName };
+    const name = (r: { display_name: string; username?: string | null; email?: string | null; other_names?: string[] }) =>
+      personSearchName(r.display_name, [r.username ?? null, r.email ?? null, ...(r.other_names ?? [])]);
+    return { renamed: !!prev && name(prev) !== name({ display_name: values.display_name, username: values.username ?? prev.username, email: values.email !== undefined ? values.email : prev.email, other_names: values.other_names ?? prev.other_names }) };
   }
 
   // ─── Requests ────────────────────────────────────────────────────────────
@@ -1075,3 +1091,10 @@ export class PgRegistryStore implements RegistryStore {
 
 const toView = (r: Selectable<RegistryDB['saved_views']>): SavedView => ({ id: r.id, name: r.name, query: r.query, pinned: r.pinned, createdAt: r.created_at.toISOString() });
 
+
+/** "Noa Levi (noalevi, noa@example.com, Noa, Levi)": every name a person can be found by. */
+export function personSearchName(displayName: string, others: (string | null)[]): string {
+  const seen = new Set([displayName.toLowerCase()]);
+  const rest = others.filter((v): v is string => !!v && !seen.has(v.toLowerCase()) && (seen.add(v.toLowerCase()), true));
+  return rest.length ? `${displayName} (${rest.join(', ')})` : displayName;
+}

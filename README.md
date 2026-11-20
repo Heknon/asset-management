@@ -169,7 +169,7 @@ What the function reads:
 | `VITE_RUNTIME` | plain value | `server`: build the function instead of the in-browser version |
 | `AUTH_MODE` | plain value | Sign-in methods: `manual`, `ldap`, `adfs`, `google` or a mix (e.g. `manual,google`). `manual`: admins add people with a password (**People & groups → Add person**). Unset: `manual` |
 | `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, `AUTH_SECRET`, `AUTH_URL`, `AUTH_REDIRECT_PROXY_URL` | from the kit (`google`) | Google sign-in; see below. Required when `AUTH_MODE` includes `google` (`AUTH_URL` in production and dev, `AUTH_REDIRECT_PROXY_URL` in previews) |
-| `LOCAL_ADMIN_EMAIL` | plain value, optional | The first administrator's email, so they can sign in with Google |
+| `LOCAL_ADMIN_EMAIL` | plain value, optional | The first administrator's email, so they can sign in with Google. Updated on the existing administrator at every start. Terraform: `local_admin_email` |
 | `VERCEL_BRANCH_URL`, `VERCEL_URL`, `VERCEL_PROJECT_NAME` | Vercel | A preview's own origin, and the team's `*.vercel.app` suffix the dev deployment accepts as Google return origins |
 
 `.env.example` lists them all. LDAP and ADFS take the same `LDAP_*` / `OIDC_*` variables as the server, but the directory must be reachable from Vercel (the internet). Uploads and previews go from the browser straight to the bucket; the kit sets the bucket's CORS (the production and dev domains, the team's previews and `http://localhost:*`), and the function never changes it.
@@ -332,6 +332,8 @@ Requests follow a **workflow**: an ordered list of statuses, each with a name, a
 ## Identity providers
 
 **LDAP / Active Directory** — `LDAP_ENABLED=true`, a bind account, `LDAP_USER_BASE_DN`, and `ldaps://` or `LDAP_STARTTLS=true` with `LDAP_CA_CERT`. Users are provisioned at first sign-in; `memberOf` (or a group search via `LDAP_GROUP_BASE_DN`) syncs their groups each time. Members of `LDAP_ADMIN_GROUPS` become administrators.
+
+People are shown by `LDAP_DISPLAY_NAME_ATTRIBUTE` (default `displayName`) and can be found by it, their username, their email, and every value of `LDAP_NAME_ATTRIBUTES` (default `givenName,sn,cn,name,userPrincipalName`): in **People & groups**, in every people picker, and in asset search, where an asset matches its owner's and person fields' names. All are refreshed at each sign-in. ADFS does the same with `OIDC_DISPLAY_NAME_CLAIM` (default `unique_name`) and `OIDC_NAME_CLAIMS` (default `given_name,family_name,name,upn`). Terraform: `ldap.display_name_attribute`, `ldap.name_attributes`, `oidc.display_name_claim`, `oidc.name_claims`.
 
 **ADFS (OpenID Connect)** — in ADFS, create an Application Group → *Server application accessing a web API*:
 
