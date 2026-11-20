@@ -1,11 +1,13 @@
-import { useQuery } from '@tanstack/react-query';
-import { AlertTriangle, ArchiveRestore, CheckCircle2, Download, FileArchive, ShieldAlert } from 'lucide-react';
+import type { StoredBackup, StoredBackups } from '@am/core';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { AlertTriangle, ArchiveRestore, CheckCircle2, Download, FileArchive, HardDrive, Plus, RotateCcw, ShieldAlert, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { Card, EmptyState, PageHeader, Spinner } from '@/components/ui/display';
+import { Badge, Card, EmptyState, PageHeader, Spinner } from '@/components/ui/display';
 import { Field, Input, Switch } from '@/components/ui/form';
-import { Dialog } from '@/components/ui/overlay';
+import { ConfirmDialog, Dialog } from '@/components/ui/overlay';
+import type { SignedUrl } from '@am/core';
 import { api, ApiError } from '@/lib/api';
 import { BackupError, backupFilename, createBackup, currentData, openBackup, previewRestore, restoreBackup, type BackupProgress, type OpenedBackup, type RestorePreview } from '@/lib/backup';
 import { downloadBlob } from '@/lib/download';
@@ -92,6 +94,7 @@ export function BackupPage() {
         ) : (
           <>
             <DownloadCard createdBy={me.displayName} rows={rows} documents={documents} loading={data.isLoading} />
+            <StoredCard onOpened={setOpened} />
             <RestoreCard onOpened={setOpened} />
           </>
         )}
@@ -173,6 +176,170 @@ function DownloadCard({ createdBy, rows, documents, loading }: { createdBy: stri
           </Button>
         )}
       </div>
+    </Card>
+  );
+}
+
+const storedKey = ['backup', 'stored'];
+
+/** "0 1 * * *" → "01:00"; anything else is shown as it is written. */
+function nightlyTime(cron: string): string {
+  const m = /^(\d{1,2}) (\d{1,2}) \* \* \*$/.exec(cron.trim());
+  return m ? `${m[2]!.padStart(2, '0')}:${m[1]!.padStart(2, '0')}` : cron;
+}
+
+/** Backups kept in storage: the nightly one, and the ones made here with "Back up now". */
+function StoredCard({ onOpened }: { onOpened: (b: OpenedBackup) => void }) {
+  const qc = useQueryClient();
+  const stored = useQuery({
+    queryKey: storedKey,
+    queryFn: () => api.get<StoredBackups>('/api/files/backup/stored'),
+    retry: false,
+    // While one is being made, look again until it shows up.
+    refetchInterval: (q) => (q.state.data?.running.some((r) => !r.stalled) ? 2000 : false),
+  });
+  const refresh = () => qc.invalidateQueries({ queryKey: storedKey });
+  const onError = (e: unknown) => void toast.error(messageOf(e));
+  const start = useMutation({ mutationFn: () => api.post('/api/files/backup/stored'), onSuccess: refresh, onError });
+  const save = useMutation({
+    mutationFn: (v: { nightly: boolean; keepDays: number }) => api.put('/api/files/backup/stored/settings', v),
+    onSuccess: (_, v) => {
+      void refresh();
+      toast.success(v.nightly ? t('Nightly backup is on') : t('Nightly backup is off'));
+    },
+    onError,
+  });
+  const remove = useMutation({
+    mutationFn: (b: StoredBackup) => api.delete(`/api/files/backup/stored?key=${encodeURIComponent(b.key)}`),
+    onSuccess: () => {
+      setDeleting(null);
+      void refresh();
+    },
+    onError,
+  });
+  const [deleting, setDeleting] = useState<StoredBackup | null>(null);
+  const [opening, setOpening] = useState<string | null>(null);
+  const [days, setDays] = useState<string | null>(null);
+
+  const data = stored.data;
+  if (!data?.available) return null;
+
+  const link = (b: StoredBackup) => api.get<SignedUrl>('/api/files/backup/stored/url', { key: b.key });
+  const download = async (b: StoredBackup) => {
+    try {
+      window.location.assign((await link(b)).url);
+    } catch (e) {
+      onError(e);
+    }
+  };
+  const restore = async (b: StoredBackup) => {
+    setOpening(b.key);
+    try {
+      const res = await fetch((await link(b)).url);
+      if (!res.ok) throw new BackupError(t('The backup could not be read from storage ({status}).', { status: res.status }));
+      onOpened(await openBackup(await res.blob()));
+    } catch (e) {
+      toast.error(t('This file cannot be restored'), { description: messageOf(e), duration: 15_000 });
+    } finally {
+      setOpening(null);
+    }
+  };
+  const commitDays = () => {
+    const n = Number(days);
+    setDays(null);
+    if (days !== null && Number.isInteger(n) && n >= 1 && n <= 365 && n !== data.keepDays) save.mutate({ nightly: data.nightly, keepDays: n });
+  };
+  const running = data.running.filter((r) => !r.stalled);
+  const stalled = data.running.filter((r) => r.stalled);
+
+  return (
+    <Card padded={false}>
+      <div className="flex flex-wrap items-start gap-3 p-4">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-surface-2 text-muted">
+          <HardDrive className="size-4" />
+        </div>
+        <div className="min-w-0 flex-1 basis-56">
+          <h2 className="text-[14px] font-semibold">{t('Backups in storage')}</h2>
+          <p className="mt-0.5 text-[13px] text-muted">{t('Kept in the same storage as the documents, so they are there even when this app is not. The documents themselves are not copied into them.')}</p>
+        </div>
+        <Button icon={<Plus className="size-4" />} onClick={() => start.mutate()} loading={start.isPending} disabled={running.length > 0}>
+          {t('Back up now')}
+        </Button>
+      </div>
+
+      <div className="flex flex-col gap-3 border-t border-border p-4">
+        <Switch
+          checked={data.nightly}
+          onChange={(nightly) => save.mutate({ nightly, keepDays: data.keepDays })}
+          disabled={save.isPending}
+          label={t('Nightly backup')}
+          description={t('Every night at {time} UTC. Backups you make yourself are kept until you delete them.', { time: nightlyTime(data.schedule) })}
+        />
+        {data.nightly && (
+          <label className="flex items-center gap-2 text-[13px]">
+            <span>{t('Delete nightly backups after')}</span>
+            <Input
+              type="number"
+              min={1}
+              max={365}
+              className="w-16"
+              value={days ?? String(data.keepDays)}
+              onChange={(e) => setDays(e.target.value)}
+              onBlur={commitDays}
+              onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+              aria-label={t('Days to keep nightly backups')}
+            />
+            <span>{t('days')}</span>
+          </label>
+        )}
+      </div>
+
+      <ul className="divide-y divide-border border-t border-border">
+        {running.map((r) => (
+          <li key={r.id} className="flex items-center gap-3 px-4 py-3 text-[13px] text-muted">
+            <Spinner />
+            {t('Making a backup…')}
+          </li>
+        ))}
+        {stalled.map((r) => (
+          <li key={r.id} className="flex items-center gap-3 px-4 py-3 text-[13px] text-danger">
+            <AlertTriangle className="size-4 shrink-0" />
+            {t('The backup started {when} did not finish. A service may be down; see the logs.', { when: formatDateTime(r.startedAt) })}
+          </li>
+        ))}
+        {data.backups.map((b) => (
+          <li key={b.key} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5">
+            <div className="min-w-0 flex-1 basis-40">
+              <div className="flex items-center gap-2 text-[13px] font-medium">
+                {formatDateTime(b.createdAt)}
+                <Badge tone={b.kind === 'automatic' ? 'neutral' : 'accent'}>{b.kind === 'automatic' ? t('Nightly') : t('Manual')}</Badge>
+              </div>
+              <div className="text-xs text-muted">{formatBytes(b.size)}</div>
+            </div>
+            <div className="flex gap-1">
+              <Button size="sm" variant="ghost" icon={<Download className="size-3.5" />} onClick={() => void download(b)}>
+                {t('Download')}
+              </Button>
+              <Button size="sm" variant="ghost" icon={<RotateCcw className="size-3.5" />} onClick={() => void restore(b)} loading={opening === b.key} disabled={!!opening}>
+                {t('Restore…')}
+              </Button>
+              <Button size="icon" variant="ghost" aria-label={t('Delete')} icon={<Trash2 className="size-3.5" />} onClick={() => setDeleting(b)} />
+            </div>
+          </li>
+        ))}
+        {!data.backups.length && !data.running.length && <li className="px-4 py-6 text-center text-[13px] text-muted">{t('No backups in storage yet.')}</li>}
+      </ul>
+
+      <ConfirmDialog
+        open={!!deleting}
+        onOpenChange={(o) => !o && setDeleting(null)}
+        title={t('Delete this backup?')}
+        description={deleting ? t('The backup from {when} is removed from storage. This cannot be undone.', { when: formatDateTime(deleting.createdAt) }) : ''}
+        confirmLabel={t('Delete')}
+        danger
+        loading={remove.isPending}
+        onConfirm={() => deleting && remove.mutate(deleting)}
+      />
     </Card>
   );
 }

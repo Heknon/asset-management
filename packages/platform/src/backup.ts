@@ -1,8 +1,9 @@
-import { AppError, BACKUP_FORMAT, type BackupColumn, type BackupTable, type ServiceBackupInfo } from '@am/core';
+import { AppError, BACKUP_FORMAT, backupPartDoneKey, backupPieceKey, type BackupColumn, type BackupRequested, type BackupTable, type ServiceBackupInfo } from '@am/core';
 import type { FastifyInstance } from 'fastify';
 import { sql, type Kysely } from 'kysely';
 import type { Logger } from 'pino';
 import { z } from 'zod';
+import type { EventBus } from './events.js';
 import { parse, requireAdmin, textStream } from './http.js';
 
 /**
@@ -189,6 +190,43 @@ export function dumpSchema(database: BackupDatabase, rules: BackupRules = {}): A
   );
 }
 
+/** Pieces of a part uploaded to storage: large enough to be few, small enough to hold in memory. */
+const PIECE_CHARS = 4 * 1_048_576;
+
+/**
+ * A backup to storage: uploads this service's data (the same lines
+ * `dumpSchema` produces) as numbered pieces with the form upload from the
+ * request, then a marker that the part is complete. Safe to run again: the
+ * pieces are written over.
+ */
+export async function uploadBackupPart(database: BackupDatabase, rules: BackupRules, upload: BackupRequested['upload'], send: typeof fetch = fetch): Promise<{ pieces: number }> {
+  const put = async (key: string, body: string) => {
+    const form = new FormData();
+    for (const [k, v] of Object.entries(upload.fields)) if (k !== 'key') form.append(k, v);
+    form.append('key', key);
+    form.append('file', new Blob([body])); // must be the last field for S3
+    const res = await send(upload.url, { method: 'POST', body: form });
+    if (!res.ok) throw new Error(`Storage refused a piece of the backup (${res.status})`);
+  };
+  let pieces = 0;
+  let buffer: string[] = [];
+  let size = 0;
+  const flush = async () => {
+    if (!buffer.length) return;
+    await put(backupPieceKey(upload.keyPrefix, database.schema, ++pieces), buffer.join(''));
+    buffer = [];
+    size = 0;
+  };
+  for await (const lines of dumpSchema(database, rules)) {
+    buffer.push(lines);
+    size += lines.length;
+    if (size >= PIECE_CHARS) await flush();
+  }
+  await flush();
+  await put(backupPartDoneKey(upload.keyPrefix, database.schema), JSON.stringify({ service: database.schema, pieces }));
+  return { pieces };
+}
+
 const beginSchema = z.object({
   migrations: z.array(z.string()),
   tables: z.array(z.object({ name: z.string(), columns: z.array(z.string()).min(1) })),
@@ -370,10 +408,23 @@ export interface BackupRoutesOptions {
   /** BACKUP_ENABLED; when off, every route answers 403. */
   enabled: boolean;
   rules?: BackupRules;
+  /** For backups to storage: the service uploads its part when one is asked for. */
+  bus: EventBus;
 }
 
-/** Administrator-only routes for backing up and restoring a service's data. */
-export function registerBackupRoutes(app: FastifyInstance, { name, database, logger, enabled, rules = {} }: BackupRoutesOptions): void {
+/**
+ * Administrator-only routes for backing up and restoring a service's data,
+ * and the service's share of backups to storage.
+ */
+export async function registerBackup(app: FastifyInstance, { name, database, logger, enabled, rules = {}, bus }: BackupRoutesOptions): Promise<void> {
+  if (enabled) {
+    await bus.subscribe(name, 'backup.requested', async (e) => {
+      const { pieces } = await uploadBackupPart(database, rules, e.upload);
+      logger.info({ audit: 'backup', action: 'stored part', service: name, backupId: e.backupId, pieces }, 'backup: stored part');
+      await bus.publish('backup.part', { backupId: e.backupId, service: name });
+    });
+  }
+
   const prefix = `/api/${name}/backup`;
   const idParam = z.object({ id: z.string().uuid() });
   const admin = (req: Parameters<typeof requireAdmin>[0]) => {

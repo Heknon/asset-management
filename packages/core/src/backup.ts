@@ -1,3 +1,5 @@
+import { z } from 'zod';
+
 /**
  * The backup file: a zip the web app assembles from each service's data and
  * takes apart again for a restore.
@@ -50,6 +52,35 @@ export interface BackupManifest {
     missing: number;
   };
 }
+
+/** A backup kept in storage: made every night, or by an administrator with "Back up now". */
+export interface StoredBackup {
+  key: string;
+  kind: 'automatic' | 'manual';
+  createdAt: string;
+  size: number;
+}
+
+/** `GET /api/files/backup/stored`: the backups in storage and how the nightly one is set up. */
+export interface StoredBackups {
+  /** False where there is no storage to keep backups in (the in-browser runtime). */
+  available: boolean;
+  nightly: boolean;
+  /** Automatic backups older than this many days are deleted; manual ones never are. */
+  keepDays: number;
+  /** When the nightly backup runs: a cron expression, in UTC. */
+  schedule: string;
+  backups: StoredBackup[];
+  /** Asked for and not finished; `stalled` when it has been too long. */
+  running: Array<{ id: string; kind: StoredBackup['kind']; startedAt: string; stalled: boolean }>;
+}
+
+export const storedBackupSettingsSchema = z.object({ nightly: z.boolean(), keepDays: z.number().int().min(1).max(365) });
+export type StoredBackupSettings = z.infer<typeof storedBackupSettingsSchema>;
+
+/** Where a service puts piece `n` (from 1) of its part of a backup to storage, and the marker that it is done. */
+export const backupPieceKey = (keyPrefix: string, service: string, n: number) => `${keyPrefix}${service}/${String(n).padStart(6, '0')}`;
+export const backupPartDoneKey = (keyPrefix: string, service: string) => `${keyPrefix}${service}/done.json`;
 
 export const backupTablePath = (service: string, table: string) => `${service}/${table}.csv`;
 export const backupDocumentPath = (objectKey: string) => `documents/${objectKey}`;

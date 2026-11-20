@@ -1,7 +1,7 @@
 import { PGlite } from '@electric-sql/pglite';
 import { beforeAll, describe, expect, it } from 'bun:test';
 import { CompiledQuery, Kysely, PostgresAdapter, PostgresIntrospector, PostgresQueryCompiler, sql, type DatabaseConnection, type Migration } from 'kysely';
-import { abortRestore, backupInfo, beginRestore, commitRestore, dumpSchema, stageRows, type BackupDatabase, type BackupRules } from './backup.js';
+import { abortRestore, backupInfo, beginRestore, commitRestore, dumpSchema, stageRows, uploadBackupPart, type BackupDatabase, type BackupRules } from './backup.js';
 import { migrate, type Database } from './db.js';
 
 /** An in-process Postgres (PGlite) with one schema, like a service's database. */
@@ -201,5 +201,35 @@ describe('backup and restore of a schema', () => {
     await expect(stageRows(target, first.id, 'kinds', taken.tables.kinds!.rows)).rejects.toThrow(/no longer open/);
     await abortRestore(target, second.id);
     await expect(commitRestore(target, rules, second.id, {})).rejects.toThrow(/no longer open/);
+  });
+
+  it('uploads its part of a backup to storage as numbered pieces and a marker', async () => {
+    const sent: Array<{ url: string; fields: Record<string, string>; body: string }> = [];
+    const send = (async (url: string, init: { body: FormData }) => {
+      const fields: Record<string, string> = {};
+      let body = '';
+      for (const [k, v] of init.body.entries()) {
+        if (typeof v === 'string') fields[k] = v;
+        else body = await v.text();
+      }
+      // S3 reads nothing after the file.
+      expect([...init.body.keys()].at(-1)).toBe('file');
+      sent.push({ url, fields, body });
+      return new Response(null, { status: 204 });
+    }) as unknown as typeof fetch;
+
+    const upload = { url: 'https://s3.example/bucket', fields: { key: 'backups/work/b1/${filename}', Policy: 'p' }, keyPrefix: 'backups/work/b1/' };
+    expect(await uploadBackupPart(source, rules, upload, send)).toEqual({ pieces: 1 });
+    expect(sent.map((p) => [p.url, p.fields.key, p.fields.Policy])).toEqual([
+      ['https://s3.example/bucket', 'backups/work/b1/shop/000001', 'p'],
+      ['https://s3.example/bucket', 'backups/work/b1/shop/done.json', 'p'],
+    ]);
+    const lines = sent[0]!.body.split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    expect(lines[0]).toEqual({ format: 1, service: 'shop', migrations: ['0001_shop'] });
+    expect(lines.at(-1)).toEqual({ end: true, rows: taken.counts });
+    expect(JSON.parse(sent[1]!.body)).toEqual({ service: 'shop', pieces: 1 });
+
+    const refused = (async () => new Response(null, { status: 403 })) as unknown as typeof fetch;
+    await expect(uploadBackupPart(source, rules, upload, refused)).rejects.toThrow(/refused/);
   });
 });

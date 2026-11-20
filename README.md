@@ -349,6 +349,19 @@ What to know:
 - The zip is put together in the browser, so very large document sets need a machine with enough memory and disk for the file.
 - `BACKUP_ENABLED=false` (on all four services) turns the feature off; it is on by default.
 
+### Backups in storage (nightly, and on demand)
+
+The same page keeps backups in S3, next to the documents (under `backups/` in the bucket, with the bucket's encryption):
+
+- **Nightly backup** is a switch on the page, off until an administrator turns it on. It runs at 01:00 UTC; `BACKUP_NIGHTLY_CRON` on the files service changes the time (a cron expression, in UTC).
+- **Retention.** After each nightly backup, automatic backups older than the number of days set on the page (3 by default) are deleted. Nothing is deleted while no new backup is being made, so a broken night never leaves you with none.
+- **Back up now** makes one on demand. Manual backups are never deleted automatically; delete them from the list.
+- **Download** uses a short-lived presigned link, like documents. **Restore…** on a row opens the same review and confirmation as a dropped file.
+- These zips are the same format as a downloaded backup, **without the documents**: those are already in the same storage. Take a downloaded backup with documents when you want a copy that survives losing the bucket.
+- Storage is the only record of these backups and of the nightly setting. A restore does not change them, and a new installation pointed at the same bucket lists the backups of the previous one, ready to restore.
+
+How it works, and what it needs: the files service publishes a request on the event bus with a presigned upload; each of the four services uploads its own data to S3 with it and reports back; the files service then streams the parts into the zip. So **every service's pods must be able to reach `S3_ENDPOINT`**, not only the files service. If one cannot, or a service is down, the page shows the backup as not finished after 30 minutes and the leftovers are removed a day later. Not available in the in-browser run mode (there is no S3).
+
 ## Identity providers
 
 **LDAP / Active Directory** — `LDAP_ENABLED=true`, a bind account, `LDAP_USER_BASE_DN`, and `ldaps://` or `LDAP_STARTTLS=true` with `LDAP_CA_CERT`. Users are provisioned at first sign-in; `memberOf` (or a group search via `LDAP_GROUP_BASE_DN`) syncs their groups each time. Members of `LDAP_ADMIN_GROUPS` become administrators.

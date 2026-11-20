@@ -1,4 +1,4 @@
-import { createTokenVerifier, defineService, registerBackupRoutes, type BaseConfig } from '@am/platform';
+import { createTokenVerifier, defineService, registerBackup, type BaseConfig } from '@am/platform';
 import { importJWK, type CryptoKey } from 'jose';
 import { AccessService } from './application/access-service.js';
 import { AuthService } from './application/auth-service.js';
@@ -74,10 +74,11 @@ export const defineIdentityService = (adapters: IdentityAdapters) => {
         google,
       });
 
-      registerBackupRoutes(app, {
+      await registerBackup(app, {
         name: 'identity',
         database,
         logger,
+        bus,
         enabled: config.BACKUP_ENABLED,
         rules: {
           // A restore signs everyone out: sessions and sign-in codes of the replaced data mean nothing afterwards.

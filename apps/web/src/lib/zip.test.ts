@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { ZipStreamWriter } from '@am/core';
 import { crc32, readZip, ZipWriter } from './zip';
 
 const python = (code: string, ...args: string[]) => {
@@ -78,5 +79,21 @@ describe('zip', () => {
     const entries = await readZip(new Blob([good]));
     await expect(entries[1]!.text()).rejects.toThrow(/damaged/);
     expect(await entries[0]!.text()).toBe('{"format":1}');
+  });
+
+  it('reads archives the services stream into storage', async () => {
+    const parts: Uint8Array[] = [];
+    const zip = new ZipStreamWriter(async (b) => void parts.push(b));
+    const entry = await zip.entry('registry/assets.csv');
+    for (let i = 0; i < 500; i++) await entry.write('שלום, "world"\r\n');
+    await entry.close();
+    await zip.add('empty.csv', '');
+    await zip.add('manifest.json', '{"format":1}');
+    await zip.finish();
+    const entries = await readZip(new Blob(parts as BlobPart[]));
+    expect(entries.map((e) => [e.name, e.size])).toEqual([['registry/assets.csv', new Blob([text]).size], ['empty.csv', 0], ['manifest.json', 12]]);
+    expect(await entries[0]!.text()).toBe(text);
+    expect(await entries[1]!.text()).toBe('');
+    expect(await entries[2]!.text()).toBe('{"format":1}');
   });
 });

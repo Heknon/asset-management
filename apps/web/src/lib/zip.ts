@@ -6,6 +6,8 @@
  * (stored or deflated entries).
  */
 
+import { crc32Update } from '@am/core';
+
 const LOCAL = 0x04034b50;
 const CENTRAL = 0x02014b50;
 const END = 0x06054b50;
@@ -15,22 +17,6 @@ const MAX32 = 0xffffffff;
 const MAX16 = 0xffff;
 const UTF8_NAMES = 0x0800;
 
-const crcTable = (() => {
-  const t = new Uint32Array(256);
-  for (let n = 0; n < 256; n++) {
-    let c = n;
-    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-    t[n] = c >>> 0;
-  }
-  return t;
-})();
-
-function crcUpdate(crc: number, bytes: Uint8Array): number {
-  let c = crc;
-  for (let i = 0; i < bytes.length; i++) c = crcTable[(c ^ bytes[i]!) & 0xff]! ^ (c >>> 8);
-  return c;
-}
-
 /** CRC-32 of a Blob, read in pieces. */
 export async function crc32(data: Blob): Promise<number> {
   let c = MAX32;
@@ -38,7 +24,7 @@ export async function crc32(data: Blob): Promise<number> {
   for (;;) {
     const { value, done } = await reader.read();
     if (done) break;
-    c = crcUpdate(c, value);
+    c = crc32Update(c, value);
   }
   return (c ^ MAX32) >>> 0;
 }

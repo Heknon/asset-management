@@ -31,3 +31,30 @@ export interface ObjectStorage {
 export interface AssetAccess {
   check(callerToken: string, assetId: string): Promise<AccessCheck | null>;
 }
+
+export interface StoredObject {
+  key: string;
+  size: number;
+  modifiedAt: Date;
+}
+
+/** Writes a large object piece by piece (an S3 multipart upload). */
+export interface ObjectWriter {
+  write(bytes: Uint8Array): Promise<void>;
+  close(): Promise<void>;
+  abort(): Promise<void>;
+}
+
+/**
+ * What keeping backups in storage needs on top of documents: the service
+ * itself lists, reads and writes objects (documents only ever pass presigned
+ * links around). Runtimes without real object storage do not provide it.
+ */
+export interface BackupStorage {
+  list(prefix: string): Promise<StoredObject[]>;
+  read(key: string): Promise<Uint8Array | null>;
+  put(key: string, body: string, contentType: string): Promise<void>;
+  writer(key: string, contentType: string): Promise<ObjectWriter>;
+  /** A form upload, usable from inside the cluster, for any key that starts with `keyPrefix`. */
+  presignPrefixUpload(prefix: string, maxBytes: number, ttlSeconds: number): Promise<{ url: string; fields: Record<string, string>; keyPrefix: string }>;
+}

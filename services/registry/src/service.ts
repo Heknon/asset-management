@@ -1,4 +1,4 @@
-import { defineService, envBool, registerBackupRoutes } from '@am/platform';
+import { defineService, envBool, registerBackup } from '@am/platform';
 import { sql } from 'kysely';
 import { AccessResolver } from './application/access.js';
 import { AssetService } from './application/asset-service.js';
@@ -50,7 +50,7 @@ export const registryService = defineService<RegistryDB, typeof registryConfig>(
       { csvExport: config.CSV_EXPORT_ENABLED },
     );
 
-    registerBackupRoutes(app, { name: 'registry', database, logger, enabled: config.BACKUP_ENABLED });
+    await registerBackup(app, { name: 'registry', database, logger, enabled: config.BACKUP_ENABLED, bus });
 
     await bus.subscribe('registry', 'unit.changed', async (e) => {
       const prev = await store.getUnit(e.unitId);
