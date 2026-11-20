@@ -276,9 +276,9 @@ export function AssetExplorer({
   return (
     <>
       <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 sm:px-6 py-3">
-        <div className="relative w-full max-w-md min-w-64 flex-1">
+        <div className="relative w-full max-w-md min-w-72 flex-1">
           <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-subtle" />
-          <Input className="h-9 pl-8 text-[14px]" placeholder="Search anything — name, vendor, serial, person, team…" value={query.q} onChange={(e) => update({ q: e.target.value, sort: undefined })} />
+          <Input className="h-9 pl-8 text-[14px]" placeholder="Search name, vendor, serial…" title="Searches every field: name, vendor, serial, person, team…" value={query.q} onChange={(e) => update({ q: e.target.value, sort: undefined })} />
           {query.q && (
             <button type="button" aria-label="Clear search" className="absolute top-1/2 right-2 -translate-y-1/2 text-subtle hover:text-fg" onClick={() => update({ q: '' })}>
               <X className="size-3.5" />
