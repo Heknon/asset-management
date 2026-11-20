@@ -180,7 +180,9 @@ One Helm release, **six Deployments** — `identity`, `registry`, `files`, `sche
 | Flag (Helm / Terraform) | `true` (default) | `false` |
 |---|---|---|
 | `postgresql.managed` / `managed_postgres` | Managed PostgreSQL at `DATABASE_URL` (Crunchy, CloudNativePG, RDS, Azure…) | A PostgreSQL StatefulSet in the namespace (Red Hat's `rhel9/postgresql-16`), password generated and kept across upgrades |
-| `objectStorage.managed` / `managed_object_storage` | An S3 bucket (Terraform's `document-bucket` module on AWS, or ODF/NooBaa/Ceph via `services.files.env`) | MinIO in the namespace; the bucket is created on start and browsers reach it on its own Route (`objectStorage.inCluster.publicHost`, default `<app-host>-storage.<domain>`) |
+| `objectStorage.managed` / `object_storage` | Any S3-compatible storage you provide: your own MinIO, OpenShift Data Foundation (NooBaa), Ceph RGW, another cloud's S3 API, or AWS (Terraform: `object_storage = "s3"` with endpoint, bucket and keys; or `"aws"` to have Terraform create the bucket) | `object_storage = "in-cluster"`: MinIO in the namespace; the bucket is created on start and browsers reach it on its own Route (`objectStorage.inCluster.publicHost`, default `<app-host>-storage.<domain>`) |
+
+Nothing is tied to a cloud: PostgreSQL is any server at `DATABASE_URL`, and storage is any S3 API. The AWS provider is only used with `object_storage = "aws"`; otherwise it is never contacted (it still has to be in your Terraform provider mirror, since the configuration declares it).
 
 Sign-in is chosen with `AUTH_MODE` (`TF_VAR_auth_mode`): `manual`, `ldap`, `adfs`, or a comma-separated mix.
 
@@ -198,7 +200,7 @@ Nothing is fetched from the internet; everything comes from Artifactory, configu
 | Where images are pushed (and pulled from) | `IMAGE_REGISTRY`, `IMAGE_REGISTRY_USER`, `IMAGE_REGISTRY_PASSWORD`; OpenShift pulls with `PULL_USER`/`PULL_PASSWORD` (a pull Secret Terraform creates) |
 | In-cluster PostgreSQL / MinIO images | `THIRD_PARTY_MIRROR` |
 | The cluster | `OPENSHIFT_SERVER`, `OPENSHIFT_TOKEN`, `OPENSHIFT_CA` |
-| The app | `TF_VAR_public_url`, `TF_VAR_namespace`, `TF_VAR_auth_mode`, `TF_VAR_managed_postgres`, `TF_VAR_managed_object_storage`, `TF_VAR_database_url`, `TF_VAR_smtp_url`, `TF_VAR_ldap`, `TF_VAR_oidc` |
+| The app | `TF_VAR_public_url`, `TF_VAR_namespace`, `TF_VAR_auth_mode`, `TF_VAR_managed_postgres`, `TF_VAR_object_storage`, `TF_VAR_s3`, `TF_VAR_database_url`, `TF_VAR_smtp_url`, `TF_VAR_ldap`, `TF_VAR_oidc` |
 
 The same Dockerfile builds by hand: `buildah bud --target service --build-arg SERVICE=mcp --build-arg NPM_REGISTRY=… --secret id=npmrc,src=.npmrc …` (every base image is a build argument: `BUN_IMAGE`, `NODE_IMAGE`, `SERVICE_BASE_IMAGE`, `WEB_BASE_IMAGE`).
 

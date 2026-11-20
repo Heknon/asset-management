@@ -3,7 +3,7 @@ output "url" {
 }
 
 output "documents_bucket" {
-  value = var.managed_object_storage ? module.documents[0].bucket : "in-cluster MinIO"
+  value = var.object_storage == "aws" ? module.documents[0].bucket : var.object_storage == "s3" ? "your S3-compatible storage" : "in-cluster MinIO"
 }
 
 output "local_admin_password" {

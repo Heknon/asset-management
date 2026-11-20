@@ -15,10 +15,11 @@ terraform {
 provider "aws" {
   region = var.aws_region
   default_tags { tags = var.tags }
-  # With in-cluster storage nothing is created on AWS, so it is never contacted (air-gapped clusters).
-  skip_credentials_validation = !var.managed_object_storage
-  skip_requesting_account_id  = !var.managed_object_storage
-  skip_metadata_api_check     = !var.managed_object_storage
+  # Only object_storage = "aws" creates anything on AWS; otherwise the provider is never contacted
+  # (it is configured but unused, so no AWS account or network access is needed).
+  skip_credentials_validation = var.object_storage != "aws"
+  skip_requesting_account_id  = var.object_storage != "aws"
+  skip_metadata_api_check     = var.object_storage != "aws"
 }
 
 # Authenticate with `oc login` first; the providers reuse that kubeconfig context.
@@ -34,9 +35,9 @@ provider "helm" {
   }
 }
 
-# The S3 bucket on AWS, unless storage runs in the cluster (managed_object_storage = false).
+# An S3 bucket on AWS, only with object_storage = "aws".
 module "documents" {
-  count           = var.managed_object_storage ? 1 : 0
+  count           = var.object_storage == "aws" ? 1 : 0
   source          = "../../modules/document-bucket"
   bucket_name     = var.bucket_name
   allowed_origins = [var.public_url]
@@ -59,23 +60,23 @@ module "app" {
   image_pull_secret = var.image_pull_secret
   mirror_registry   = var.mirror_registry
 
-  managed_postgres       = var.managed_postgres
-  managed_object_storage = var.managed_object_storage
-  auth_mode              = var.auth_mode
-  mcp_enabled            = var.mcp_enabled
-  smtp_url               = var.smtp_url
-  mail_from              = var.mail_from
+  managed_postgres = var.managed_postgres
+  object_storage   = var.object_storage == "in-cluster" ? "in-cluster" : "external"
+  auth_mode        = var.auth_mode
+  mcp_enabled      = var.mcp_enabled
+  smtp_url         = var.smtp_url
+  mail_from        = var.mail_from
 
   reminder_timezone = var.reminder_timezone
 
-  s3 = var.managed_object_storage ? {
+  s3 = var.object_storage == "aws" ? {
     bucket            = module.documents[0].bucket
     region            = var.aws_region
     browser_origin    = module.documents[0].browser_origin
     access_key_id     = module.documents[0].access_key_id
     secret_access_key = module.documents[0].secret_access_key
     kms_key_id        = var.kms_key_arn
-  } : null
+  } : var.object_storage == "s3" ? var.s3 : null
   ldap = var.ldap
   oidc = var.oidc
 }

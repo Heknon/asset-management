@@ -4,7 +4,10 @@ locals {
   secret_name = "asset-management"
   pull_secret = "asset-management-pull"
   # With in-cluster storage the chart fills in the bucket settings itself.
-  s3     = var.s3 != null ? var.s3 : { bucket = "", region = "us-east-1", browser_origin = "", endpoint = null, public_endpoint = null, force_path_style = false, access_key_id = null, secret_access_key = null, kms_key_id = null }
+  in_cluster_storage = var.object_storage == "in-cluster"
+  s3                 = var.s3 != null ? var.s3 : { bucket = "", region = "us-east-1", browser_origin = "", endpoint = null, public_endpoint = null, force_path_style = false, access_key_id = null, secret_access_key = null, kms_key_id = null, sse = null, create_bucket = false }
+  # AWS encrypts with AES256 (or KMS); other S3 servers often have no KMS, so they default to none.
+  s3_sse = coalesce(local.s3.sse, local.s3.kms_key_id != null ? "aws:kms" : local.s3.endpoint == null ? "AES256" : "none")
   labels = { "app.kubernetes.io/part-of" = "asset-management", "app.kubernetes.io/managed-by" = "terraform" }
 
   # Only non-empty keys end up in the Secret; the chart marks optional keys as such.
@@ -14,9 +17,9 @@ locals {
     COOKIE_SECRET        = random_password.cookie.result
     LOCAL_ADMIN_PASSWORD = var.local_admin_enabled ? random_password.local_admin.result : null
     SMTP_URL             = var.smtp_url
-    S3_ACCESS_KEY_ID     = local.s3.access_key_id
-    S3_SECRET_ACCESS_KEY = local.s3.secret_access_key
-    S3_KMS_KEY_ID        = local.s3.kms_key_id
+    S3_ACCESS_KEY_ID     = local.in_cluster_storage ? null : local.s3.access_key_id
+    S3_SECRET_ACCESS_KEY = local.in_cluster_storage ? null : local.s3.secret_access_key
+    S3_KMS_KEY_ID        = local.in_cluster_storage ? null : local.s3.kms_key_id
     LDAP_BIND_PASSWORD   = var.ldap.bind_password
     LDAP_CA_CERT         = var.ldap.ca_cert
     OIDC_CLIENT_SECRET   = var.oidc.client_secret
@@ -64,8 +67,8 @@ resource "terraform_data" "checks" {
       error_message = "database_url is required when managed_postgres = true."
     }
     precondition {
-      condition     = !var.managed_object_storage || var.s3 != null
-      error_message = "s3 is required when managed_object_storage = true."
+      condition     = local.in_cluster_storage || var.s3 != null
+      error_message = "s3 is required when object_storage = \"external\"."
     }
   }
 }
@@ -113,7 +116,7 @@ resource "helm_release" "app" {
         pullSecrets    = var.image_pull_secret == null ? [] : [{ name = local.pull_secret }]
       }
       postgresql    = { managed = var.managed_postgres }
-      objectStorage = { managed = var.managed_object_storage, inCluster = { publicHost = var.storage_host } }
+      objectStorage = { managed = !local.in_cluster_storage, inCluster = { publicHost = var.storage_host } }
       route         = { enabled = var.openshift_route, host = var.route_host }
       secrets       = { existingSecret = local.secret_name, create = false }
       config        = { LOG_LEVEL = var.log_level, DATABASE_SSL = tostring(var.database_ssl) }
@@ -153,8 +156,9 @@ resource "helm_release" "app" {
             S3_ENDPOINT         = (local.s3.endpoint == null ? "" : local.s3.endpoint)
             S3_PUBLIC_ENDPOINT  = (local.s3.public_endpoint == null ? "" : local.s3.public_endpoint)
             S3_FORCE_PATH_STYLE = tostring(local.s3.force_path_style)
-            S3_SSE              = (local.s3.kms_key_id == null ? "AES256" : "aws:kms")
-          } : k => v if var.managed_object_storage }
+            S3_SSE              = local.s3_sse
+            S3_CREATE_BUCKET    = tostring(local.s3.create_bucket)
+          } : k => v if !local.in_cluster_storage }
         }
         mcp = { enabled = var.mcp_enabled }
         registry = {

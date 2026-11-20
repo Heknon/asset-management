@@ -134,7 +134,8 @@ services:
       S3_ENDPOINT: ""          # set for S3-compatible storage (ODF/NooBaa, Ceph, MinIO)
       S3_PUBLIC_ENDPOINT: ""   # set when browsers reach storage under a different URL
       S3_FORCE_PATH_STYLE: "false"
-      S3_SSE: AES256
+      S3_SSE: AES256           # none for MinIO / Ceph without a KMS
+      S3_CREATE_BUCKET: "false" # true creates the bucket on start if it is missing
       MAX_UPLOAD_BYTES: "52428800"
       URL_TTL_SECONDS: "300"
     secretKeys: [DATABASE_URL, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY, S3_KMS_KEY_ID]

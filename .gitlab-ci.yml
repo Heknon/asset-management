@@ -33,7 +33,9 @@
 #     TF_VAR_namespace        asset-management
 #     TF_VAR_auth_mode        manual | ldap | adfs, comma-separated (e.g. "ldap,adfs")
 #     TF_VAR_managed_postgres        true (use TF_VAR_database_url) | false (PostgreSQL in the namespace)
-#     TF_VAR_managed_object_storage  true (S3 on AWS) | false (MinIO in the namespace)
+#     TF_VAR_object_storage   s3 (any S3-compatible: your MinIO, ODF/NooBaa, Ceph) | in-cluster (MinIO in the
+#                             namespace) | aws (Terraform creates an AWS bucket)
+#     TF_VAR_s3               with "s3": { endpoint, bucket, browser_origin, access_key_id, … } (masked)
 #     TF_VAR_database_url     when managed_postgres (masked)
 #     TF_VAR_smtp_url         mail relay for reminders (masked)
 #     TF_VAR_ldap / TF_VAR_oidc   HCL objects, as in terraform.tfvars.example (masked)

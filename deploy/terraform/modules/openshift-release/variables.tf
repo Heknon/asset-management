@@ -50,10 +50,14 @@ variable "managed_postgres" {
   default     = true
 }
 
-variable "managed_object_storage" {
-  description = "true: use the s3 bucket settings (AWS, ODF, Ceph…). false: the chart runs MinIO in the namespace."
-  type        = bool
-  default     = true
+variable "object_storage" {
+  description = "external: an S3-compatible service given in `s3` (AWS S3, MinIO you run, OpenShift Data Foundation / NooBaa, Ceph RGW, …). in-cluster: the chart runs MinIO in the namespace."
+  type        = string
+  default     = "external"
+  validation {
+    condition     = contains(["external", "in-cluster"], var.object_storage)
+    error_message = "object_storage is \"external\" or \"in-cluster\"."
+  }
 }
 
 variable "storage_host" {
@@ -142,9 +146,10 @@ variable "local_admin_enabled" {
 }
 
 variable "s3" {
+  description = "Any S3-compatible storage. endpoint: omit for AWS; e.g. https://minio.corp.example.com or the NooBaa S3 route. browser_origin: the origin browsers fetch presigned URLs from (allowed by the CSP)."
   type = object({
     bucket            = string
-    region            = string
+    region            = optional(string, "us-east-1")
     browser_origin    = string
     endpoint          = optional(string)
     public_endpoint   = optional(string)
@@ -152,6 +157,10 @@ variable "s3" {
     access_key_id     = optional(string)
     secret_access_key = optional(string)
     kms_key_id        = optional(string)
+    # Server-side encryption: AES256 (AWS default), aws:kms, or none (most MinIO / Ceph setups without a KMS).
+    sse = optional(string)
+    # Create the bucket on start if it is missing (handy for a fresh MinIO).
+    create_bucket = optional(bool, false)
   })
   default   = null
   sensitive = true

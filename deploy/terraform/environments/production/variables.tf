@@ -61,10 +61,27 @@ variable "managed_postgres" {
   default     = true
 }
 
-variable "managed_object_storage" {
-  description = "true: an AWS S3 bucket (document-bucket module). false: MinIO runs in the namespace."
-  type        = bool
-  default     = true
+variable "object_storage" {
+  description = <<-EOT
+    Where documents are stored:
+      aws        - Terraform creates a private S3 bucket on AWS (document-bucket module)
+      s3         - an S3-compatible service you already run: MinIO, OpenShift Data Foundation (NooBaa),
+                   Ceph RGW, another cloud's S3 API, or an existing AWS bucket — set `s3`
+      in-cluster - the chart runs MinIO in the namespace (nothing outside the cluster)
+  EOT
+  type        = string
+  default     = "s3"
+  validation {
+    condition     = contains(["aws", "s3", "in-cluster"], var.object_storage)
+    error_message = "object_storage is \"aws\", \"s3\" or \"in-cluster\"."
+  }
+}
+
+variable "s3" {
+  description = "With object_storage = \"s3\": endpoint, bucket and keys of your S3-compatible storage (see the openshift-release module's s3 variable for every field)."
+  type        = any
+  default     = null
+  sensitive   = true
 }
 
 variable "auth_mode" {
@@ -80,8 +97,9 @@ variable "mcp_enabled" {
 }
 
 variable "bucket_name" {
-  type    = string
-  default = "asset-management-documents"
+  description = "With object_storage = \"aws\": the bucket Terraform creates."
+  type        = string
+  default     = "asset-management-documents"
 }
 
 variable "kms_key_arn" {
