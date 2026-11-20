@@ -1,10 +1,12 @@
-import { CreateBucketCommand, DeleteObjectsCommand, HeadBucketCommand, GetBucketCorsCommand, GetObjectCommand, HeadObjectCommand, PutBucketCorsCommand, S3Client, type CORSRule, type S3ClientConfig } from '@aws-sdk/client-s3';
+import { CreateBucketCommand, DeleteObjectsCommand, HeadBucketCommand, GetObjectCommand, HeadObjectCommand, S3Client, type S3ClientConfig } from '@aws-sdk/client-s3';
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import type { ObjectStorage, PresignedUpload } from '../application/ports.js';
 
 export interface S3Settings {
   bucket: string;
+  /** Prepended to every object key, so environments can share one bucket (e.g. `dev/`). */
+  prefix?: string;
   region: string;
   endpoint?: string;
   publicEndpoint?: string;
@@ -49,22 +51,8 @@ export class S3ObjectStorage implements ObjectStorage {
     return true;
   }
 
-  /**
-   * Lets browsers on `origin` upload to the bucket and read previews from it.
-   * Adds one rule if none covers the origin yet; other rules are kept.
-   */
-  async allowBrowserOrigin(origin: string): Promise<boolean> {
-    const current = await this.internal.send(new GetBucketCorsCommand({ Bucket: this.s.bucket })).then(
-      (r) => r.CORSRules ?? [],
-      (err: { name?: string }) => {
-        if (err.name === 'NoSuchCORSConfiguration') return [] as CORSRule[];
-        throw err;
-      },
-    );
-    if (current.some((r) => r.AllowedOrigins?.includes(origin) || r.AllowedOrigins?.includes('*'))) return false;
-    const rule: CORSRule = { AllowedOrigins: [origin], AllowedMethods: ['GET', 'HEAD', 'POST'], AllowedHeaders: ['*'], ExposeHeaders: ['ETag'], MaxAgeSeconds: 3600 };
-    await this.internal.send(new PutBucketCorsCommand({ Bucket: this.s.bucket, CORSConfiguration: { CORSRules: [...current, rule] } }));
-    return true;
+  private key(key: string): string {
+    return `${this.s.prefix ?? ''}${key}`;
   }
 
   private sseFields(): Record<string, string> {
@@ -79,7 +67,7 @@ export class S3ObjectStorage implements ObjectStorage {
     const fields = { 'Content-Type': contentType, ...this.sseFields() };
     const { url, fields: signed } = await createPresignedPost(this.signer, {
       Bucket: this.s.bucket,
-      Key: key,
+      Key: this.key(key),
       Fields: fields,
       Conditions: [['content-length-range', 1, maxBytes], ['eq', '$Content-Type', contentType], ...Object.entries(this.sseFields()).map(([k, v]) => ({ [k]: v }))],
       Expires: this.s.ttlSeconds,
@@ -90,7 +78,7 @@ export class S3ObjectStorage implements ObjectStorage {
   async presignDownload(key: string, opts: { contentType: string; disposition: string }) {
     const url = await getSignedUrl(
       this.signer,
-      new GetObjectCommand({ Bucket: this.s.bucket, Key: key, ResponseContentType: opts.contentType, ResponseContentDisposition: opts.disposition }),
+      new GetObjectCommand({ Bucket: this.s.bucket, Key: this.key(key), ResponseContentType: opts.contentType, ResponseContentDisposition: opts.disposition }),
       { expiresIn: this.s.ttlSeconds },
     );
     return { url, expiresAt: new Date(Date.now() + this.s.ttlSeconds * 1000) };
@@ -98,7 +86,7 @@ export class S3ObjectStorage implements ObjectStorage {
 
   async head(key: string) {
     try {
-      const r = await this.internal.send(new HeadObjectCommand({ Bucket: this.s.bucket, Key: key }));
+      const r = await this.internal.send(new HeadObjectCommand({ Bucket: this.s.bucket, Key: this.key(key) }));
       return { size: r.ContentLength ?? 0, contentType: r.ContentType ?? null, etag: r.ETag ?? null };
     } catch (err) {
       const status = (err as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
@@ -110,7 +98,7 @@ export class S3ObjectStorage implements ObjectStorage {
   async delete(keys: string[]) {
     for (let i = 0; i < keys.length; i += 1000) {
       const chunk = keys.slice(i, i + 1000);
-      await this.internal.send(new DeleteObjectsCommand({ Bucket: this.s.bucket, Delete: { Objects: chunk.map((Key) => ({ Key })), Quiet: true } }));
+      await this.internal.send(new DeleteObjectsCommand({ Bucket: this.s.bucket, Delete: { Objects: chunk.map((k) => ({ Key: this.key(k) })), Quiet: true } }));
     }
   }
 }
