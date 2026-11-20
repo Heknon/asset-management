@@ -1,0 +1,9 @@
+name: Preview
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed, labeled]
+    paths-ignore: ["**/*.md", "docs/**"]
+jobs:
+  preview:
+    uses: Heknon/project-kit/.github/workflows/preview.yml@main
+    secrets: inherit
