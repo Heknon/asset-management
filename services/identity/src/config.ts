@@ -16,13 +16,27 @@ export const identityConfig = {
    */
   AUTH_MODE: z
     .string()
-    .regex(/^\s*(manual|local|ldap|adfs|oidc)(\s*[,+ ]\s*(manual|local|ldap|adfs|oidc))*\s*$/i, 'AUTH_MODE is a comma-separated list of manual, ldap and adfs')
+    .regex(/^\s*(manual|local|ldap|adfs|oidc|google)(\s*[,+ ]\s*(manual|local|ldap|adfs|oidc|google))*\s*$/i, 'AUTH_MODE is a comma-separated list of manual, ldap, adfs and google')
     .optional(),
 
   /** Break-glass local administrator. Leave unset to disable local login entirely. */
   LOCAL_AUTH_ENABLED: envBool(true),
   LOCAL_ADMIN_USERNAME: z.string().optional(),
   LOCAL_ADMIN_PASSWORD: z.string().min(12).optional(),
+  /** The administrator's email, so they can also sign in with Google. */
+  LOCAL_ADMIN_EMAIL: z.string().email().optional(),
+
+  /** Google sign-in (AUTH_MODE includes `google`): the OAuth client. Callback: `<origin>/api/auth/callback/google`. */
+  AUTH_GOOGLE_ID: z.string().optional(),
+  AUTH_GOOGLE_SECRET: z.string().optional(),
+  /** Signs the Google `state`; deployments that share a redirect proxy share it. Unset: COOKIE_SECRET. */
+  AUTH_SECRET: z.string().min(32).optional(),
+  /** This deployment's origin for Google sign-in. Unset: PUBLIC_URL. */
+  AUTH_URL: z.string().url().optional(),
+  /** Google returns to `<this>/callback/google`, which forwards to the deployment that started sign-in, e.g. `https://dev.example.com/api/auth`. */
+  AUTH_REDIRECT_PROXY_URL: z.string().url().optional(),
+  /** Hosts ending with this may be return origins through the proxy, e.g. `-team.vercel.app` (set by the serverless runtime). */
+  AUTH_PREVIEW_HOST_SUFFIX: z.string().optional(),
 
   LDAP_ENABLED: envBool(false),
   LDAP_LABEL: z.string().default('Corporate directory'),
@@ -63,8 +77,8 @@ export const identityConfig = {
 };
 
 /** The sign-in methods that are on: from AUTH_MODE when set, otherwise from the per-method switches. */
-export function signInMethods(config: { AUTH_MODE?: string; LOCAL_AUTH_ENABLED: boolean; LDAP_ENABLED: boolean; OIDC_ENABLED: boolean }): { manual: boolean; ldap: boolean; adfs: boolean } {
-  if (!config.AUTH_MODE) return { manual: config.LOCAL_AUTH_ENABLED, ldap: config.LDAP_ENABLED, adfs: config.OIDC_ENABLED };
+export function signInMethods(config: { AUTH_MODE?: string; LOCAL_AUTH_ENABLED: boolean; LDAP_ENABLED: boolean; OIDC_ENABLED: boolean }): { manual: boolean; ldap: boolean; adfs: boolean; google: boolean } {
+  if (!config.AUTH_MODE) return { manual: config.LOCAL_AUTH_ENABLED, ldap: config.LDAP_ENABLED, adfs: config.OIDC_ENABLED, google: false };
   const parts = new Set(config.AUTH_MODE.toLowerCase().split(/[\s,+]+/).filter(Boolean));
-  return { manual: parts.has('manual') || parts.has('local'), ldap: parts.has('ldap'), adfs: parts.has('adfs') || parts.has('oidc') };
+  return { manual: parts.has('manual') || parts.has('local'), ldap: parts.has('ldap'), adfs: parts.has('adfs') || parts.has('oidc'), google: parts.has('google') };
 }

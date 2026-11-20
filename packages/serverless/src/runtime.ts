@@ -92,7 +92,7 @@ export class ServerlessRuntime {
     const logger = this.logger.child({ service: def.name });
     const verifier = def.verifier ? await def.verifier({ config, database }) : shared;
     if (!verifier) throw new Error(`${def.name} started before identity`);
-    const app = createHttpServer({ logger, verifier, readiness: database.ping, bodyLimit: def.bodyLimit });
+    const app = createHttpServer({ logger, verifier, readiness: database.ping, bodyLimit: def.bodyLimit, cookieSecret: (config as { COOKIE_SECRET?: string }).COOKIE_SECRET });
     await def.register({ name: def.name, config, logger, database, bus: this.bus, app, onClose: () => undefined });
     await app.ready();
     this.services.set(def.name, { name: def.name, app, database });
@@ -106,7 +106,8 @@ export class ServerlessRuntime {
 
   private appFor(path: string): FastifyInstance | null {
     // MCP lives at /mcp, and its sign-in discovery under /.well-known (where clients look).
-    const name = path === '/mcp' || path.startsWith('/mcp/') || path.startsWith('/.well-known/oauth-protected-resource') ? 'mcp' : path.startsWith('/.well-known/oauth-authorization-server') ? 'identity' : /^\/api\/([a-z]+)(?:\/|$)/.exec(path)?.[1];
+    // Google sign-in is at /api/auth (the kit's OAuth client), served by identity.
+    const name = path === '/mcp' || path.startsWith('/mcp/') || path.startsWith('/.well-known/oauth-protected-resource') ? 'mcp' : path.startsWith('/.well-known/oauth-authorization-server') || path.startsWith('/api/auth/') ? 'identity' : /^\/api\/([a-z]+)(?:\/|$)/.exec(path)?.[1];
     return (name && this.services.get(name)?.app) || null;
   }
 

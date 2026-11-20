@@ -25,6 +25,8 @@ server {
     proxy_read_timeout 60s;
 
     location /api/identity/  { proxy_pass http://${IDENTITY_UPSTREAM}; }
+    # Google sign-in (identity), at the callback path registered with the OAuth client.
+    location /api/auth/      { proxy_pass http://${IDENTITY_UPSTREAM}; }
     location /api/registry/  { proxy_pass http://${REGISTRY_UPSTREAM}; }
     location /api/files/     { proxy_pass http://${FILES_UPSTREAM}; }
     location /api/scheduler/ { proxy_pass http://${SCHEDULER_UPSTREAM}; }

@@ -5,6 +5,7 @@ import { AuthService } from './application/auth-service.js';
 import { DirectoryService } from './application/directory-service.js';
 import { OrgService } from './application/org-service.js';
 import type { PasswordProvider, RedirectProvider } from './application/ports.js';
+import { GoogleSignIn, type GoogleClient } from './application/google-sign-in.js';
 import { identityConfig, signInMethods } from './config.js';
 import { normalizeUsername } from './domain/model.js';
 import { JwtIssuer, ScryptHasher, type ScryptFn } from './infrastructure/crypto.js';
@@ -24,6 +25,8 @@ export type IdentityConfig = BaseConfig & z.infer<z.ZodObject<typeof identityCon
 export interface IdentityAdapters {
   scrypt: ScryptFn;
   directories?(config: IdentityConfig, logger: Logger): { passwords: Map<string, PasswordProvider>; redirect: RedirectProvider | null };
+  /** Google's OpenID Connect client (server and serverless only). */
+  google?(clientId: string, clientSecret: string): GoogleClient;
 }
 
 /** People, groups, the organization tree, access grants, sign-in and tokens. */
@@ -51,22 +54,24 @@ export const defineIdentityService = (adapters: IdentityAdapters) => {
       const passwordProviders = directories.passwords;
       if (signInMethods(config).manual) passwordProviders.set('local', new LocalPasswordProvider(store, hasher));
       const oidc = directories.redirect;
+      const google = signInMethods(config).google ? googleSignIn(config, adapters) : null;
 
-      await bootstrapLocalAdmin(store, hasher, config.LOCAL_ADMIN_USERNAME, config.LOCAL_ADMIN_PASSWORD);
+      await bootstrapLocalAdmin(store, hasher, config.LOCAL_ADMIN_USERNAME, config.LOCAL_ADMIN_PASSWORD, config.LOCAL_ADMIN_EMAIL);
 
-      const auth = new AuthService(store, issuer, passwordProviders, oidc, config.SESSION_TTL_HOURS * 3_600_000);
+      const auth = new AuthService(store, issuer, passwordProviders, oidc, config.SESSION_TTL_HOURS * 3_600_000, !!google);
       const publicUrl = config.PUBLIC_URL.replace(/\/$/, '');
       // MCP clients sign people in here: they register, the person accepts on /oauth/authorize, they get tokens.
       registerOAuthRoutes(app, new OAuthService(new PgOAuthStore(database.db), auth, publicUrl));
       registerRoutes(app, {
         auth,
-        directory: new DirectoryService(store, hasher),
+        directory: new DirectoryService(store, hasher, !!google),
         org: new OrgService(store),
         access: new AccessService(store),
         jwks: () => issuer.jwks(),
         publicUrl,
         secureCookies: config.COOKIE_SECURE,
         accessTtlSeconds: config.ACCESS_TOKEN_TTL_SECONDS,
+        google,
       });
 
       // Hourly on the server; on each cron run when serverless.
@@ -76,18 +81,33 @@ export const defineIdentityService = (adapters: IdentityAdapters) => {
   });
 };
 
+/** Google sign-in from configuration: the OAuth client, this deployment's origin and the state secret. */
+function googleSignIn(config: IdentityConfig, adapters: IdentityAdapters): GoogleSignIn {
+  if (!adapters.google) throw new Error('Google sign-in is not available in this runtime');
+  if (!config.AUTH_GOOGLE_ID || !config.AUTH_GOOGLE_SECRET) throw new Error('Google sign-in needs AUTH_GOOGLE_ID and AUTH_GOOGLE_SECRET');
+  if (config.AUTH_REDIRECT_PROXY_URL && !config.AUTH_SECRET) throw new Error('AUTH_REDIRECT_PROXY_URL needs AUTH_SECRET, shared with the proxy');
+  return new GoogleSignIn({
+    client: adapters.google(config.AUTH_GOOGLE_ID, config.AUTH_GOOGLE_SECRET),
+    origin: config.AUTH_URL ?? config.PUBLIC_URL,
+    secret: config.AUTH_SECRET ?? config.COOKIE_SECRET,
+    proxyUrl: config.AUTH_REDIRECT_PROXY_URL,
+    previewHostSuffix: config.AUTH_PREVIEW_HOST_SUFFIX,
+  });
+}
+
 /** Creates (or re-keys) the break-glass administrator from configuration. */
-async function bootstrapLocalAdmin(store: PgIdentityStore, hasher: ScryptHasher, username?: string, password?: string) {
+async function bootstrapLocalAdmin(store: PgIdentityStore, hasher: ScryptHasher, username?: string, password?: string, email?: string) {
   if (!username || !password) return;
   const name = normalizeUsername(username);
   const existing = await store.findUserByUsername(name, 'local');
   if (!existing) {
     await store.transaction(async (tx) => {
-      const user = await tx.createLocalUser({ username: name, displayName: 'Administrator', email: null, passwordHash: await hasher.hash(password), isAdmin: true });
+      const user = await tx.createLocalUser({ username: name, displayName: 'Administrator', email: email?.toLowerCase() ?? null, passwordHash: await hasher.hash(password), isAdmin: true });
       await tx.publishUserChanged(user);
     });
     return;
   }
   const hash = await store.getPasswordHash(existing.id);
   if (!hash || !(await hasher.verify(password, hash))) await store.setPasswordHash(existing.id, await hasher.hash(password));
+  if (email && existing.email !== email.toLowerCase()) await store.setEmail(existing.id, email.toLowerCase());
 }

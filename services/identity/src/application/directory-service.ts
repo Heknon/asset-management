@@ -7,13 +7,16 @@ export class DirectoryService {
   constructor(
     private readonly store: IdentityStore,
     private readonly hasher: PasswordHasher,
+    /** Google sign-in is on, so people may be added with an email and no password. */
+    private readonly passwordless = false,
   ) {}
 
   async createLocalUser(input: LocalUserCreate) {
+    if (input.password === null && !this.passwordless) throw AppError.validation('Give a first password: Google sign-in is not enabled');
     const username = normalizeUsername(input.username);
     if (await this.store.findUserByUsername(username, 'local')) throw AppError.conflict(`A local account "${username}" already exists`);
     return this.store.transaction(async (tx) => {
-      const user = await tx.createLocalUser({ username, displayName: input.displayName, email: input.email, passwordHash: await this.hasher.hash(input.password), isAdmin: input.isAdmin });
+      const user = await tx.createLocalUser({ username, displayName: input.displayName, email: input.email, passwordHash: input.password === null ? null : await this.hasher.hash(input.password), isAdmin: input.isAdmin });
       await tx.publishUserChanged(user);
       return { id: user.id, username: user.username, displayName: user.displayName, email: user.email };
     });

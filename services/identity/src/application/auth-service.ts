@@ -21,10 +21,34 @@ export class AuthService {
     private readonly passwordProviders: ReadonlyMap<string, PasswordProvider>,
     private readonly redirectProvider: RedirectProvider | null,
     private readonly sessionTtlMs: number,
+    private readonly google = false,
   ) {}
 
   providers(): AuthProviderInfo[] {
-    return [...[...this.passwordProviders.values()].map((p) => p.info), ...(this.redirectProvider ? [this.redirectProvider.info] : [])];
+    return [
+      ...[...this.passwordProviders.values()].map((p) => p.info),
+      ...(this.redirectProvider ? [this.redirectProvider.info] : []),
+      ...(this.google ? [{ id: 'google' as const, label: 'Google', flow: 'redirect' as const }] : []),
+    ];
+  }
+
+  /**
+   * Google sign-in: the account whose email Google verified. Nobody is created
+   * here; an administrator adds people first (Add person, with their email).
+   */
+  async loginWithVerifiedEmail(email: string, userAgent: string | null): Promise<IssuedSession> {
+    const found = await this.store.findUsersByEmail(email);
+    if (found.length !== 1) {
+      logins.inc({ provider: 'google', outcome: 'rejected' });
+      throw found.length
+        ? AppError.forbidden('Several accounts use this email. Ask an administrator to keep one.')
+        : AppError.forbidden('No account uses this Google address. Ask an administrator to add you.');
+    }
+    const user = found[0]!;
+    if (!user.active) throw AppError.forbidden('This account has been disabled');
+    await this.store.touchLogin(user.id);
+    logins.inc({ provider: 'google', outcome: 'success' });
+    return this.sessionFor(user.id, userAgent ?? '');
   }
 
   async loginWithPassword(input: PasswordLogin, userAgent: string | null): Promise<IssuedSession> {

@@ -59,6 +59,8 @@ export default defineConfig(({ mode }) => {
               '^/mcp$': { target: `http://localhost:${services.mcp}`, changeOrigin: false },
               '/.well-known/oauth-protected-resource': { target: `http://localhost:${services.mcp}`, changeOrigin: false },
               '/.well-known/oauth-authorization-server': { target: `http://localhost:${services.identity}`, changeOrigin: false },
+              // Google sign-in, served by identity.
+              '/api/auth': { target: `http://localhost:${services.identity}`, changeOrigin: false },
             },
     },
     build: { sourcemap: true, chunkSizeWarningLimit: 900 },
