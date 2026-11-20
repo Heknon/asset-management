@@ -195,14 +195,14 @@ export function DataTable<T>({
               : table.getRowModel().rows.map((row, i) => (
                   <tr key={row.id} onClick={onRowClick ? () => onRowClick(row.original) : undefined} data-cursor={cursor === i || undefined} data-selected={selection?.selected.has(row.id) || undefined} className={cn('group', onRowClick && 'cursor-pointer')}>
                     {selection && (
-                      <td className={cn('h-11 transition-colors group-hover:bg-surface-2/60 group-data-[selected]:bg-accent-soft/40', selectCell)} onMouseDown={(e) => e.shiftKey && e.preventDefault()} onClick={(e) => (e.stopPropagation(), toggle(i, e.shiftKey))}>
+                      <td className={cn('h-11 transition-colors group-hover:bg-surface-2/60 group-data-[selected]:bg-accent-soft', selectCell)} onMouseDown={(e) => e.shiftKey && e.preventDefault()} onClick={(e) => (e.stopPropagation(), toggle(i, e.shiftKey))}>
                         <RowCheck label="Select" checked={selection.selected.has(row.id)} onChange={() => undefined} />
                       </td>
                     )}
                     {row.getVisibleCells().map((cell) => {
                       const meta = (cell.column.columnDef as DataColumn<T>).meta;
                       return (
-                        <td key={cell.id} className={cn('h-11 border-b border-border px-3 whitespace-nowrap transition-colors max-lg:first:sticky max-lg:first:left-0 max-lg:first:z-[1] max-lg:first:max-w-[62vw] max-lg:first:overflow-hidden max-lg:first:bg-bg max-lg:first:shadow-[1px_0_0_var(--border)] first:pl-4 last:pr-4 sm:first:pl-6 sm:last:pr-6 group-hover:bg-surface-2/60 group-data-[selected]:bg-accent-soft/40 group-data-[cursor]:bg-accent-soft/50 group-data-[cursor]:first:shadow-[inset_2px_0_0_var(--accent)]', meta?.align === 'right' && 'text-right tabular-nums')}>
+                        <td key={cell.id} className={cn('h-11 border-b border-border px-3 whitespace-nowrap transition-colors max-lg:first:sticky max-lg:first:left-0 max-lg:first:z-[1] max-lg:first:max-w-[62vw] max-lg:first:overflow-hidden max-lg:first:bg-bg max-lg:first:shadow-[1px_0_0_var(--border)] first:pl-4 last:pr-4 sm:first:pl-6 sm:last:pr-6 group-hover:bg-surface-2/60 group-data-[selected]:bg-accent-soft group-data-[cursor]:bg-accent-soft/50 group-data-[cursor]:first:shadow-[inset_2px_0_0_var(--accent)]', meta?.align === 'right' && 'text-right tabular-nums')}>
                           {flexRender(cell.column.columnDef.cell, cell.getContext())}
                         </td>
                       );
