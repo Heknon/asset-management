@@ -197,11 +197,11 @@ export function useLookups() {
         const path = unitId ? (unitById.get(unitId)?.path ?? []) : [];
         return (variants.data ?? []).filter((v) => v.assetTypeId === typeId && !v.archived && path.includes(v.unitId));
       },
-      /** What an item follows: its template plus its variant's fields (named after the variant). */
+      /** What an item follows: its template plus the fields its team added (still the template's kind of thing). */
       schemaOf: (typeId: string, variantId: string | null | undefined) => {
         const t = typeById.get(typeId);
         const v = variantId ? variantById.get(variantId) : undefined;
-        return t && v ? { ...withVariant(t, v), name: v.name } : t;
+        return t && v ? withVariant(t, v) : t;
       },
       kinds: kinds.data ?? [],
       kindById: new Map((kinds.data ?? []).map((k) => [k.id, k])),

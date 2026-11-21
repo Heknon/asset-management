@@ -46,8 +46,8 @@ export type AssetDraft = Omit<AssetState, 'id' | 'version' | 'createdAt' | 'upda
 export const scopeOf = (a: Pick<AssetState, 'unitPath' | 'assetTypeId'>, shared?: readonly Permission[]): AccessScope => ({ unitPath: a.unitPath, assetTypeId: a.assetTypeId, ...(shared?.length && { shared }) });
 
 /** Validates attribute values against the type, or throws a field-addressed validation error. */
-export function validatedValues(type: AssetType, raw: Record<string, unknown>): Attributes {
-  const { values, issues } = validateAttributes(type, raw);
+export function validatedValues(type: AssetType, raw: Record<string, unknown>, optional?: ReadonlySet<string>): Attributes {
+  const { values, issues } = validateAttributes(type, raw, { optional });
   if (issues.length) {
     throw AppError.validation('Some fields are invalid', { fields: Object.fromEntries(issues.map((i) => [i.field, i.message])) });
   }

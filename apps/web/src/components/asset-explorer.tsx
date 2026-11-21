@@ -100,7 +100,7 @@ function allColumnsFor(type: AssetType | undefined, variant: TypeVariant | undef
         },
       ]),
     ...(type && !variant && lookups.variants.some((v) => v.assetTypeId === type.id)
-      ? [{ id: 'kind', header: t('Kind'), cell: ({ row }: { row: { original: Asset } }) => <span className="text-muted">{row.original.variantId ? lookups.variantById.get(row.original.variantId)?.name : t('Standard')}</span> }]
+      ? [{ id: 'kind', header: t('Team fields'), cell: ({ row }: { row: { original: Asset } }) => <span className="text-muted">{row.original.variantId ? lookups.variantById.get(row.original.variantId)?.name : '—'}</span> }]
       : []),
     { id: 'status', header: t('Status'), meta: { sortKey: 'status', csvValue: (a: Asset) => tMaybe(lookups.typeById.get(a.assetTypeId)?.statuses.find((x) => x.value === a.status)?.label) || a.status }, cell: ({ row }) => <StatusBadge type={lookups.typeById.get(row.original.assetTypeId)} status={row.original.status} /> },
     ...fieldCols,
@@ -319,11 +319,11 @@ export function AssetExplorer({
         )}
         {query.unitId && <Checkbox checked={query.includeSubunits} onChange={(includeSubunits) => update({ includeSubunits })} label={<span className="text-xs text-muted">{t('Include sub-teams')}</span>} />}
         {typeVariants.length > 0 && (
-          <Select className="w-44" value={query.variantId ?? ''} onChange={(e) => update({ variantId: e.target.value || undefined, filters: query.filters.filter((f) => !f.field.startsWith('attributes.') || type!.fields.some((x) => `attributes.${x.key}` === f.field)) })}  aria-label={t('Kind')}>
-            <option value="">{t('Every kind')}</option>
+          <Select className="w-44" value={query.variantId ?? ''} onChange={(e) => update({ variantId: e.target.value || undefined, filters: query.filters.filter((f) => !f.field.startsWith('attributes.') || type!.fields.some((x) => `attributes.${x.key}` === f.field)) })}  aria-label={t('Team fields')}>
+            <option value="">{t('Any team fields')}</option>
             {typeVariants.map((v) => (
               <option key={v.id} value={v.id}>
-                {v.name}
+                {t('{team}: {name}', { team: lookups.unitById.get(v.unitId)?.name ?? '', name: v.name })}
               </option>
             ))}
           </Select>

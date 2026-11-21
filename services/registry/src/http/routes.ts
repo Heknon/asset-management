@@ -1,5 +1,6 @@
 import {
   assetCreateSchema,
+  teamFieldsSchema,
   assetExportSchema,
   assetQuerySchema,
   catalogInputSchema,
@@ -196,6 +197,7 @@ export function registerRoutes(app: FastifyInstance, { types, variants, assets, 
     const p = parse(z.object({ id: z.string().uuid(), key: fieldKeySchema }), req.params);
     return assets.moveWorkflow(requirePrincipal(req), p.id, p.key, parse(workflowMoveSchema, req.body));
   });
+  app.put(`${PREFIX}/assets/:id/team-fields`, async (req) => assets.setTeamFields(requirePrincipal(req), parse(idParam, req.params).id, parse(teamFieldsSchema, req.body)));
   app.get(`${PREFIX}/assets/:id/activity`, async (req) => assets.activity(requirePrincipal(req), parse(idParam, req.params).id));
   app.get(`${PREFIX}/assets/:id/access`, async (req) => assets.access(requirePrincipal(req), parse(idParam, req.params).id));
   app.post(`${PREFIX}/assets/:id/renewal-requests`, async (req, reply) =>
