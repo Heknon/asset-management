@@ -1,10 +1,12 @@
-import { defaultRefPrefix, defaultWorkflow, permissionsOfLevel, type Permission, type StatusCategory, type Workflow } from '@am/core';
+import { defaultRefPrefix, defaultWorkflow, permissionsOfLevel, type Permission, type StatusCategory, type Workflow, type ExtraWorkflow, type WorkflowStates } from '@am/core';
 import { defaultDateKinds, type AssetStatus, type Attributes, type DateBehavior, type Duration, type FieldDefinition, type RequestEvent, type RequestStatus, type SavedQuery } from '@am/core';
 import { outboxMigration, trySavepoint, type OutboxTable } from '@am/platform';
 import { sql, type ColumnType, type Generated, type Migration } from 'kysely';
 
 type Timestamp = ColumnType<Date, Date | string | undefined, Date | string>;
 type Json<T> = ColumnType<T, string, string>;
+/** JSON with a database default: optional on insert. */
+type JsonD<T> = ColumnType<T, string | undefined, string>;
 
 export interface RegistryDB extends OutboxTable {
   date_kinds: {
@@ -34,6 +36,8 @@ export interface RegistryDB extends OutboxTable {
     ref_prefix: string;
     /** Own request workflow; null follows the organization's default. */
     request_workflow: Json<Workflow | null>;
+    /** Workflows besides the purchase ("Machine status"), each with its responsible unit. */
+    workflows: JsonD<ExtraWorkflow[]>;
     /** Last item number handed out ("LIC-42"). */
     ref_seq: Generated<number>;
     created_at: Timestamp;
@@ -47,6 +51,8 @@ export interface RegistryDB extends OutboxTable {
     description: string | null;
     sections: Json<string[]>;
     fields: Json<FieldDefinition[]>;
+    /** The unit's own workflows for these items ("Machine status"). */
+    workflows: JsonD<ExtraWorkflow[]>;
     version: Generated<number>;
     archived: Generated<boolean>;
     created_by_name: string;
@@ -70,6 +76,8 @@ export interface RegistryDB extends OutboxTable {
     /** Restricted values (secrets, sensitive fields): only returned to `manage`. */
     restricted_attributes: Json<Attributes>;
     reminder_overrides: Json<Record<string, Duration[]>>;
+    /** Where each of the item's added workflows stands; a missing one is at its first status. */
+    workflow_states: JsonD<WorkflowStates>;
     version: number;
     /** Labelled text of every non-restricted value (display, for snippets). */
     search_text: Generated<string>;
@@ -132,6 +140,10 @@ export interface RegistryDB extends OutboxTable {
     needed_by: string | null;
     link: string | null;
     asset_id: string | null;
+    /** Where each added workflow stands (those started so far). */
+    workflow_states: JsonD<WorkflowStates>;
+    /** The team variant whose workflows the request follows (the renewed item's, or the purchased item's). */
+    workflow_variant_id: ColumnType<string | null, string | null | undefined, string | null>;
     search_text: string;
     search_key: string;
     created_at: Timestamp;
@@ -146,6 +158,8 @@ export interface RegistryDB extends OutboxTable {
     body: string | null;
     from_status: RequestStatus | null;
     to_status: RequestStatus | null;
+    /** The added workflow a status change belongs to; null: the purchase. */
+    workflow: ColumnType<string | null, string | null | undefined, string | null>;
     at: Timestamp;
   };
   catalogs: {
@@ -529,6 +543,18 @@ export const migrations: Record<string, Migration> = {
     async up(db) {
       // Asset search finds an owner or person field by any of these, not only the display name.
       await sql`alter table users_ref add column username text, add column email text, add column other_names text[] not null default '{}'`.execute(db);
+    },
+  },
+  '0011_workflow_extensions': {
+    async up(db) {
+      // Workflows extend like fields: templates and team variants add their own, each with a responsible unit.
+      await sql`alter table asset_types add column workflows jsonb not null default '[]'`.execute(db);
+      await sql`alter table type_variants add column workflows jsonb not null default '[]'`.execute(db);
+      await sql`alter table assets add column workflow_states jsonb not null default '{}'`.execute(db);
+      await sql`alter table requests
+        add column workflow_states jsonb not null default '{}',
+        add column workflow_variant_id uuid references type_variants(id)`.execute(db);
+      await sql`alter table request_events add column workflow text`.execute(db);
     },
   },
 };

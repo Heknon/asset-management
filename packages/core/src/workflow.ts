@@ -104,6 +104,116 @@ export function validateWorkflow(wf: Workflow): SchemaIssueLite[] {
   return issues;
 }
 
+// ─── Added workflows ───────────────────────────────────────────────────────
+
+/**
+ * Workflows extend the way fields do: the purchase workflow (organization
+ * default, or the template's own) is always there, and a template or a team
+ * variant can add more, each with a name and a unit responsible for it:
+ *
+ *   Software license (template)  · Purchase            → Procurement
+ *   Lab license (R&D's variant)  · Machine status      → R&D Lab      (on the item)
+ *                                · Swap the new key   → R&D Lab      (on the request, after the purchase is done)
+ *
+ * Item workflows track a lasting state of the item (a machine: Not deployed →
+ * Installing → Running → Retired). Request workflows are steps of one
+ * purchase or renewal, run alongside the buying or starting once it is done.
+ * Everyone who can see the item or request sees every workflow's status; only
+ * the responsible unit (its members, and people who manage it) moves it.
+ * An added workflow never changes how the purchase workflow runs.
+ */
+export const workflowTargets = ['item', 'request'] as const;
+export type WorkflowTarget = (typeof workflowTargets)[number];
+
+export const extraWorkflowSchema = z.object({
+  /** Unique across the template and its variants (items and requests store their state under it). */
+  key: fieldKeySchema,
+  name: z.string().trim().min(1).max(60),
+  appliesTo: z.enum(workflowTargets),
+  /** The unit responsible for moving it; null: the item's own unit (the team that uses it). */
+  responsibleUnitId: z.string().uuid().nullable().default(null),
+  /** Request workflows: 'created' runs alongside the purchase, 'purchase_done' starts when it is done. Item workflows start with the item. */
+  startsWhen: z.enum(['created', 'purchase_done']).default('created'),
+  statuses: z.array(workflowStatusSchema).min(2).max(20),
+  transitions: z.array(workflowTransitionSchema).max(300),
+});
+export type ExtraWorkflow = z.infer<typeof extraWorkflowSchema>;
+
+/** Ready-made workflows to start from. */
+export const workflowPresets: Record<'machines' | 'swap', Omit<ExtraWorkflow, 'key' | 'responsibleUnitId'>> = {
+  machines: {
+    name: 'Machine status',
+    appliesTo: 'item',
+    startsWhen: 'created',
+    statuses: [
+      { key: 'not_deployed', label: 'Not deployed', color: '#6366f1', category: 'todo' },
+      { key: 'installing', label: 'Installing', color: '#f59e0b', category: 'active' },
+      { key: 'running', label: 'Running', color: '#10b981', category: 'done' },
+      { key: 'retired', label: 'Retired', color: '#94a3b8', category: 'closed' },
+    ],
+    transitions: [t('not_deployed', 'installing'), t('installing', 'running'), t('installing', 'not_deployed'), t('running', 'installing'), t('running', 'retired'), t('retired', 'installing')],
+  },
+  swap: {
+    name: 'Swap the new license',
+    appliesTo: 'request',
+    startsWhen: 'purchase_done',
+    statuses: [
+      { key: 'to_install', label: 'To install', color: '#6366f1', category: 'todo' },
+      { key: 'swapping', label: 'Swapping on machines', color: '#f59e0b', category: 'active' },
+      { key: 'installed', label: 'Installed', color: '#10b981', category: 'done' },
+      { key: 'not_needed', label: 'Not needed', color: '#94a3b8', category: 'closed' },
+    ],
+    transitions: [t('to_install', 'swapping'), t('to_install', 'installed'), t('to_install', 'not_needed'), t('swapping', 'installed'), t('swapping', 'to_install')],
+  },
+};
+
+/**
+ * An added workflow starts at a to-do status and can reach Done. Closed is
+ * optional; item workflows may move out of Done again (Running → Installing).
+ */
+export function validateExtraWorkflow(wf: ExtraWorkflow): SchemaIssueLite[] {
+  const issues = validateWorkflow(wf).filter((i) => !/“Closed” status/.test(i.message));
+  if (wf.appliesTo === 'item' && wf.startsWhen !== 'created') issues.push({ path: 'startsWhen', message: 'Item workflows start when the item is added' });
+  return issues.map((i) => ({ ...i, message: i.message.replace('(where requests start)', '(where it starts)').replace(', for when the item is bought or renewed', '') }));
+}
+
+/** Keys must be unique, and must not clash with the ones already above (the template's, for a variant). */
+export function validateExtraWorkflows(list: ExtraWorkflow[], takenKeys: ReadonlySet<string> = new Set(), path = 'workflows'): SchemaIssueLite[] {
+  const issues: SchemaIssueLite[] = [];
+  const keys = new Set<string>();
+  list.forEach((wf, i) => {
+    if (keys.has(wf.key)) issues.push({ path: `${path}.${i}.key`, message: `Two workflows are called "${wf.key}"` });
+    if (takenKeys.has(wf.key)) issues.push({ path: `${path}.${i}.key`, message: `The template already has a workflow "${wf.key}"` });
+    keys.add(wf.key);
+    for (const x of validateExtraWorkflow(wf)) issues.push({ path: `${path}.${i}.${x.path}`, message: `${wf.name}: ${x.message}` });
+  });
+  return issues;
+}
+
+/** Where one workflow of an item or request stands. Stored per workflow key. */
+export interface WorkflowStateValue {
+  status: string;
+  category: StatusCategory;
+  /** The responsible unit when it started (lists of "what is waiting on my unit" use it). */
+  unitId: string;
+  at: string;
+}
+export type WorkflowStates = Record<string, WorkflowStateValue>;
+
+/**
+ * One status for everything together: closed if the purchase was called off;
+ * otherwise open while any workflow is (waiting on whoever owns it), done
+ * when every started one is done or closed. `waitingOn` lists the open ones,
+ * so a request reads "Done for Procurement · Lab: Swapping on machines".
+ */
+export function combineStatuses(parts: Array<{ key: string; category: StatusCategory; started: boolean }>): { category: StatusCategory; waitingOn: string[] } {
+  const purchase = parts[0];
+  if (purchase?.category === 'closed') return { category: 'closed', waitingOn: [] };
+  const open = parts.filter((p) => p.started && isOpenCategory(p.category));
+  if (!open.length) return { category: 'done', waitingOn: [] };
+  return { category: open.every((p) => p.category === 'todo') ? 'todo' : 'active', waitingOn: open.map((p) => p.key) };
+}
+
 const unknownStatus = (key: string): WorkflowStatus => ({ key, label: key.replace(/_/g, ' '), color: '#94a3b8', category: 'active' });
 
 export const statusIn = (wf: Workflow, key: string): WorkflowStatus => wf.statuses.find((s) => s.key === key) ?? unknownStatus(key);

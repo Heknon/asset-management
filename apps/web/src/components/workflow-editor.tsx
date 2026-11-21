@@ -1,4 +1,4 @@
-import { statusCategories, statusCategoryMeta, validateWorkflow, type StatusCategory, type Workflow, type WorkflowStatus } from '@am/core';
+import { statusCategories, statusCategoryMeta, validateExtraWorkflow, validateWorkflow, type StatusCategory, type Workflow, type WorkflowStatus } from '@am/core';
 import { ArrowDown, ArrowUp, Flag, MoreHorizontal, Plus, Trash2 } from 'lucide-react';
 import { ColorPicker } from './pickers';
 import { Button } from './ui/button';
@@ -15,8 +15,20 @@ const categoryColor: Record<StatusCategory, string> = { todo: '#6366f1', active:
  * category (what it means), and the statuses it can move to next. A move is
  * made by the people who handle requests, or also by the person who asked.
  */
-export function WorkflowEditor({ value, onChange, lockedKeys = [] }: { value: Workflow; onChange: (w: Workflow) => void; lockedKeys?: string[] }) {
-  const issues = validateWorkflow(value);
+export function WorkflowEditor({
+  value,
+  onChange,
+  lockedKeys = [],
+  added = false,
+}: {
+  value: Workflow;
+  onChange: (w: Workflow) => void;
+  lockedKeys?: string[];
+  /** An added workflow ("Machine status"): no Closed status needed, two statuses are enough, and it may move on from Done. */
+  added?: boolean;
+}) {
+  const issues = added ? validateExtraWorkflow({ ...value, key: 'x', name: 'x', appliesTo: 'request', responsibleUnitId: null, startsWhen: 'created' }) : validateWorkflow(value);
+  const minStatuses = added ? 2 : 3;
   const phone = useMediaQuery('(max-width: 639px)');
   const set = (statuses: WorkflowStatus[], transitions = value.transitions) => onChange({ statuses, transitions: transitions.filter((tr) => statuses.some((s) => s.key === tr.from) && statuses.some((s) => s.key === tr.to)) });
   const patch = (i: number, p: Partial<WorkflowStatus>) => set(value.statuses.map((s, j) => (j === i ? { ...s, ...p } : s)));
@@ -77,7 +89,7 @@ export function WorkflowEditor({ value, onChange, lockedKeys = [] }: { value: Wo
                 </Select>
                 {i === 0 && (
                   <span className="inline-flex items-center gap-1 text-xs text-muted">
-                    <Flag className="size-3" /> {t('Requests start here')}
+                    <Flag className="size-3" /> {added ? t('Starts here') : t('Requests start here')}
                   </span>
                 )}
                 </span>
@@ -89,7 +101,7 @@ export function WorkflowEditor({ value, onChange, lockedKeys = [] }: { value: Wo
                     <MenuItem icon={<ArrowDown />} disabled={i === value.statuses.length - 1} onSelect={() => move(i, 1)}>
                       {t('Move down')}
                     </MenuItem>
-                    <MenuItem icon={<Trash2 />} danger disabled={value.statuses.length <= 3} onSelect={() => set(value.statuses.filter((_, j) => j !== i))}>
+                    <MenuItem icon={<Trash2 />} danger disabled={value.statuses.length <= minStatuses} onSelect={() => set(value.statuses.filter((_, j) => j !== i))}>
                       {t('Remove status')}
                     </MenuItem>
                   </Menu>
@@ -97,11 +109,11 @@ export function WorkflowEditor({ value, onChange, lockedKeys = [] }: { value: Wo
                   <span className="ms-auto flex items-center">
                     <Button size="icon" variant="ghost" aria-label={t('Move up')} disabled={i === 0} icon={<ArrowUp className="size-3.5" />} onClick={() => move(i, -1)} />
                     <Button size="icon" variant="ghost" aria-label={t('Move down')} disabled={i === value.statuses.length - 1} icon={<ArrowDown className="size-3.5" />} onClick={() => move(i, 1)} />
-                    <Button size="icon" variant="ghost" aria-label={t('Remove')} disabled={value.statuses.length <= 3} icon={<Trash2 className="size-3.5" />} onClick={() => set(value.statuses.filter((_, j) => j !== i))} />
+                    <Button size="icon" variant="ghost" aria-label={t('Remove')} disabled={value.statuses.length <= minStatuses} icon={<Trash2 className="size-3.5" />} onClick={() => set(value.statuses.filter((_, j) => j !== i))} />
                   </span>
                 )}
               </div>
-              {s.category !== 'done' && s.category !== 'closed' ? (
+              {added || (s.category !== 'done' && s.category !== 'closed') ? (
                 <div className="flex flex-wrap items-center gap-1.5 sm:ps-7">
                   <span className="me-1 text-xs text-muted">{t('Can move to')}</span>
                   {value.statuses
@@ -113,7 +125,19 @@ export function WorkflowEditor({ value, onChange, lockedKeys = [] }: { value: Wo
                           key={x.key}
                           type="button"
                           onClick={() => cycle(s.key, x.key)}
-                          title={!tr ? t('Not allowed — click to let handlers do it') : tr.by === 'handler' ? t('Handlers — click to let the requester do it too') : t('Handlers and the requester — click to remove')}
+                          title={
+                            added
+                              ? !tr
+                                ? t('Not allowed — click to let the responsible unit do it')
+                                : tr.by === 'handler'
+                                  ? t('The responsible unit — click to let the requester or owner do it too')
+                                  : t('The responsible unit and the requester or owner — click to remove')
+                              : !tr
+                                ? t('Not allowed — click to let handlers do it')
+                                : tr.by === 'handler'
+                                  ? t('Handlers — click to let the requester do it too')
+                                  : t('Handlers and the requester — click to remove')
+                          }
                           className={cn(
                             'inline-flex h-6 items-center gap-1 rounded-md border px-2 text-xs transition-colors',
                             !tr ? 'border-dashed border-border text-subtle hover:border-border-strong' : 'border-border-strong bg-surface-2 font-medium text-fg',
@@ -121,7 +145,7 @@ export function WorkflowEditor({ value, onChange, lockedKeys = [] }: { value: Wo
                         >
                           <span className="size-1.5 rounded-full" style={{ background: tr ? x.color : 'transparent', border: tr ? undefined : `1px solid ${x.color}` }} />
                           {tMaybe(x.label)}
-                          {tr?.by === 'requester' && <span className="text-[10px] font-normal text-muted">{t('+ requester')}</span>}
+                          {tr?.by === 'requester' && <span className="text-[10px] font-normal text-muted">{added ? t('+ requester or owner') : t('+ requester')}</span>}
                         </button>
                       );
                     })}
@@ -137,7 +161,7 @@ export function WorkflowEditor({ value, onChange, lockedKeys = [] }: { value: Wo
         <Button size="sm" icon={<Plus className="size-3.5" />} disabled={value.statuses.length >= 20} onClick={add}>
           {t('Add status')}
         </Button>
-        <span className="text-xs text-muted">{t('Click a status chip to allow the move for handlers, again to let the requester make it too, and once more to remove it.')}</span>
+        <span className="text-xs text-muted">{added ? t('Click a status chip to let the responsible unit make the move, again to let the requester (or the item’s owner) make it too, and once more to remove it.') : t('Click a status chip to allow the move for handlers, again to let the requester make it too, and once more to remove it.')}</span>
       </div>
       {issues.length > 0 && (
         <ul className="space-y-1 rounded-lg bg-warning-soft px-3 py-2 text-[13px] text-warning">

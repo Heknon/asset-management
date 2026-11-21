@@ -1,7 +1,7 @@
 import { isRestricted, type ActivityEntry, type AssetType, type FieldDefinition } from '@am/core';
 import { useMutation } from '@tanstack/react-query';
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
-import { ArrowLeft, CalendarClock, FolderOpen, History, MoreHorizontal, Pencil, Sparkles, Trash2 } from 'lucide-react';
+import { ArrowLeft, CalendarClock, FolderOpen, History, MoreHorizontal, Pencil, Sparkles, Trash2, Workflow } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { AssetFormSheet } from '@/components/asset-form';
@@ -18,10 +18,10 @@ import { Card, EmptyState, PageHeader, SectionTitle, Spinner } from '@/component
 import { ConfirmDialog, Menu, MenuItem } from '@/components/ui/overlay';
 import { api, ApiError } from '@/lib/api';
 import { useActivity, useAsset, useAssetRequest, useCatalog, useInvalidateAssets, useLookups, useMe, useObligations } from '@/lib/queries';
-import { plural, t } from '@/lib/i18n';
+import { plural, t, tMaybe } from '@/lib/i18n';
 import { tj } from '@/lib/i18n-react';
 import { formatDate, formatDateTime } from '@/lib/utils';
-import type { Obligation, Permission } from '@am/core';
+import type { Asset, Obligation, Permission, WorkflowView } from '@am/core';
 import { useRemember } from '@/lib/recent';
 
 export function AssetDetailPage() {
@@ -108,6 +108,7 @@ export function AssetDetailPage() {
         </div>
         <div className="space-y-6">
           <OriginRequest assetId={a.id} />
+          {a.workflows.length > 0 && <ItemWorkflows assetId={a.id} workflows={a.workflows} />}
           <KeyDates assetId={a.id} canEdit={can('renew')} />
           <Activity assetId={a.id} type={schema} />
         </div>
@@ -284,9 +285,55 @@ function OriginRequest({ assetId }: { assetId: string }) {
 /** Whole sentences, so the actor can sit wherever the language puts them. */
 const actionSentences: Record<ActivityEntry['action'], string> = { created: '{actor} created this asset', updated: '{actor} updated', deleted: '{actor} deleted', advanced: '{actor} rolled a date forward' };
 
+/**
+ * The item's own workflows ("Machine status"), from its template and team
+ * variant. Everyone sees them; the unit responsible for each moves it.
+ */
+function ItemWorkflows({ assetId, workflows }: { assetId: string; workflows: WorkflowView[] }) {
+  const invalidate = useInvalidateAssets();
+  const move = useMutation({
+    mutationFn: ({ key, status }: { key: string; status: string }) => api.post<Asset>(`/api/registry/assets/${assetId}/workflows/${key}`, { status }),
+    onSuccess: (a, { key }) => {
+      const w = a.workflows.find((x) => x.key === key);
+      if (w?.statusInfo) toast.success(t('{workflow}: moved to “{status}”', { workflow: tMaybe(w.name), status: tMaybe(w.statusInfo.label) }));
+      invalidate(assetId);
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : t('Something went wrong')),
+  });
+  return (
+    <Card className="space-y-3">
+      <SectionTitle aside={<Workflow className="size-4 text-subtle" />}>{t('Workflows')}</SectionTitle>
+      <ul className="space-y-3">
+        {workflows.map((w) => (
+          <li key={w.key} className="space-y-2 text-[13px]">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span className="min-w-0 flex-1">
+                <span className="font-medium">{tMaybe(w.name)}</span>
+                <span className="block text-xs text-muted">{tj('Responsible: {unit}', { unit: <UnitPath id={w.responsibleUnitId} leafOnly /> })}</span>
+              </span>
+              {w.statusInfo && <RequestStatusBadge status={w.statusInfo} />}
+            </div>
+            {w.moves.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {w.moves.map((m) => (
+                  <Button key={m.key} size="xs" variant={m.category === 'done' ? 'primary' : 'secondary'} disabled={move.isPending} onClick={() => move.mutate({ key: w.key, status: m.key })}>
+                    {tMaybe(m.label)}
+                  </Button>
+                ))}
+              </div>
+            )}
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
 function Activity({ assetId, type }: { assetId: string; type: AssetType }) {
   const activity = useActivity(assetId);
   const label = (key: string) => {
+    if (key.startsWith('workflow:')) return tMaybe(key.slice(9));
+    if (key === 'note') return t('Note');
     if (key.startsWith('attributes.')) return type.fields.find((f) => f.key === key.slice(11))?.label ?? key.slice(11);
     return { name: t('Name'), status: t('Status'), ownerId: t('Owner'), unitId: t('Team'), catalogId: t('Catalog'), variantId: t('Kind'), reminderOverrides: t('Reminders'), request: t('Request') }[key] ?? key;
   };

@@ -43,6 +43,7 @@ export const keys = {
   assetType: (id: string) => ['asset-types', id] as const,
   dateKinds: ['date-kinds'] as const,
   workflow: ['workflow'] as const,
+  purchaseUnit: ['workflow', 'purchase-unit'] as const,
   templates: ['templates'] as const,
   units: ['units'] as const,
   unitPeople: (id: string) => ['units', id, 'people'] as const,
@@ -129,6 +130,8 @@ export const useAssetTypes = () =>
   });
 export const useAssetType = (id: string | undefined) =>
   useQuery({ queryKey: keys.assetType(id ?? ''), queryFn: () => api.get<AssetType>(`/api/registry/asset-types/${id}`), enabled: !!id });
+/** The unit responsible for purchases (null: whoever may renew). */
+export const usePurchaseUnit = () => useQuery({ queryKey: keys.purchaseUnit, queryFn: () => api.get<{ unitId: string | null }>('/api/registry/workflows/purchase-unit'), staleTime: 60_000 });
 export const useOrgWorkflow = () => useQuery({ queryKey: keys.workflow, queryFn: () => api.get<Workflow>('/api/registry/workflows/default'), staleTime: 60_000 });
 export const useDateKinds = () => useQuery({ queryKey: keys.dateKinds, queryFn: () => api.get<DateKind[]>('/api/registry/date-kinds'), staleTime: 60_000 });
 export const useUnits = () => useQuery({ queryKey: keys.units, queryFn: () => api.get<OrgUnit[]>('/api/identity/units'), staleTime: 60_000 });

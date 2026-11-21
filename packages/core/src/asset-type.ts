@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { fieldDefinitionSchema, fieldKeySchema, type FieldDefinition } from './fields.js';
-import { workflowSchema } from './workflow.js';
+import { extraWorkflowSchema, validateExtraWorkflows, workflowSchema, type ExtraWorkflow, type WorkflowTarget } from './workflow.js';
 
 export const statusSchema = z.object({
   value: fieldKeySchema,
@@ -28,6 +28,8 @@ export const assetTypeInputSchema = z.object({
   fields: z.array(fieldDefinitionSchema).max(200),
   /** Purchases and renewals of this template follow this workflow (null: the organization's default). */
   requestWorkflow: workflowSchema.nullable().optional(),
+  /** More workflows besides the purchase ("Machine status"), each with its responsible unit. Omitted on update: kept as they are. */
+  workflows: z.array(extraWorkflowSchema).max(10).optional(),
   /** Item IDs are PREFIX-number ("LIC-42"); defaults from the key. */
   refPrefix: z
     .string()
@@ -109,6 +111,7 @@ export function validateTypeStructure(input: AssetTypeInput, knownDateKindIds: R
 
   const cycle = findDerivationCycle(input.fields);
   if (cycle) issues.push({ path: 'fields', message: `Derived dates form a cycle: ${cycle.join(' → ')}` });
+  issues.push(...validateExtraWorkflows(input.workflows ?? []));
 
   return issues;
 }
@@ -165,6 +168,8 @@ export const typeVariantInputSchema = z.object({
   description: z.string().max(400).nullable().default(null),
   sections: z.array(z.string().min(1).max(60)).max(20).default([]),
   fields: z.array(fieldDefinitionSchema).max(100),
+  /** The unit's own workflows for these items, added to the template's ("Machine status", "Swap the new license"). Omitted on update: kept. */
+  workflows: z.array(extraWorkflowSchema).max(10).optional(),
 });
 export type TypeVariantInput = z.infer<typeof typeVariantInputSchema>;
 
@@ -184,15 +189,31 @@ export function withVariant<T extends Pick<AssetType, 'fields' | 'sections'>>(ty
   return { ...type, fields: [...type.fields, ...variant.fields], sections: [...type.sections, ...variant.sections.filter((x) => !type.sections.includes(x))] };
 }
 
+/** Where an added workflow comes from: the template, or the item's team variant. */
+export type WorkflowOrigin = { kind: 'template' } | { kind: 'variant'; variantId: string; unitId: string; variantName: string };
+
+/** The workflows an item (or request) of this template and variant has besides the purchase: the template's, then the variant's. */
+export function workflowsOf(
+  type: { workflows?: ExtraWorkflow[] },
+  variant: Pick<TypeVariant, 'id' | 'unitId' | 'name' | 'workflows'> | null | undefined,
+  target?: WorkflowTarget,
+): Array<ExtraWorkflow & { origin: WorkflowOrigin }> {
+  const all = [
+    ...(type.workflows ?? []).map((w) => ({ ...w, origin: { kind: 'template' } as WorkflowOrigin })),
+    ...(variant?.workflows ?? []).map((w) => ({ ...w, origin: { kind: 'variant', variantId: variant!.id, unitId: variant!.unitId, variantName: variant!.name } as WorkflowOrigin })),
+  ];
+  return target ? all.filter((w) => w.appliesTo === target) : all;
+}
+
 /** A variant must not redefine template fields; the combined schema must be valid. */
-export function validateVariantStructure(type: Pick<AssetType, 'fields' | 'sections' | 'statuses' | 'key' | 'name'>, input: TypeVariantInput, knownDateKindIds: ReadonlySet<string>): SchemaIssue[] {
+export function validateVariantStructure(type: Pick<AssetType, 'fields' | 'sections' | 'statuses' | 'key' | 'name'> & { workflows?: AssetType['workflows'] }, input: TypeVariantInput, knownDateKindIds: ReadonlySet<string>): SchemaIssue[] {
   const baseKeys = new Set(type.fields.map((f) => f.key));
   const issues: SchemaIssue[] = [];
   input.fields.forEach((f, i) => {
     if (baseKeys.has(f.key)) issues.push({ path: `fields.${i}.key`, message: `“${type.name}” already has a field "${f.key}"` });
   });
   const merged = validateTypeStructure(
-    { key: type.key, name: type.name, icon: 'box', color: '#000000', statuses: type.statuses, sections: [...type.sections, ...input.sections], fields: [...type.fields, ...input.fields] },
+    { key: type.key, name: type.name, icon: 'box', color: '#000000', workflows: [], statuses: type.statuses, sections: [...type.sections, ...input.sections], fields: [...type.fields, ...input.fields] },
     knownDateKindIds,
   );
   const offset = type.fields.length;
@@ -201,5 +222,6 @@ export function validateVariantStructure(type: Pick<AssetType, 'fields' | 'secti
     if (match && Number(match[1]) >= offset) issues.push({ path: `fields.${Number(match[1]) - offset}${match[2]}`, message: m.message });
     else if (!match && !issues.some((x) => x.message === m.message)) issues.push(m);
   }
+  issues.push(...validateExtraWorkflows(input.workflows ?? [], new Set((type.workflows ?? []).map((w) => w.key))));
   return issues;
 }
