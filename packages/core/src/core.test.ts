@@ -110,6 +110,18 @@ describe('attributes', () => {
     expect(merged).toMatchObject({ license_key: 'SECRET', vendor: 'X' });
     expect(redactAttributes(license.fields, { license_key: 'SECRET', vendor: 'X' }, false)).toEqual({ vendor: 'X' });
   });
+
+  it('shows a secret to the item’s owner only when the field says so', () => {
+    const values = { license_key: 'KEY-1', vendor: 'X' };
+    const ownerToo = license.fields.map((f) => (f.key === 'license_key' ? { ...f, ownerCanSee: true } : f));
+    // The buyers' secret: the owner does not see it.
+    expect(redactAttributes(license.fields, values, false, true)).toEqual({ vendor: 'X' });
+    // The key the owner needs: the owner sees it, others without "See secrets" still do not.
+    expect(redactAttributes(ownerToo, values, false, true)).toEqual(values);
+    expect(redactAttributes(ownerToo, values, false, false)).toEqual({ vendor: 'X' });
+    // Seeing is not changing: the owner still cannot edit it.
+    expect(mergeAttributes(ownerToo, values, { license_key: 'NEW' }, false).blocked).toEqual(['license_key']);
+  });
 });
 
 describe('tracked dates', () => {

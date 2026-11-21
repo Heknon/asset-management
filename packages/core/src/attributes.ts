@@ -1,6 +1,6 @@
 import { derivationOrder, type AssetType } from './asset-type.js';
 import { addDuration, isValidIsoDate, type Duration, type IsoDate } from './duration.js';
-import { isRestricted, type FieldDefinition } from './fields.js';
+import { canSeeField, isRestricted, type FieldDefinition } from './fields.js';
 
 export type AttributeValue = string | number | boolean | string[];
 export type Attributes = Record<string, AttributeValue>;
@@ -162,9 +162,9 @@ export function mergeAttributes(
 }
 
 /** Removes restricted values for viewers that may not see them. */
-export function redactAttributes(fields: readonly FieldDefinition[], values: Attributes, canSeeRestricted: boolean): Attributes {
+export function redactAttributes(fields: readonly FieldDefinition[], values: Attributes, canSeeRestricted: boolean, isOwner = false): Attributes {
   if (canSeeRestricted) return values;
-  const hidden = new Set(fields.filter(isRestricted).map((f) => f.key));
+  const hidden = new Set(fields.filter((f) => !canSeeField(f, { canSeeRestricted, isOwner })).map((f) => f.key));
   return Object.fromEntries(Object.entries(values).filter(([k]) => !hidden.has(k)));
 }
 

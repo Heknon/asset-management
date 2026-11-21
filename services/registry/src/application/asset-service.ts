@@ -349,7 +349,7 @@ export class AssetService {
       ownerId: asset.ownerId,
       unitId: asset.unitId,
       catalogId: asset.catalogId,
-      attributes: redactAttributes(sch.schema.fields, asset.values, perms.has('restricted')),
+      attributes: redactAttributes(sch.schema.fields, asset.values, perms.has('restricted'), !!asset.ownerId && asset.ownerId === principal.userId),
       reminderOverrides: asset.reminderOverrides,
       permissions: permissionList(perms),
       workflows,

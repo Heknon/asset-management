@@ -964,8 +964,9 @@ function FieldRow({ field, kinds, active, onSelect, hasIssue }: { field: FieldDe
           )}
           {field.required && <Badge>{t('Required')}</Badge>}
           {(field.restricted || field.kind === 'secret') && (
-            <Badge>
+            <Badge title={field.ownerCanSee ? t('Secret: people who may see secrets, and the item’s owner') : t('Secret: people who may see secrets')}>
               <Lock className="size-3" />
+              {field.ownerCanSee && <UserRound className="size-3" />}
             </Badge>
           )}
         </span>
@@ -1042,7 +1043,7 @@ function FieldInspector({
       <Field label={t('Name on the form')}>
         {(id) => <Input id={id} value={field.label} autoFocus={!plain && !field.label} onChange={(e) => set({ label: e.target.value, ...(autoKey && { key: slugKey(e.target.value) }) })} />}
       </Field>
-      {!kindIsAdvanced && <KindConfig field={field} fields={fields} kinds={kinds} setConfig={setConfig} replace={keyLocked ? undefined : onChange} />}
+      {!kindIsAdvanced && <KindConfig field={field} fields={fields} kinds={kinds} setConfig={setConfig} update={(p) => onChange({ ...field, ...p } as FieldDefinition)} replace={keyLocked ? undefined : onChange} />}
       <div className="space-y-2.5 rounded-lg bg-surface-2/60 p-3">
         <Switch checked={field.required} onChange={(required) => set({ required })} label={t('Required')} description={t('Items cannot be saved without it')} />
         <Switch checked={field.showInTable} onChange={(showInTable) => set({ showInTable })} label={t('Show as a table column')} description={t('People can still add or hide columns themselves')} />
@@ -1077,7 +1078,8 @@ function FieldInspector({
             label={t('Restricted')}
             description={t('Only people with the “See secrets” permission can see or change it; never searchable')}
           />
-          {kindIsAdvanced && <KindConfig field={field} fields={fields} kinds={kinds} setConfig={setConfig} replace={keyLocked ? undefined : onChange} />}
+          {field.restricted && field.kind !== 'secret' && <SecretAudience field={field} onChange={(ownerCanSee) => set({ ownerCanSee })} />}
+          {kindIsAdvanced && <KindConfig field={field} fields={fields} kinds={kinds} setConfig={setConfig} update={(p) => onChange({ ...field, ...p } as FieldDefinition)} replace={keyLocked ? undefined : onChange} />}
           <Field label={t('Key')} hint={keyLocked ? t('Items already use it, so it cannot change') : t('Used in imports, exports and integrations')}>
             {(id) => (
               <Input
@@ -1150,6 +1152,24 @@ function NumberUnit({ value, onChange }: { value: string | undefined; onChange: 
   );
 }
 
+/** Who sees a secret: the buyers (people with "See secrets") only, or also whoever holds the item. */
+function SecretAudience({ field, onChange }: { field: FieldDefinition; onChange: (ownerCanSee: boolean | undefined) => void }) {
+  return (
+    <Field label={t('Who can see it?')} hint={field.ownerCanSee ? t('Also the item’s owner, e.g. a license key the person using it needs. Only people with “See secrets” can change it.') : t('Only people with the “See secrets” permission, e.g. buyers and admins: an admin password or account details.')}>
+      {() => (
+        <Segmented
+          value={field.ownerCanSee ? 'owner' : 'secrets'}
+          onChange={(v) => onChange(v === 'owner' ? true : undefined)}
+          options={[
+            { value: 'secrets', label: t('People who may see secrets') },
+            { value: 'owner', label: t('…and the item’s owner') },
+          ]}
+        />
+      )}
+    </Field>
+  );
+}
+
 /** Common units for a number; anything else is typed in. */
 const numberUnits = (): Array<{ group: string; units: Array<{ value: string; label: string }> }> => [
   { group: t('Time'), units: [{ value: 'h', label: t('Hours (h)') }, { value: 'd', label: t('Days (d)') }, { value: 'wk', label: t('Weeks (wk)') }, { value: 'mo', label: t('Months (mo)') }, { value: 'yr', label: t('Years (yr)') }] },
@@ -1163,12 +1183,15 @@ function KindConfig({
   fields,
   kinds,
   setConfig,
+  update,
   replace,
 }: {
   field: FieldDefinition;
   fields: FieldDefinition[];
   kinds: DateKind[];
   setConfig: (p: Record<string, unknown>) => void;
+  /** Changes the field itself (not its config). */
+  update: (p: Partial<FieldDefinition>) => void;
   /** Turns a new field into another kind (a list of linked items); absent once items use the field. */
   replace?: (next: FieldDefinition) => void;
 }) {
@@ -1254,6 +1277,8 @@ function KindConfig({
         </div>
       );
     }
+    case 'secret':
+      return <SecretAudience field={field} onChange={(ownerCanSee) => update({ ownerCanSee })} />;
     case 'date':
       return <DateMeaning field={field} fields={fields} kinds={kinds} onChange={(tracking) => setConfig({ tracking })} />;
     default:

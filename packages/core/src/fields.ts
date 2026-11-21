@@ -78,6 +78,12 @@ const base = {
   required: z.boolean().default(false),
   /** Restricted fields are only visible to and editable by people with the "See secrets" permission. */
   restricted: z.boolean().default(false),
+  /**
+   * Restricted fields (and secrets): the item's owner sees it too, not only
+   * people with "See secrets". The admin password stays with the buyers; the
+   * license key is also for whoever holds the item.
+   */
+  ownerCanSee: z.boolean().optional(),
   section: z.string().max(60).optional(),
   /** Shown as a column in the asset table by default. */
   showInTable: z.boolean().default(false),
@@ -157,6 +163,11 @@ export const fieldKindMeta: Record<FieldKind, { label: string; description: stri
 /** Secrets are always restricted, regardless of the flag. */
 export function isRestricted(field: FieldDefinition): boolean {
   return field.restricted || field.kind === 'secret';
+}
+
+/** Whether this person may see a field's value: anyone for open fields; for restricted ones, "See secrets", or the owner when the field allows it. */
+export function canSeeField(field: FieldDefinition, who: { canSeeRestricted: boolean; isOwner: boolean }): boolean {
+  return !isRestricted(field) || who.canSeeRestricted || (who.isOwner && !!field.ownerCanSee);
 }
 
 export function isDerivedDate(field: FieldDefinition): field is FieldOf<'date'> & { config: { tracking: DateTracking & { derive: DateDerivation } } } {

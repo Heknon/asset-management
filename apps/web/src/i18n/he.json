@@ -1705,5 +1705,12 @@
   "Repeats on a schedule": "חוזר לפי לוח זמנים",
   "Renewed to a date you set": "מתחדש לתאריך שקובעים",
   "For reference, no reminders": "לעיון, בלי תזכורות",
-  "The statuses purchase and renewal requests go through, and who moves them. Templates can have their own, and add more workflows (Templates → a template → Workflows).": "הסטטוסים שבקשות רכישה וחידוש עוברות, ומי מקדם אותן. לתבניות יכול להיות תהליך משלהן, והן יכולות להוסיף תהליכים (תבניות ← תבנית ← תהליכים)."
+  "The statuses purchase and renewal requests go through, and who moves them. Templates can have their own, and add more workflows (Templates → a template → Workflows).": "הסטטוסים שבקשות רכישה וחידוש עוברות, ומי מקדם אותן. לתבניות יכול להיות תהליך משלהן, והן יכולות להוסיף תהליכים (תבניות ← תבנית ← תהליכים).",
+  "Secret: people who may see secrets, and the item’s owner": "סוד: מי שמורשה לראות סודות, ובעלי הפריט",
+  "Secret: people who may see secrets": "סוד: מי שמורשה לראות סודות",
+  "Who can see it?": "מי יכול לראות?",
+  "Also the item’s owner, e.g. a license key the person using it needs. Only people with “See secrets” can change it.": "גם בעלי הפריט, למשל מפתח רישיון שמי שמשתמש בו צריך. רק מי שמורשה ”לראות סודות“ יכול לשנות אותו.",
+  "Only people with the “See secrets” permission, e.g. buyers and admins: an admin password or account details.": "רק מי שמורשה ”לראות סודות“, למשל הרכש ומנהלים: סיסמת ניהול או פרטי חשבון.",
+  "People who may see secrets": "מי שמורשה לראות סודות",
+  "…and the item’s owner": "…וגם בעלי הפריט"
 }
