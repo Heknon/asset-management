@@ -156,6 +156,14 @@ describe('added workflows', () => {
     expect((await requests.act(avi, next.id, { action: 'status', status: 'approved' })).statusInfo.key).toBe('approved');
   });
 
+  it('lets only the purchase unit renew an item once there is one; others ask for it', async () => {
+    const labEditor = person(5, 'Lia', [U.lab], [{ unitId: U.lab, assetTypeId: null, permissions: ['view', 'comment', 'create', 'edit', 'renew'] }]);
+    await expect(assets.advance(labEditor, item.id, 'renewal_date')).rejects.toThrow(/responsible for purchases/);
+    // Avi buys (Procurement), even with only "view" on the item.
+    const renewed = await assets.advance(avi, item.id, 'renewal_date');
+    expect(renewed.attributes.renewal_date).not.toBe(item.attributes.renewal_date);
+  });
+
   it('keeps a template’s workflows when an older client saves it without them', async () => {
     const [type] = await store.listTypes(false);
     const withOne = await types.updateType(type!.id, { ...type!, workflows: [{ ...workflowPresets.machines, key: 'bench', responsibleUnitId: null }] }, type!.version);

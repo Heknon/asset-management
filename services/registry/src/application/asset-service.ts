@@ -166,6 +166,21 @@ export class AssetService {
     return this.get(principal, id);
   }
 
+  /**
+   * Renewing an item (rolling its date forward) is buying it again: with a
+   * unit responsible for purchases, that unit does it (others open a renewal
+   * request); without one, whoever handles renewals for the item.
+   */
+  private async assertCanRenew(tx: RegistryStore, principal: Principal, asset: AssetState) {
+    const buyingUnit = await purchaseUnit(tx);
+    if (buyingUnit) {
+      authorize(principal, 'view', await this.resolver.assetScope(principal, asset, tx));
+      if (!(await new Responsibility(tx, principal).canAct(buyingUnit))) throw AppError.forbidden('Renewals are done by the unit responsible for purchases; open a renewal request instead');
+      return;
+    }
+    authorize(principal, 'renew', await this.resolver.assetScope(principal, asset, tx));
+  }
+
   /** For other application services (conversations): the asset and the caller's permissions, or not found / forbidden. */
   async reach(principal: Principal, id: string, required: Permission): Promise<{ asset: AssetState; permissions: Set<Permission> }> {
     const asset = await this.store.getAsset(id);
@@ -297,8 +312,8 @@ export class AssetService {
     const run = async (tx: RegistryStore) => {
       const current = await tx.getAsset(id, { forUpdate: true });
       if (!current) throw AppError.notFound('Asset');
-      const scope = await this.resolver.assetScope(principal, current, tx);
-      authorize(principal, 'renew', scope);
+      // Finishing a renewal request: the request already checked its handler.
+      if (!opts.skipRequestId) await this.assertCanRenew(tx, principal, current);
       const sch = await this.schemaOf(tx, current);
       const kinds = await this.kinds(tx);
       const { values, from, to } = advanceRecurringDate(sch.schema, current.values, fieldKey, kinds, opts.until);
@@ -308,7 +323,7 @@ export class AssetService {
       const affected = sch.schema.fields.filter((f) => f.kind === 'date' && current.values[f.key] !== values[f.key]).map((f) => f.key);
       await tx.publish('asset.changed', assetChangedEvent(saved, sch.schema, kinds, { fieldKey, from, to, by: principal.userId, affected }));
       await completeRenewals(tx, id, fieldKey, { id: principal.userId, name: principal.displayName }, opts.skipRequestId);
-      return this.present(principal, saved, sch, scope.shared);
+      return this.present(principal, saved, sch, (await this.resolver.assetScope(principal, saved, tx)).shared);
     };
     return opts.store ? run(opts.store) : this.store.transaction(run);
   }

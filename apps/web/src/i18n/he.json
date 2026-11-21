@@ -1799,5 +1799,9 @@
   "Remove team fields": "הסרת שדות הצוות",
   "Fill in for {items}": "מילוי עבור {items}",
   "Every selected item gets this value; leave it empty to clear it.": "כל הפריטים שנבחרו יקבלו את הערך הזה; השאירו ריק כדי לנקות.",
-  "Any team fields": "כל שדות הצוות"
+  "Any team fields": "כל שדות הצוות",
+  "Ask to renew": "בקשה לחידוש",
+  "Renewals are done by the unit responsible for purchases": "חידושים מתבצעים על ידי היחידה האחראית על רכש",
+  "Change your answer…": "שינוי התשובה שלך…",
+  "Still needed? Answer…": "עדיין צריך? לענות…"
 }
