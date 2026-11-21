@@ -756,6 +756,14 @@ export class PgRegistryStore implements RegistryStore {
     await this.db.updateTable('requests').set({ workflow_variant_id: variantId }).where('id', '=', id).execute();
   }
 
+  async keepRequestWorkflows(id: string, keys: string[]) {
+    await this.db
+      .updateTable('requests')
+      .set({ workflow_states: sql`coalesce((select jsonb_object_agg(k, v) from jsonb_each(workflow_states) as e(k, v) where k = any(${sql.val(keys)}::text[])), '{}'::jsonb)` })
+      .where('id', '=', id)
+      .execute();
+  }
+
   async setAssetWorkflow(id: string, key: string, state: WorkflowStateValue) {
     await this.db
       .updateTable('assets')

@@ -591,13 +591,13 @@ function DestinationStep({
           </div>
         )}
         {variants.length > 0 && (
-          <Field label={t('Kind')} hint={t('{unit} has its own versions of this template', { unit: unit?.name ?? '' })}>
+          <Field label={t('Team fields')} hint={t('Only if these items should carry a team’s own fields. They can be filled in later.')}>
             {(id) => (
               <Select id={id} className="max-w-xs" value={dest.variantId ?? ''} onChange={(e) => setDest((d) => ({ ...d, variantId: e.target.value || null }))}>
-                <option value="">{t('Standard')}</option>
+                <option value="">{t('None')}</option>
                 {variants.map((v: TypeVariant) => (
                   <option key={v.id} value={v.id}>
-                    {v.name}
+                    {t('{team}: {name}', { team: unitById.get(v.unitId)?.name ?? '', name: v.name })}
                   </option>
                 ))}
               </Select>

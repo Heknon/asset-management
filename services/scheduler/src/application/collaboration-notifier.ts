@@ -1,3 +1,4 @@
+import { eventKey, sendOnce } from './send-once.js';
 import { renewalDecisionMeta, type AssetCommented, type RenewalCheckChanged } from '@am/core';
 import type { Logger } from 'pino';
 import { commentMessage, renewalCheckMessage, type Message } from '../domain/messages.js';
@@ -38,6 +39,16 @@ export class CollaborationNotifier {
       emails.push(...this.inbox);
     }
     if (e.actorId) people.delete(e.actorId);
+    let recipients = await this.recipients(people, emails);
+    // The owner (or whoever asked) has left or gets no email: the team's managers, or the request inbox, hear instead.
+    if (!recipients.length && e.kind === 'asked') {
+      const path = (await this.store.unitPaths([e.unitId])).get(e.unitId) ?? [e.unitId];
+      const managers = new Set(await this.store.nearestManagers(path));
+      if (e.actorId) managers.delete(e.actorId);
+      recipients = await this.recipients(managers, []);
+    } else if (!recipients.length && e.kind !== 'asked') {
+      recipients = await this.recipients(new Set(), [...this.inbox]);
+    }
 
     const notice = {
       assetName: e.assetName,
@@ -50,7 +61,7 @@ export class CollaborationNotifier {
       url: `${this.appUrl}/assets/${e.assetId}?check=${e.obligationId}`,
     };
     const today = this.clock.today();
-    await this.deliver('renewal_check', await this.recipients(people, emails), (name) => renewalCheckMessage(notice, name, today));
+    await this.deliver('renewal_check', eventKey('renewal_check', e), recipients, (name) => renewalCheckMessage(notice, name, today));
   }
 
   async onAssetCommented(e: AssetCommented): Promise<void> {
@@ -62,7 +73,7 @@ export class CollaborationNotifier {
     for (const id of people) {
       const r = usable(users.get(id));
       if (!r) continue;
-      await this.deliver('comment_email', [r], (name) => commentMessage({ assetName: e.assetName, authorName: e.authorName, excerpt: e.excerpt, mentioned: mentioned.has(id), url }, name));
+      await this.deliver('comment_email', eventKey('comment_email', e), [r], (name) => commentMessage({ assetName: e.assetName, authorName: e.authorName, excerpt: e.excerpt, mentioned: mentioned.has(id), url }, name));
     }
   }
 
@@ -72,11 +83,10 @@ export class CollaborationNotifier {
     return [...new Map(list.map((r) => [r.email.toLowerCase(), r])).values()];
   }
 
-  private async deliver(channel: string, recipients: Recipient[], build: (name: string) => Message) {
+  private async deliver(channel: string, key: string, recipients: Recipient[], build: (name: string) => Message) {
     for (const r of recipients) {
       try {
-        await this.mailer.send({ to: r.email, ...build(r.name) });
-        notificationsSent.inc({ channel, outcome: 'sent' });
+        if (await sendOnce(this.store, this.mailer, key, { to: r.email, ...build(r.name) })) notificationsSent.inc({ channel, outcome: 'sent' });
       } catch (err) {
         notificationsSent.inc({ channel, outcome: 'failed' });
         this.logger.error({ err, to: r.email }, `${channel} failed`);

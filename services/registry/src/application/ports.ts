@@ -127,6 +127,8 @@ export interface RegistryStore {
   setRequestWorkflow(id: string, key: string, state: WorkflowStateValue): Promise<void>;
   /** The team variant whose workflows a request follows. */
   setRequestWorkflowVariant(id: string, variantId: string | null): Promise<void>;
+  /** Drops the states of workflows a request no longer has (its team fields changed). */
+  keepRequestWorkflows(id: string, keys: string[]): Promise<void>;
   /** Moves one added workflow of an item. */
   setAssetWorkflow(id: string, key: string, state: WorkflowStateValue): Promise<void>;
   /** Open renewal requests of one item's date. */

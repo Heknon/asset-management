@@ -175,7 +175,7 @@ export function UpcomingPage() {
 /** Acting on dates (renew, snooze, ask the owner) is the “Handle renewals” permission. */
 function useCanEditObligation() {
   const { can } = useMyOrg();
-  return (o: Obligation) => can(o.unitId, 'renew', o.assetTypeId);
+  return (o: Obligation) => o.canHandle ?? can(o.unitId, 'renew', o.assetTypeId);
 }
 
 /** "Do you still need it?" questions waiting for me, with one-click answers. */

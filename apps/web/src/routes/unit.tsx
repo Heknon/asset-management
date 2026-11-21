@@ -109,7 +109,7 @@ export function UnitPage() {
             <Stat label={t('Open requests')} value={openRequests.data?.total ?? '–'} />
           </div>
           <SubUnits unitId={unit.id} childIds={childrenOf(unit.id).filter((c) => !c.archived).map((c) => c.id)} />
-          <UpcomingFor unitId={unit.id} canEdit={(o) => can(o.unitId, 'renew', o.assetTypeId)} />
+          <UpcomingFor unitId={unit.id} canEdit={(o) => o.canHandle ?? can(o.unitId, 'renew', o.assetTypeId)} />
           {(openRequests.data?.items.length ?? 0) > 0 && <RequestList items={openRequests.data!.items.slice(0, 8)} title={t('Open requests')} />}
         </div>
       )}

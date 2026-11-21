@@ -210,7 +210,9 @@ export function redactAttributes(fields: readonly FieldDefinition[], values: Att
   if (canSeeRestricted) return values;
   const who = { canSeeRestricted, isOwner };
   const hidden = new Set(fields.filter((f) => !canSeeField(f, who)).map((f) => f.key));
-  const out = Object.fromEntries(Object.entries(values).filter(([k]) => !hidden.has(k)));
+  const known = new Set(fields.map((f) => f.key));
+  // Values of removed fields are not shown: they may have been secret.
+  const out = Object.fromEntries(Object.entries(values).filter(([k]) => known.has(k) && !hidden.has(k)));
   // Logins stay visible without their password, unless this person may see it.
   for (const f of fields) {
     const v = out[f.key];

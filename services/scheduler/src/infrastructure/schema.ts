@@ -6,6 +6,10 @@ type Timestamp = ColumnType<Date, Date | string | undefined, Date | string>;
 type Json<T> = ColumnType<T, string, string>;
 
 export interface SchedulerDB extends OutboxTable {
+  sent_notifications: {
+    key: string;
+    sent_at: Generated<Date>;
+  };
   assets_ref: {
     asset_id: string;
     name: string;
@@ -224,6 +228,13 @@ export const migrations: Record<string, Migration> = {
   '0006_renewal_requests': {
     async up(db) {
       await sql`alter table obligations add column renewal_request jsonb`.execute(db);
+    },
+  },
+  '0007_sent_notifications': {
+    async up(db) {
+      // Emails already sent for an event, so a retried event does not send them again.
+      await sql`create table sent_notifications (key text primary key, sent_at timestamptz not null default now())`.execute(db);
+      await sql`create index sent_notifications_at on sent_notifications (sent_at)`.execute(db);
     },
   },
 };

@@ -35,8 +35,14 @@ export class PgBossEventBus implements EventBus {
     await withDeadlockRetry(() => this.boss.createQueue(queue, { name: queue, retryLimit: 10, retryBackoff: true, retryDelay: 5 }));
     await withDeadlockRetry(() => this.boss.subscribe(event, queue));
     await this.boss.work(queue, { batchSize: 25, pollingIntervalSeconds: 1 }, async (jobs) => {
+      // Each event succeeds or is retried on its own: a failing one does not re-run the others in its batch
+      // (pg-boss completes only the jobs still active when this returns).
       for (const job of jobs) {
-        await handleEvent(consumer, event, job.data, handler, this.logger, { 'messaging.system': 'pg-boss', 'messaging.destination.name': queue, 'messaging.message.id': job.id });
+        try {
+          await handleEvent(consumer, event, job.data, handler, this.logger, { 'messaging.system': 'pg-boss', 'messaging.destination.name': queue, 'messaging.message.id': job.id });
+        } catch (err) {
+          await this.boss.fail(queue, job.id, { message: err instanceof Error ? err.message : String(err) });
+        }
       }
     });
   }

@@ -101,10 +101,11 @@ export class PgSchedulerStore implements SchedulerStore {
     };
     // Version-guarded upsert: out-of-order or repeated events are ignored... except
     // re-publications at the same version (type/kind changes), which must re-apply.
+    // A deleted asset stays deleted: a late or retried change must not bring it (and its reminders) back.
     const r = await this.db
       .insertInto('assets_ref')
       .values({ asset_id: ref.assetId, ...values })
-      .onConflict((oc) => oc.column('asset_id').doUpdateSet({ ...values, deleted: false }).where('assets_ref.version', '<=', version))
+      .onConflict((oc) => oc.column('asset_id').doUpdateSet(values).where('assets_ref.version', '<=', version).where('assets_ref.deleted', '=', false))
       .returning('asset_id')
       .executeTakeFirst();
     return !!r;
@@ -343,6 +344,14 @@ export class PgSchedulerStore implements SchedulerStore {
       .where('obligations.due_date', '<=', addDuration(today, { amount: 2, unit: 'year' }))
       .execute();
     return rows.map((r) => toPair(r as Row));
+  }
+
+  async notificationSent(key: string) {
+    return !!(await this.db.selectFrom('sent_notifications').select('key').where('key', '=', key).executeTakeFirst());
+  }
+
+  async markNotificationSent(key: string) {
+    await this.db.insertInto('sent_notifications').values({ key }).onConflict((oc) => oc.column('key').doNothing()).execute();
   }
 
   async wasDelivered(obligationId: string, recipient: string, slot: string) {

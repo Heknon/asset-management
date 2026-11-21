@@ -2,6 +2,7 @@ import {
   AppError,
   isValidIsoDate,
   ownerPermissions,
+  effectivePermissions,
   SubjectKeyResolver,
   visibilityFor,
   type Permission,
@@ -93,7 +94,13 @@ export class ObligationService {
   async list(principal: Principal, q: ObligationQuery): Promise<Page<Obligation>> {
     const { items, total } = await this.store.query(q, await this.visibility(principal, 'view'), principal.userId);
     const today = this.clock.today();
-    return { items: items.map((i) => present(i.obligation, i.asset, today)), total, limit: q.limit, offset: q.offset };
+    // Whether this person handles each date (snooze, dismiss, ask the owner): org grants, the owner's, and catalog shares.
+    const keys = principal.isAdmin ? [] : await this.shareKeys.of(principal);
+    const shares = new Map<string, Permission[]>();
+    for (const c of new Set(items.map((i) => i.asset.catalogId).filter((c): c is string => !!c))) shares.set(c, principal.isAdmin ? [] : await this.store.catalogSharePermissions(c, keys));
+    const canHandle = (a: AssetRef) =>
+      effectivePermissions(principal, { unitPath: a.unitPath, assetTypeId: a.assetTypeId, shared: [...(a.ownerId === principal.userId ? ownerPermissions : []), ...(a.catalogId ? (shares.get(a.catalogId) ?? []) : [])] }).has('renew');
+    return { items: items.map((i) => ({ ...present(i.obligation, i.asset, today), canHandle: canHandle(i.asset) })), total, limit: q.limit, offset: q.offset };
   }
 
   async summary(principal: Principal, q: { unitId?: string; mine: boolean }): Promise<ObligationSummary> {
@@ -171,7 +178,8 @@ export class ObligationService {
         break;
       case 'snooze':
         assertActive(o);
-        if (!isValidIsoDate(action.until) || action.until <= today) throw AppError.validation('Snooze until a future date');
+        // "Tomorrow" in the browser can already be today where reminders are sent (another time zone): accept today too.
+        if (!isValidIsoDate(action.until) || action.until < today) throw AppError.validation('Snooze until a future date');
         // Snoozing hides reminders until then; past the date itself it would hide that it is due.
         if (action.until > o.dueDate && o.dueDate > today) throw AppError.validation('Snooze until the due date at the latest');
         await this.store.setSnooze(id, action.until);

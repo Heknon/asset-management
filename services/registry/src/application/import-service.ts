@@ -1,4 +1,4 @@
-import { AppError, type ImportBatch, type ImportRequest, type ImportResult, type ImportRowResult, type Principal } from '@am/core';
+import { AppError, isLoginValue, type ImportBatch, type ImportRequest, type ImportResult, type ImportRowResult, type Principal } from '@am/core';
 import type { AssetService } from './asset-service.js';
 import type { RegistryStore } from './ports.js';
 
@@ -79,7 +79,15 @@ export class ImportService {
       if (matches.length > 1) throw AppError.validation(`Matches ${matches.length} existing items; match by ID instead`);
       if (matches.length === 1) {
         const before = matches[0]!;
-        const updated = await this.assets.update(p, before.id, { ...common, ...(row.unitId && { unitId: row.unitId }), ...(req.catalogId && { catalogId: req.catalogId }), ...(req.variantId && { variantId: req.variantId }) }, tx);
+        // A sheet column fills a login's address or user name: the rest of the stored login (its password) stays.
+        const stored = await tx.getAsset(before.id);
+        const sch = stored && (await this.assets.schemaOf(tx, stored));
+        const attributes = { ...common.attributes };
+        for (const f of sch?.schema.fields ?? []) {
+          const prev = stored!.values[f.key];
+          if (f.kind === 'login' && isLoginValue(attributes[f.key]) && isLoginValue(prev)) attributes[f.key] = { ...prev, ...(attributes[f.key] as object) };
+        }
+        const updated = await this.assets.update(p, before.id, { ...common, attributes, ...(row.unitId && { unitId: row.unitId }), ...(req.catalogId && { catalogId: req.catalogId }), ...(req.variantId && { variantId: req.variantId }) }, tx);
         return { action: new Date(updated.updatedAt).getTime() === before.updatedAt.getTime() ? 'unchanged' : 'update', assetId: updated.id, reference: updated.reference };
       }
       if (req.matchBy === 'reference' && row.reference) throw AppError.validation(`No item ${row.reference} to update`);

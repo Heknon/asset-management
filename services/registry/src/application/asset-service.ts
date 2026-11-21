@@ -24,7 +24,7 @@ import {
   workflowsOf,
 } from '@am/core';
 import { authorize } from '@am/platform';
-import { assertFitsVariant, assetChangedEvent, diff, resolveStatus, scopeOf, validatedOverrides, validatedValues, type AssetDraft, type AssetState } from '../domain/asset.js';
+import { assertFitsVariant, assetChangedEvent, diff, keptValues, resolveStatus, scopeOf, validatedOverrides, validatedValues, type AssetDraft, type AssetState } from '../domain/asset.js';
 import { assertFitsCatalog } from '../domain/catalog.js';
 import { requestNumber } from '../domain/request.js';
 import type { AccessResolver } from './access.js';
@@ -121,7 +121,7 @@ export class AssetService {
         catalogId: current.catalogId,
         variantId: sch.variant?.id ?? null,
         // Only the team's fields are being touched: nothing else is held to "required" here.
-        values: validatedValues(sch.schema, merged, new Set(sch.schema.fields.map((f) => f.key))),
+        values: { ...keptValues(sch.schema, current.values, before.variant && before.variant.id !== sch.variant?.id ? before.variant.fields : []), ...validatedValues(sch.schema, merged, new Set(sch.schema.fields.map((f) => f.key)), current.values) },
         reminderOverrides: current.reminderOverrides,
       };
       // Removed or switched team fields show up in the history too.
@@ -302,13 +302,25 @@ export class AssetService {
         unitId: patch.unitId ?? current.unitId,
         catalogId,
         variantId: sch.variant?.id ?? null,
-        values: validatedValues(sch.schema, merged, teamKeys(sch)),
+        values: { ...keptValues(sch.schema, current.values, current.variantId !== (sch.variant?.id ?? null) ? ((await this.schemaOf(tx, current)).variant?.fields ?? []) : []), ...validatedValues(sch.schema, merged, teamKeys(sch), current.values) },
         reminderOverrides: patch.reminderOverrides ? validatedOverrides(sch.schema, patch.reminderOverrides) : current.reminderOverrides,
       };
-      const changes = diff(sch.schema, current, draft);
+      // A renewal date moved later while its renewal is being asked for: that is the renewal (by whoever may renew).
+      const renewed: string[] = [];
+      for (const f of sch.schema.fields) {
+        if (f.kind !== 'date' || !f.config.tracking) continue;
+        const before = current.values[f.key];
+        const after = draft.values[f.key];
+        if (typeof before === 'string' && typeof after === 'string' && after > before && (await tx.openRenewals(id, f.key)).length) renewed.push(f.key);
+      }
+      if (renewed.length) await this.assertCanRenew(tx, principal, current);
+      // Switching or removing team fields drops their values: the history keeps what they were.
+      const was = current.variantId && current.variantId !== draft.variantId ? await tx.getVariant(current.variantId) : null;
+      const changes = diff({ fields: [...sch.schema.fields, ...(was?.fields ?? [])] }, current, draft);
       if (!Object.keys(changes).length) return this.present(principal, current, sch, (await this.resolver.assetScope(principal, current, tx)).shared);
       const saved = await tx.saveAsset(id, draft, principal.userId, await this.searchText(tx, sch, draft, current.refNo));
       await tx.addActivity({ assetId: id, actorId: principal.userId, actorName: principal.displayName, action: 'updated', changes });
+      for (const fieldKey of renewed) await completeRenewals(tx, id, fieldKey, { id: principal.userId, name: principal.displayName });
       await tx.publish('asset.changed', assetChangedEvent(saved, sch.schema, await this.kinds(tx)));
       return this.present(principal, saved, sch, (await this.resolver.assetScope(principal, saved, tx)).shared);
     };

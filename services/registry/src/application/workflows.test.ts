@@ -165,6 +165,12 @@ describe('added workflows', () => {
     const asked = await requests.requestRenewal(labEditor, item.id, { fieldKey: 'renewal_date', obligationId: null, note: '' });
     expect(asked.moves.filter((m) => m.category === 'done')).toEqual([]);
     await expect(requests.update(labEditor, asked.id, { unitId: U.procurement })).rejects.toThrow(/stays with its item/);
+    // Moving the date later by hand while it is being asked for is the renewal: Procurement's, and it closes the request.
+    const due = (await assets.get(dana, item.id)).attributes.renewal_date as string;
+    const later = `${Number(due.slice(0, 4)) + 1}${due.slice(4)}`;
+    await expect(assets.update(labEditor, item.id, { attributes: { renewal_date: later } })).rejects.toThrow(/responsible for purchases/);
+    await assets.update(dana, item.id, { attributes: { renewal_date: later } });
+    expect((await requests.get(dana, asked.id)).statusInfo.category).toBe('done');
     // Avi buys (Procurement), even with only "view" on the item.
     const renewed = await assets.advance(avi, item.id, 'renewal_date');
     expect(renewed.attributes.renewal_date).not.toBe(item.attributes.renewal_date);
@@ -264,5 +270,33 @@ describe('team fields', () => {
     const removed = await assets.setTeamFields(tom, plain.id, { variantId: null, attributes: {} });
     expect(removed.variantId).toBeNull();
     expect(removed.attributes.mac).toBeUndefined();
+  });
+});
+
+describe('data kept safe across template changes', () => {
+  it('keeps values of a removed field out of sight, and brings them back when the field returns', async () => {
+    const store = new PgRegistryStore(await database(), false);
+    await store.upsertUnitRef({ id: U.company, key: 'company', name: 'Company', kind: 'team', parentId: null, path: [U.company], archived: false });
+    for (const p of [dana, noa]) await store.upsertUserRef({ id: p.userId, displayName: p.displayName, active: true });
+    const types = new TypeService(store);
+    const assets = new AssetService(store, new AccessResolver(store));
+    const text = (key: string, extra: object = {}) => ({ id: crypto.randomUUID(), key, label: key, kind: 'text' as const, required: false, restricted: false, showInTable: false, config: {}, ...extra });
+    const size = { id: crypto.randomUUID(), key: 'size', label: 'Size', kind: 'select' as const, required: false, restricted: false, showInTable: false, config: { options: [{ value: 's', label: 'S' }, { value: 'm', label: 'M' }] } };
+    const base = { key: 'thing', name: 'Thing', icon: 'box', color: '#6366f1', statuses: [{ value: 'active', label: 'Active', color: '#10b981', active: true }], sections: [] };
+    let type = await types.createType({ ...base, fields: [text('note'), text('pin', { restricted: true }), size] });
+    const item = await assets.create(admin, { assetTypeId: type.id, name: 'Box', ownerId: null, unitId: U.company, variantId: null, catalogId: null, reminderOverrides: {}, attributes: { note: 'hello', pin: '4321', size: 's' } });
+
+    // The pin field is removed, and S is no longer an option.
+    type = await types.updateType(type.id, { ...base, fields: [text('note'), { ...size, config: { options: [{ value: 'm', label: 'M' }] } }] }, type.version);
+    // Editing something else still works (the old size stays), the removed value stays stored, and nobody sees it.
+    const edited = await assets.update(dana, item.id, { attributes: { note: 'changed' } });
+    expect(edited.attributes).toEqual({ note: 'changed', size: 's' });
+    expect((await assets.get(noa, item.id)).attributes.pin).toBeUndefined();
+    await expect(assets.update(dana, item.id, { attributes: { size: 'x' } })).rejects.toThrow(/invalid/);
+
+    // The field comes back: so does its value.
+    type = await types.updateType(type.id, { ...base, fields: [text('note'), text('pin', { restricted: true }), size] }, type.version);
+    expect((await assets.get(admin, item.id)).attributes.pin).toBe('4321');
+    expect((await assets.get(noa, item.id)).attributes.pin).toBeUndefined();
   });
 });
