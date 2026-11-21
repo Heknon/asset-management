@@ -1,4 +1,4 @@
-import { isRestricted, type ActivityEntry, type AssetType, type FieldDefinition } from '@am/core';
+import { canSeeField, isRestricted, type ActivityEntry, type AssetType, type FieldDefinition } from '@am/core';
 import { useMutation } from '@tanstack/react-query';
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import { ArrowLeft, CalendarClock, FolderOpen, History, MoreHorizontal, Pencil, Sparkles, Trash2, Workflow } from 'lucide-react';
@@ -130,6 +130,7 @@ export function AssetDetailPage() {
 
 function Details({ assetId, type, attributes, ownerId, canSeeRestricted, canEdit }: { assetId: string; type: AssetType; attributes: Record<string, unknown>; ownerId: string | null; canSeeRestricted: boolean; canEdit: boolean }) {
   const invalidate = useInvalidateAssets();
+  const meId = useMe().data?.userId;
   const save = useMutation({
     mutationFn: (patch: { attributes?: Record<string, unknown>; ownerId?: string | null }) => api.patch(`/api/registry/assets/${assetId}`, patch),
     onSuccess: () => invalidate(assetId),
@@ -142,14 +143,14 @@ function Details({ assetId, type, attributes, ownerId, canSeeRestricted, canEdit
   const sections = useMemo(() => {
     const out: Array<[string, FieldDefinition[]]> = [];
     for (const f of type.fields) {
-      if (isRestricted(f) && !canSeeRestricted) continue;
+      if (!canSeeField(f, { canSeeRestricted, isOwner: !!ownerId && ownerId === meId })) continue;
       const key = f.section ?? '';
       const group = out.find(([k]) => k === key);
       if (group) group[1].push(f);
       else out.push([key, [f]]);
     }
     return out;
-  }, [type, canSeeRestricted]);
+  }, [type, canSeeRestricted, ownerId, meId]);
 
   return (
     <Card padded={false}>
@@ -182,7 +183,7 @@ function Details({ assetId, type, attributes, ownerId, canSeeRestricted, canEdit
                   {f.kind === 'date' && f.config.tracking?.derive && <Sparkles className="size-3 text-accent" aria-label={t('Calculated')} />}
                 </dt>
                 <dd className="min-w-0">
-                  {canEdit && !(f.kind === 'date' && f.config.tracking?.derive) ? (
+                  {canEdit && (!isRestricted(f) || canSeeRestricted) && !(f.kind === 'date' && f.config.tracking?.derive) ? (
                     <InlineEdit
                       label={f.label}
                       display={<AttributeValue field={f} value={attributes[f.key] as never} />}
