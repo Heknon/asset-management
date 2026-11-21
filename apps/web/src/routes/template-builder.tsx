@@ -34,6 +34,7 @@ import {
   GripVertical,
   Hash,
   Key,
+  KeyRound,
   Link2,
   List,
   ListChecks,
@@ -83,6 +84,7 @@ export const kindIcons: Record<FieldKind, LucideIcon> = {
   select: List,
   multiSelect: ListChecks,
   user: UserRound,
+  login: KeyRound,
   url: Link2,
   email: AtSign,
   secret: Key,
@@ -1277,6 +1279,22 @@ function KindConfig({
         </div>
       );
     }
+    case 'login':
+      return (
+        <div className="space-y-3">
+          <Field label={t('The secret part is a')}>
+            {(id) => (
+              <Select id={id} value={field.config.secretLabel} onChange={(e) => setConfig({ secretLabel: e.target.value })}>
+                <option value="password">{t('Password')}</option>
+                <option value="key">{t('Key')}</option>
+                <option value="token">{t('Token')}</option>
+              </Select>
+            )}
+          </Field>
+          <SecretAudience field={field} onChange={(ownerCanSee) => update({ ownerCanSee })} />
+          <p className="text-xs text-muted">{t('The address and user name are seen by everyone who sees the item, and searchable; turn on “Restricted” to hide the whole login.')}</p>
+        </div>
+      );
     case 'secret':
       return <SecretAudience field={field} onChange={(ownerCanSee) => update({ ownerCanSee })} />;
     case 'date':

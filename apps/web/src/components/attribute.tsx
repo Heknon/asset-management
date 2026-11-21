@@ -1,9 +1,10 @@
-import type { AttributeValue as Value, FieldDefinition } from '@am/core';
+import type { AttributeValue as Value, FieldDefinition, LoginValue } from '@am/core';
 import { Link } from '@tanstack/react-router';
-import { Eye, EyeOff, ExternalLink } from 'lucide-react';
-import { useState } from 'react';
+import { Copy, Eye, EyeOff, ExternalLink, KeyRound, Link2, Lock, UserRound } from 'lucide-react';
+import { toast } from 'sonner';
+import { useState, type ReactNode } from 'react';
 import { useAsset, useAssets } from '@/lib/queries';
-import { formatDate, formatMoney, relativeDays } from '@/lib/utils';
+import { cn, formatDate, formatMoney, relativeDays } from '@/lib/utils';
 import { Badge } from './ui/display';
 import { Checkbox, Input, Select, TagInput, Textarea } from './ui/form';
 import { PersonName, PersonPicker } from './pickers';
@@ -66,6 +67,8 @@ export function AttributeValue({ field, value, compact }: { field: FieldDefiniti
       );
     case 'secret':
       return <SecretValue value={value as string} />;
+    case 'login':
+      return <LoginView field={field} value={value as LoginValue} compact={compact} />;
     case 'assetRef':
       return Array.isArray(value) ? (
         <span className={compact ? 'block max-w-64 truncate' : 'flex flex-wrap gap-x-2 gap-y-1'}>
@@ -110,6 +113,94 @@ function SecretValue({ value }: { value: string }) {
   );
 }
 
+const secretLabels = (): Record<'password' | 'key' | 'token', string> => ({ password: t('Password'), key: t('Key'), token: t('Token') });
+
+function copy(text: string, what: string) {
+  void navigator.clipboard?.writeText(text).then(
+    () => toast.success(t('{what} copied', { what })),
+    () => toast.error(t('Could not copy')),
+  );
+}
+
+/**
+ * A login as one block: open the address, copy the user name, reveal or copy
+ * the password. People who may not see the password see that there is one.
+ */
+function LoginView({ field, value, compact }: { field: Extract<FieldDefinition, { kind: 'login' }>; value: LoginValue; compact?: boolean }) {
+  const [shown, setShown] = useState(false);
+  const label = secretLabels()[field.config.secretLabel];
+  const host = (() => {
+    try {
+      return value.url ? new URL(value.url).host : null;
+    } catch {
+      return value.url ?? null;
+    }
+  })();
+  if (compact) return <span className="block max-w-64 truncate">{[value.username, host].filter(Boolean).join(' · ') || '—'}</span>;
+  const row = 'flex min-w-0 items-center gap-2';
+  const icon = 'shrink-0 text-subtle hover:text-fg';
+  return (
+    <span className="flex min-w-0 flex-col gap-1">
+      {value.url && (
+        <a href={value.url} target="_blank" rel="noreferrer noopener" onClick={(e) => e.stopPropagation()} className="inline-flex max-w-full items-center gap-1 truncate text-accent-fg hover:underline">
+          {host}
+          <ExternalLink className="size-3 shrink-0" />
+        </a>
+      )}
+      {value.username && (
+        <span className={row}>
+          <span className="truncate">{value.username}</span>
+          <button type="button" className={icon} aria-label={t('Copy the user name')} onClick={(e) => (e.stopPropagation(), copy(value.username!, t('User name')))}>
+            <Copy className="size-3.5" />
+          </button>
+        </span>
+      )}
+      {value.secret !== undefined ? (
+        <span className={cn(row, 'font-mono text-xs')}>
+          <span className={shown ? 'break-all' : 'truncate'}>{shown ? value.secret : '••••••••'}</span>
+          <button type="button" className={icon} onClick={(e) => (e.stopPropagation(), setShown((x) => !x))} aria-label={shown ? t('Hide') : t('Reveal')}>
+            {shown ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+          </button>
+          <button type="button" className={icon} aria-label={t('Copy the {what}', { what: label.toLowerCase() })} onClick={(e) => (e.stopPropagation(), copy(value.secret!, label))}>
+            <Copy className="size-3.5" />
+          </button>
+        </span>
+      ) : value.hasSecret ? (
+        <span className="inline-flex items-center gap-1 text-xs text-muted">
+          <Lock className="size-3" /> {t('{what} hidden: only people who may see secrets', { what: label })}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+/** A login's three parts. Whoever may not see the password keeps it as it is. */
+function LoginInput({ field, value, onChange, id }: { field: Extract<FieldDefinition, { kind: 'login' }>; value: LoginValue | undefined; onChange: (v: LoginValue) => void; id: string }) {
+  const v = value ?? {};
+  const label = secretLabels()[field.config.secretLabel];
+  const set = (p: Partial<LoginValue>) => onChange({ ...v, ...p });
+  // Each part keeps an icon, so filled-in boxes still say which is which.
+  const part = (icon: ReactNode, input: ReactNode) => (
+    <div className="relative">
+      <span className="pointer-events-none absolute top-1/2 start-2.5 -translate-y-1/2 text-subtle [&>svg]:size-3.5">{icon}</span>
+      {input}
+    </div>
+  );
+  return (
+    <div className="space-y-1.5">
+      {part(<Link2 />, <Input id={id} type="url" className="ps-8" placeholder={t('Address, e.g. https://admin.example.com')} value={v.url ?? ''} onChange={(e) => set({ url: e.target.value || undefined })} />)}
+      {part(<UserRound />, <Input aria-label={t('User name or email')} autoComplete="off" className="ps-8" placeholder={t('User name or email')} value={v.username ?? ''} onChange={(e) => set({ username: e.target.value || undefined })} />)}
+      {v.hasSecret && v.secret === undefined ? (
+        <p className="flex items-center gap-1 text-xs text-muted">
+          <Lock className="size-3" /> {t('{what} set; only people who may see secrets can change it', { what: label })}
+        </p>
+      ) : (
+        part(<KeyRound />, <Input aria-label={label} type="password" autoComplete="new-password" className="ps-8 font-mono" placeholder={label} value={v.secret ?? ''} onChange={(e) => set({ secret: e.target.value || undefined })} />)
+      )}
+    </div>
+  );
+}
+
 function AssetRefValue({ id }: { id: string }) {
   const a = useAsset(id);
   return (
@@ -129,6 +220,8 @@ export function AttributeInput({ field, value, onChange, id, invalid }: { field:
       return <Textarea {...common} value={(value as string) ?? ''} maxLength={field.config.maxLength} onChange={(e) => onChange(e.target.value)} />;
     case 'secret':
       return <Input {...common} type="password" autoComplete="off" className="font-mono" value={(value as string) ?? ''} onChange={(e) => onChange(e.target.value)} />;
+    case 'login':
+      return <LoginInput field={field} id={id} value={value as LoginValue | undefined} onChange={onChange} />;
     case 'url':
       return <Input {...common} type="url" placeholder="https://" value={(value as string) ?? ''} onChange={(e) => onChange(e.target.value)} />;
     case 'email':

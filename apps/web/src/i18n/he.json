@@ -1712,5 +1712,21 @@
   "Also the item’s owner, e.g. a license key the person using it needs. Only people with “See secrets” can change it.": "גם בעלי הפריט, למשל מפתח רישיון שמי שמשתמש בו צריך. רק מי שמורשה ”לראות סודות“ יכול לשנות אותו.",
   "Only people with the “See secrets” permission, e.g. buyers and admins: an admin password or account details.": "רק מי שמורשה ”לראות סודות“, למשל הרכש ומנהלים: סיסמת ניהול או פרטי חשבון.",
   "People who may see secrets": "מי שמורשה לראות סודות",
-  "…and the item’s owner": "…וגם בעלי הפריט"
+  "…and the item’s owner": "…וגם בעלי הפריט",
+  "Token": "טוקן",
+  "{what} copied": "{what} הועתק",
+  "Could not copy": "לא ניתן להעתיק",
+  "Copy the user name": "העתקת שם המשתמש",
+  "User name": "שם משתמש",
+  "Copy the {what}": "העתקת {what}",
+  "{what} hidden: only people who may see secrets": "{what} מוסתר: רק למי שמורשה לראות סודות",
+  "Address, e.g. https://admin.example.com": "כתובת, למשל https://admin.example.com",
+  "User name or email": "שם משתמש או אימייל",
+  "{what} set; only people who may see secrets can change it": "{what} קיים; רק מי שמורשה לראות סודות יכול לשנות אותו",
+  "Admin login": "כניסת ניהול",
+  "Address, user, password": "כתובת, משתמש, סיסמה",
+  "The secret part is a": "החלק הסודי הוא",
+  "The address and user name are seen by everyone who sees the item, and searchable; turn on “Restricted” to hide the whole login.": "הכתובת ושם המשתמש גלויים לכל מי שרואה את הפריט, ואפשר לחפש אותם; הפעילו ”מוגבל“ כדי להסתיר את כל פרטי הכניסה.",
+  "Login": "פרטי כניסה",
+  "Address, user name and password together": "כתובת, שם משתמש וסיסמה יחד"
 }

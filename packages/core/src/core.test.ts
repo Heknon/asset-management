@@ -111,6 +111,21 @@ describe('attributes', () => {
     expect(redactAttributes(license.fields, { license_key: 'SECRET', vendor: 'X' }, false)).toEqual({ vendor: 'X' });
   });
 
+  it('keeps a login together, with its password a secret', () => {
+    const login = { id: '00000000-0000-4000-8000-0000000000f2', key: 'admin', label: 'Admin login', kind: 'login' as const, required: false, restricted: false, showInTable: false, config: { secretLabel: 'password' as const } };
+    const type = { fields: [login] };
+    expect(validateAttributes(type, { admin: { url: 'ftp://x' } }).issues[0]!.message).toMatch(/http/);
+    const { values } = validateAttributes(type, { admin: { url: 'https://admin.example.com', username: ' ops@example.com ', secret: 'pa ss', hasSecret: true } });
+    expect(values.admin).toEqual({ url: 'https://admin.example.com', username: 'ops@example.com', secret: 'pa ss' });
+    // Without "See secrets": the address and user name, and that a password exists.
+    expect(redactAttributes(type.fields, values, false)).toEqual({ admin: { url: 'https://admin.example.com', username: 'ops@example.com', hasSecret: true } });
+    expect(redactAttributes([{ ...login, ownerCanSee: true }], values, false, true)).toEqual(values);
+    // They may change the user name; the password stays, and changing it is refused.
+    const kept = mergeAttributes(type.fields, values, { admin: { url: 'https://admin.example.com', username: 'new@example.com', hasSecret: true } }, false);
+    expect(kept).toEqual({ merged: { admin: { url: 'https://admin.example.com', username: 'new@example.com', hasSecret: true, secret: 'pa ss' } }, blocked: [] });
+    expect(mergeAttributes(type.fields, values, { admin: { secret: 'mine' } }, false).blocked).toEqual(['admin']);
+  });
+
   it('shows a secret to the item’s owner only when the field says so', () => {
     const values = { license_key: 'KEY-1', vendor: 'X' };
     const ownerToo = license.fields.map((f) => (f.key === 'license_key' ? { ...f, ownerCanSee: true } : f));

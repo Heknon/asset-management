@@ -1,5 +1,6 @@
 import {
   AppError,
+  isLoginValue,
   isRestricted,
   resolveTrackedDates,
   spendOf,
@@ -71,9 +72,19 @@ export function validatedOverrides(type: AssetType, overrides: Record<string, Du
 /** Restricted values are stored separately so search and listings never touch them. */
 export function splitRestricted(type: Pick<AssetType, 'fields'>, values: Attributes): { open: Attributes; restricted: Attributes } {
   const restrictedKeys = new Set(type.fields.filter(isRestricted).map((f) => f.key));
+  const logins = new Set(type.fields.filter((f) => f.kind === 'login').map((f) => f.key));
   const open: Attributes = {};
   const restricted: Attributes = {};
-  for (const [k, v] of Object.entries(values)) (restrictedKeys.has(k) ? restricted : open)[k] = v;
+  for (const [k, v] of Object.entries(values)) {
+    // A login's password is kept with the secrets; its address and user name stay searchable.
+    if (logins.has(k) && !restrictedKeys.has(k) && isLoginValue(v)) {
+      const { secret, hasSecret: _h, ...rest } = v;
+      if (Object.keys(rest).length) open[k] = rest;
+      if (secret !== undefined) restricted[k] = { secret };
+      continue;
+    }
+    (restrictedKeys.has(k) ? restricted : open)[k] = v;
+  }
   return { open, restricted };
 }
 
@@ -90,7 +101,8 @@ export function diff(type: Pick<AssetType, 'fields'>, before: Partial<AssetDraft
     const from = before?.values?.[f.key];
     const to = after.values[f.key];
     if (same(from, to)) continue;
-    changes[`attributes.${f.key}`] = isRestricted(f) ? { from: from === undefined ? null : MASK, to: to === undefined ? null : MASK } : { from: from ?? null, to: to ?? null };
+    const masked = (v: unknown) => (f.kind === 'login' && isLoginValue(v) ? { ...v, ...(v.secret !== undefined && { secret: MASK }) } : v);
+    changes[`attributes.${f.key}`] = isRestricted(f) ? { from: from === undefined ? null : MASK, to: to === undefined ? null : MASK } : { from: masked(from) ?? null, to: masked(to) ?? null };
   }
   if (!same(before?.reminderOverrides, after.reminderOverrides)) changes.reminderOverrides = { from: before?.reminderOverrides ?? null, to: after.reminderOverrides };
   return changes;

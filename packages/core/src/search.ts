@@ -60,6 +60,11 @@ export function attributeText(field: FieldDefinition, value: unknown, l: Pick<Se
       return value ? 'yes' : 'no';
     case 'currency':
       return `${value} ${field.config.currency}`;
+    case 'login': {
+      // Never the password: search and CSV get the user name and the address.
+      const v = value as { url?: string; username?: string };
+      return [v.username, v.url].filter(Boolean).join(' · ') || null;
+    }
     default:
       return String(value);
   }

@@ -166,3 +166,35 @@ describe('added workflows', () => {
     await expect(types.updateType(type!.id, { ...saved, workflows: [{ ...workflowPresets.machines, key: 'machines', responsibleUnitId: null }] }, saved.version)).rejects.toThrow(/problems/);
   });
 });
+
+describe('login fields', () => {
+  it('stores the password with the secrets, never in search, and shows it to whom the field allows', async () => {
+    const db = await database();
+    const store = new PgRegistryStore(db, false);
+    await store.upsertUnitRef({ id: U.company, key: 'company', name: 'Company', kind: 'team', parentId: null, path: [U.company], archived: false });
+    for (const p of [dana, tom, noa]) await store.upsertUserRef({ id: p.userId, displayName: p.displayName, active: true });
+    const types = new TypeService(store);
+    const assets = new AssetService(store, new AccessResolver(store));
+    const login = (key: string, ownerCanSee?: boolean) => ({ id: crypto.randomUUID(), key, label: key, kind: 'login' as const, required: false, restricted: false, showInTable: false, ...(ownerCanSee && { ownerCanSee }), config: { secretLabel: 'password' as const } });
+    const type = await types.createType({ key: 'portal', name: 'Portal', icon: 'box', color: '#6366f1', statuses: [{ value: 'active', label: 'Active', color: '#10b981', active: true }], sections: [], fields: [login('admin'), login('user_login', true)] });
+    const item = await assets.create(admin, {
+      assetTypeId: type.id, name: 'Miro', ownerId: tom.userId, unitId: U.company, variantId: null, catalogId: null, reminderOverrides: {},
+      attributes: { admin: { url: 'https://miro.com/admin', username: 'ops@corp.com', secret: 'S3cret-admin' }, user_login: { username: 'tom@corp.com', secret: 'S3cret-user' } },
+    });
+    const row = await db.selectFrom('assets').select(['attributes', 'restricted_attributes', 'search_text']).where('id', '=', item.id).executeTakeFirstOrThrow();
+    expect(JSON.stringify(row.attributes)).not.toContain('S3cret');
+    expect(row.restricted_attributes).toEqual({ admin: { secret: 'S3cret-admin' }, user_login: { secret: 'S3cret-user' } });
+    expect(row.search_text).toContain('ops@corp.com');
+    expect(row.search_text).not.toContain('S3cret');
+    // Buyers see everything; the owner sees only the password the field allows; others see neither.
+    expect((await assets.get(admin, item.id)).attributes.admin).toEqual({ url: 'https://miro.com/admin', username: 'ops@corp.com', secret: 'S3cret-admin' });
+    const asTom = (await assets.get(tom, item.id)).attributes;
+    expect(asTom.admin).toEqual({ url: 'https://miro.com/admin', username: 'ops@corp.com', hasSecret: true });
+    expect(asTom.user_login).toEqual({ username: 'tom@corp.com', secret: 'S3cret-user' });
+    expect((await assets.get(noa, item.id)).attributes.user_login).toEqual({ username: 'tom@corp.com', hasSecret: true });
+    // An editor without "See secrets" changes the user name; the password is kept.
+    const editor = { ...noa, grants: [{ unitId: U.company, assetTypeId: null, permissions: ['view', 'comment', 'attach', 'create', 'edit', 'renew', 'export'] as Principal['grants'][number]['permissions'] }] };
+    await assets.update(editor, item.id, { attributes: { admin: { url: 'https://miro.com/admin', username: 'it@corp.com', hasSecret: true } } });
+    expect((await assets.get(admin, item.id)).attributes.admin).toEqual({ url: 'https://miro.com/admin', username: 'it@corp.com', secret: 'S3cret-admin' });
+  });
+});

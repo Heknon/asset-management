@@ -339,6 +339,9 @@ export function coerceCell(field: FieldDefinition, raw: string, ctx: CoerceConte
       return { value: s.toLowerCase() };
     case 'url':
       return { value: /^[a-z]+:\/\//i.test(s) ? s : `https://${s}` };
+    case 'login':
+      // One column fills the address (a link) or the user name; passwords are not imported from a sheet.
+      return { value: /^[a-z]+:\/\//i.test(s) ? { url: s } : { username: s } };
     default:
       return { value: s };
   }
