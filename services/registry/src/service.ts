@@ -72,7 +72,7 @@ export const registryService = defineService<RegistryDB, typeof registryConfig>(
     // Once: re-store values by the current schemas (team secrets used to be kept with the open values).
     void (async () => {
       if (!(await store.getSetting('values_resplit_v1'))) {
-        for (const id of await store.allAssetIds()) await store.resplitAsset(id);
+        for (const id of await store.allAssetIds()) await store.transaction((tx) => tx.resplitAsset(id));
         await store.putSetting('values_resplit_v1', true);
       }
     })()

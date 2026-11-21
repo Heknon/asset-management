@@ -81,7 +81,9 @@ export function registerRoutes(app: FastifyInstance, { types, variants, assets, 
   app.put(`${PREFIX}/date-kinds/:id`, async (req) => {
     await types.assertCanManage(requirePrincipal(req));
     const body = parse(dateKindInputSchema.extend({ archived: z.boolean().default(false) }), req.body);
-    return types.updateDateKind(parse(idParam, req.params).id, body);
+    const saved = await types.updateDateKind(parse(idParam, req.params).id, body);
+    reindexLater();
+    return saved;
   });
 
   // ─── Asset types (templates) ─────────────────────────────────────────────

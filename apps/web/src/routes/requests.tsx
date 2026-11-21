@@ -300,13 +300,17 @@ export function RequestDetailPage() {
   const request = useRequest(requestId);
   const events = useRequestEvents(requestId);
   const me = useMe().data!;
-  const { typeById, variantById, unitById } = useLookups();
+  const { typeById, variantById, unitById, schemaOf, kindById } = useLookups();
   const act = useAct(requestId);
   useRemember(request.data ? { kind: 'request', id: request.data.id, title: request.data.title, subtitle: t('Request') } : null);
   const [comment, setComment] = useState('');
   const [closing, setClosing] = useState<RequestStatusInfo | null>(null);
   const [renewing, setRenewing] = useState<RequestStatusInfo | null>(null);
   const [renewedUntil, setRenewedUntil] = useState('');
+  // A renewed date with no fixed term needs its new date (it cannot roll forward by itself).
+  const renewalField = request.data?.renewal ? schemaOf(request.data.assetTypeId ?? '', request.data.variantId)?.fields.find((f) => f.key === request.data!.renewal!.fieldKey) : undefined;
+  const tracking = renewalField?.kind === 'date' ? renewalField.config.tracking : undefined;
+  const needsUntil = !!tracking && (tracking.recurrence?.mode === 'manual' || (tracking.recurrence === undefined && !kindById.get(tracking.dateKindId)?.defaultRecurrence));
   const [reason, setReason] = useState('');
   const [editing, setEditing] = useState(false);
   const [fulfilType, setFulfilType] = useState<string | null>(null);
@@ -477,12 +481,17 @@ export function RequestDetailPage() {
         open={!!renewing}
         onOpenChange={(o) => !o && (setRenewing(null), setRenewedUntil(''))}
         title={renewing ? t('{status} — renewed until?', { status: tMaybe(renewing.label) }) : ''}
-        description={t('Leave empty to roll the date forward by its usual term. Set it when you got something else, e.g. a year and 10 days, or when the date has no fixed term.')}
+        description={
+          needsUntil
+            ? t('This date has no fixed term: set the new one. Reminders and the next renewal follow it.')
+            : t('Leave empty to roll the date forward by its usual term. Set it when you got something else, e.g. a year and 10 days, or when the date has no fixed term.')
+        }
         footer={
           <>
             <Button onClick={() => (setRenewing(null), setRenewedUntil(''))}>{t('Cancel')}</Button>
             <Button
               variant="primary"
+              disabled={needsUntil && !renewedUntil}
               onClick={() => {
                 act.mutate({ action: 'status', status: renewing!.key, ...(renewedUntil && { renewedUntil }) });
                 setRenewing(null);

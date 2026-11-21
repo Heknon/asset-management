@@ -168,7 +168,8 @@ export class ObligationService {
         }, { id: principal.userId, name: principal.displayName });
         break;
       case 'complete':
-        if (o.recurring) throw AppError.validation(`Use "${o.dateKind.actionLabel}" on the asset to roll this date forward`);
+        // A renewal is done by renewing it on the item (a new date), not by ticking it off.
+        if (o.recurring || o.dateKind.behavior === 'recurring') throw AppError.validation(`Use "${o.dateKind.actionLabel}" on the asset to set its new date`);
         assertActive(o);
         await this.store.resolveObligation(id, 'done', principal.userId, action.note ?? null);
         break;

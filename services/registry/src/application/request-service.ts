@@ -353,11 +353,10 @@ export class RequestService {
           saved.status = status.key;
           saved.statusCategory = status.category;
         }
-        if (variantId === r.workflowVariantId) await startRequestWorkflows(tx, saved, 'created', { id: p.userId, name: p.displayName });
       }
-      if (variantId !== r.workflowVariantId) {
+      // Another template or team fields: their workflows replace the old ones; those running alongside the purchase start now.
+      if (row.assetTypeId !== r.assetTypeId || variantId !== r.workflowVariantId) {
         await switchRequestVariant(tx, saved, variantId);
-        // The new team's workflows that run alongside the purchase start now.
         await startRequestWorkflows(tx, saved, 'created', { id: p.userId, name: p.displayName });
       }
       await tx.addRequestEvent({ requestId: id, actorId: p.userId, actorName: p.displayName, kind: 'edited', body: null, fromStatus: null, toStatus: null });

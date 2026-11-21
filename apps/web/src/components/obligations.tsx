@@ -112,12 +112,14 @@ function RenewUntilDialog({ obligation, onClose, onRenew }: { obligation: Obliga
 function SnoozeDialog({ obligation, onClose, onSnooze }: { obligation: Obligation | null; onClose: () => void; onSnooze: (until: string) => void }) {
   const today = todayIso();
   const [custom, setCustom] = useState(addDuration(today, { amount: 3, unit: 'day' }));
+  // Until the due date at the latest (while it is ahead): snoozing past it would hide that it is due.
+  const latest = obligation && obligation.dueDate > today ? obligation.dueDate : undefined;
   const presets = [
     { label: t('Tomorrow'), date: addDuration(today, { amount: 1, unit: 'day' }) },
     { label: plural(3, 'In {n} day', 'In {n} days'), date: addDuration(today, { amount: 3, unit: 'day' }) },
     { label: t('Next week'), date: addDuration(today, { amount: 7, unit: 'day' }) },
     { label: plural(2, 'In {n} week', 'In {n} weeks'), date: addDuration(today, { amount: 14, unit: 'day' }) },
-  ];
+  ].filter((p) => !latest || p.date <= latest);
   return (
     <Dialog open={!!obligation} onOpenChange={(o) => !o && onClose()} title={t('Snooze reminders')} description={obligation ? `${obligation.label} · ${obligation.assetName}` : undefined}>
       <div className="grid grid-cols-2 gap-2">
@@ -129,8 +131,8 @@ function SnoozeDialog({ obligation, onClose, onSnooze }: { obligation: Obligatio
         ))}
       </div>
       <div className="mt-4 flex items-center gap-2">
-        <Input type="date" min={addDuration(today, { amount: 1, unit: 'day' })} value={custom} onChange={(e) => setCustom(e.target.value)} />
-        <Button variant="primary" onClick={() => onSnooze(custom)}>
+        <Input type="date" min={addDuration(today, { amount: 1, unit: 'day' })} max={latest} value={latest && custom > latest ? latest : custom} onChange={(e) => setCustom(e.target.value)} />
+        <Button variant="primary" onClick={() => onSnooze(latest && custom > latest ? latest : custom)}>
           {t('Snooze')}
         </Button>
       </div>
@@ -239,7 +241,8 @@ export function ObligationList({
                   {t('Still needed?')}
                 </Button>
               )}
-              {editable && active && renews && !buyer && !o.renewalRequest && (
+              {/* Asked "still needed?": answering "Renew" asks for the renewal, one button is enough. */}
+              {(editable || mine) && active && renews && !buyer && !o.renewalRequest && !(mine && o.check?.status === 'asked') && (
                 <Button
                   size="sm"
                   variant={o.urgency === 'overdue' || o.urgency === 'due_soon' ? 'primary' : 'secondary'}

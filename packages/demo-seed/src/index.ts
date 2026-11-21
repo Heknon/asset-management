@@ -127,6 +127,8 @@ export async function seedDemo(env: SeedEnvironment): Promise<void> {
   const current = await admin('GET', '/api/registry/asset-types');
   for (const key of ['software_license', 'sim_line', 'hardware', 'domain_certificate']) types[key] = current.find((t: Json) => t.key === key) ?? (await admin('POST', `/api/registry/templates/${key}/instantiate`));
   await env.settle(); // projections catch up (units, people)
+  // Procurement is responsible for purchases: it handles every request and renews; other teams ask.
+  await admin('PUT', '/api/registry/workflows/purchase-unit', { unitId: byName('Procurement').id });
 
   // ─── Assets ──────────────────────────────────────────────────────────────────
   const saas: Array<[string, string, number]> = [

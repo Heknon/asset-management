@@ -552,7 +552,8 @@ export class PgRegistryStore implements RegistryStore {
    * for re-indexing, so search stops finding what is now secret.
    */
   async resplitAsset(id: string) {
-    const asset = await this.getAsset(id);
+    // Locked: a save at the same moment is not overwritten with the values read here.
+    const asset = await this.getAsset(id, { forUpdate: true });
     if (!asset) return;
     const type = await this.getType(asset.assetTypeId);
     const variant = asset.variantId ? await this.getVariant(asset.variantId) : null;
