@@ -331,7 +331,10 @@ export class RequestService {
           // Picking up a request assigns it, so the requester knows who is on it.
           if (handler && !r.assigneeId && r.statusCategory === 'todo' && to.category === 'active') await tx.setRequestAssignee(id, p.userId);
           if (to.category === 'done') {
-            await finishPurchase(tx, r, wf, to, actor, { body: action.note ?? null, note: action.note ?? null });
+            // The history says what was bought when it was not one term ("Renewed until 2027-12-20").
+            const until = action.renewedUntil ? `Renewed until ${action.renewedUntil}` : null;
+            const body = [until, action.note].filter(Boolean).join('\n') || null;
+            await finishPurchase(tx, r, wf, to, actor, { body, note: body });
             break;
           }
           await tx.setRequestStatus(id, to);

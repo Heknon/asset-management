@@ -1,7 +1,7 @@
 import type { UserSummary } from '@am/core';
 import { Command } from 'cmdk';
 import { Building2, Check, ChevronRight, ChevronsUpDown, X } from 'lucide-react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { OrgUnit } from '@am/core';
 import { t, tMaybe } from '@/lib/i18n';
 import { useLookups, usePeople, usePeopleSearch, useAssetTypes } from '@/lib/queries';
@@ -11,7 +11,7 @@ import { Select } from './ui/form';
 import { Popover } from './ui/overlay';
 import { typeIcons } from './type-icon';
 
-const triggerClass =
+export const triggerClass =
   'flex h-8 w-full items-center gap-2 rounded-lg border border-border bg-surface px-2.5 text-start text-[13px] transition-colors hover:border-border-strong focus:border-accent focus:outline-none';
 
 /** Searchable picker for a directory person. */
@@ -25,6 +25,8 @@ export function PersonPicker({ value, onChange, id, placeholder, allowClear = tr
       open={open}
       onOpenChange={setOpen}
       className="w-[var(--radix-popover-trigger-width)] min-w-64"
+      // Phones: a sheet with the search on top, so the keyboard never covers the list.
+      phoneTitle={t('Choose a person')}
       trigger={
         <button id={id} type="button" className={triggerClass}>
           {selected ? (
@@ -164,6 +166,7 @@ export function UnitPicker({
       open={open}
       onOpenChange={setOpen}
       className="w-[var(--radix-popover-trigger-width)] min-w-80"
+      phoneTitle={t('Choose a team')}
       trigger={
         <button id={id} type="button" className={triggerClass}>
           {value ? <UnitPath id={value} /> : <span className="text-subtle">{allowClear ? clearLabel : placeholder}</span>}
@@ -283,5 +286,45 @@ export function IconPicker({ value, onChange, color }: { value: string; onChange
         </button>
       ))}
     </div>
+  );
+}
+
+const commonCurrencies = ['USD', 'EUR', 'GBP', 'ILS', 'CHF', 'JPY', 'CAD', 'AUD', 'INR', 'CNY'];
+
+/** Every ISO currency the browser knows, with its name in the person's language. */
+function currencyNames(current: string): Array<{ code: string; name: string }> {
+  let all: string[] = [];
+  try {
+    all = (Intl as unknown as { supportedValuesOf?: (k: string) => string[] }).supportedValuesOf?.('currency') ?? [];
+  } catch {
+    all = [];
+  }
+  let names: Intl.DisplayNames | null = null;
+  try {
+    names = new Intl.DisplayNames([document.documentElement.lang || 'en'], { type: 'currency' });
+  } catch {
+    names = null;
+  }
+  return [...new Set([...commonCurrencies, ...(current ? [current] : []), ...all])].map((code) => ({ code, name: names?.of(code) ?? code }));
+}
+
+/** Pick a currency by name ("ILS — Israeli New Shekel"): common ones first, then every other. */
+export function CurrencySelect({ value, onChange, id, className }: { value: string; onChange: (code: string) => void; id?: string; className?: string }) {
+  const list = useMemo(() => currencyNames(value), [value]);
+  return (
+    <Select id={id} aria-label={id ? undefined : t('Currency')} className={className} value={value} onChange={(e) => onChange(e.target.value)}>
+      {[
+        { label: t('Common'), items: list.filter((c) => commonCurrencies.includes(c.code)) },
+        { label: t('All currencies'), items: list.filter((c) => !commonCurrencies.includes(c.code)) },
+      ].map((g) => (
+        <optgroup key={g.label} label={g.label}>
+          {g.items.map((c) => (
+            <option key={c.code} value={c.code}>
+              {c.code === c.name ? c.code : `${c.code} — ${c.name}`}
+            </option>
+          ))}
+        </optgroup>
+      ))}
+    </Select>
   );
 }
