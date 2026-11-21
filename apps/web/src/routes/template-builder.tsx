@@ -1192,6 +1192,14 @@ function KindConfig({ field, fields, kinds, setConfig }: { field: FieldDefinitio
  * pick a date kind, optionally derive it from another date, and tune
  * recurrence, reminders and recipients.
  */
+type Cadence = 'schedule' | 'manual' | 'once' | 'none';
+const cadenceHint = (): Record<Cadence, string> => ({
+  schedule: t('“Renew” rolls it forward by the term below; any renewal can still be set to another date.'),
+  manual: t('No fixed term: when it is renewed, you enter the new date (e.g. a year and 10 days). Reminders and renewal requests work as usual.'),
+  once: t('Reminders lead up to it; marking it done ends them. Good for an expiry or a warranty end.'),
+  none: t('Shown on the item, no reminders.'),
+});
+
 function DateMeaning({ field, fields, kinds, onChange }: { field: Extract<FieldDefinition, { kind: 'date' }>; fields: FieldDefinition[]; kinds: DateKind[]; onChange: (tr: DateTracking | undefined) => void }) {
   const tr = field.config.tracking;
   const kind = tr && kinds.find((k) => k.id === tr.dateKindId);
@@ -1199,6 +1207,9 @@ function DateMeaning({ field, fields, kinds, onChange }: { field: Extract<FieldD
   const numbers = fields.filter((f) => f.kind === 'number');
   const users = fields.filter((f) => f.kind === 'user');
   const set = (patch: Partial<DateTracking>) => onChange({ ...tr!, ...patch });
+  // What the date is (its kind) and how it comes back are two choices; the second defaults to the kind's.
+  const behavior = tr?.behavior ?? kind?.behavior ?? 'milestone';
+  const cadence: Cadence = behavior === 'informational' ? 'none' : behavior === 'milestone' ? 'once' : tr?.recurrence?.mode === 'manual' ? 'manual' : 'schedule';
 
   return (
     <div className="space-y-4 rounded-xl border border-border p-3">
@@ -1209,19 +1220,42 @@ function DateMeaning({ field, fields, kinds, onChange }: { field: Extract<FieldD
       <Select
         value={tr?.dateKindId ?? ''}
         onChange={(e) => onChange(e.target.value ? { dateKindId: e.target.value, notify: tr?.notify ?? { owner: true, userFields: [], emails: [], unitManagers: 'fallback' }, derive: tr?.derive, recurrence: tr?.recurrence, reminders: tr?.reminders, confirmBefore: tr?.confirmBefore ?? null } : undefined)}
+        aria-label={t('What is this date?')}
       >
         <option value="">{t('Just a date (not tracked)')}</option>
         {kinds
           .filter((k) => !k.archived || k.id === tr?.dateKindId)
           .map((k) => (
             <option key={k.id} value={k.id}>
-              {tMaybe(k.name)} — {k.behavior === 'recurring' ? t('repeats') : k.behavior === 'milestone' ? t('one-off') : t('no reminders')}
+              {tMaybe(k.name)}
             </option>
           ))}
       </Select>
 
       {tr && kind && (
         <>
+          <Field label={t('How does it come back?')} hint={cadenceHint()[cadence]}>
+            {(id) => (
+              <Select
+                id={id}
+                value={cadence}
+                onChange={(e) => {
+                  const c = e.target.value as Cadence;
+                  const behavior = c === 'schedule' || c === 'manual' ? 'recurring' : c === 'once' ? 'milestone' : 'informational';
+                  // Following the kind's own behaviour stores nothing, so changing the kind later still applies.
+                  set({
+                    behavior: behavior === kind.behavior ? undefined : behavior,
+                    recurrence: c === 'manual' ? { mode: 'manual' } : tr.recurrence?.mode === 'manual' ? undefined : tr.recurrence,
+                  });
+                }}
+              >
+                <option value="schedule">{t('Renewed on a schedule (every year, every term…)')}</option>
+                <option value="manual">{t('Renewed to a date you set each time')}</option>
+                <option value="once">{t('Once, then done')}</option>
+                <option value="none">{t('For reference only (no reminders)')}</option>
+              </Select>
+            )}
+          </Field>
           <Field label={t('Value')}>
             {() => (
               <Segmented
@@ -1275,12 +1309,12 @@ function DateMeaning({ field, fields, kinds, onChange }: { field: Extract<FieldD
             </div>
           )}
 
-          {kind.behavior === 'recurring' && !tr.derive && (
+          {cadence === 'schedule' && !tr.derive && (
             <Field label={t('Repeats every')} hint={kind.defaultRecurrence ? t('Default for {kind}: every {duration}', { kind: tMaybe(kind.name), duration: describeDuration(kind.defaultRecurrence) }) : undefined}>
               {() => (
                 <div className="space-y-2">
                   <Select
-                    value={tr.recurrence ? (tr.recurrence.mode === 'fixed' ? 'fixed' : `field:${tr.recurrence.field}`) : 'default'}
+                    value={tr.recurrence?.mode === 'fixed' ? 'fixed' : tr.recurrence?.mode === 'field' ? `field:${tr.recurrence.field}` : 'default'}
                     onChange={(e) => {
                       const v = e.target.value;
                       set({ recurrence: v === 'default' ? undefined : v === 'fixed' ? { mode: 'fixed', every: kind.defaultRecurrence ?? { amount: 1, unit: 'year' } } : { mode: 'field', field: v.slice(6), unit: 'month' } });
@@ -1309,12 +1343,12 @@ function DateMeaning({ field, fields, kinds, onChange }: { field: Extract<FieldD
             </Field>
           )}
 
-          {kind.behavior !== 'informational' && (
+          {behavior !== 'informational' && (
             <>
               <Field label={t('Reminders')} aside={<Checkbox checked={!!tr.reminders} onChange={(c) => set({ reminders: c ? kind.defaultReminders : undefined })} label={<span className="text-xs">{t('Custom')}</span>} />}>
                 {() => (tr.reminders ? <DurationListEditor value={tr.reminders} onChange={(reminders) => set({ reminders })} /> : <p className="text-xs text-muted">{t('{reminders} (from {kind})', { reminders: formatDurations(kind.defaultReminders), kind: tMaybe(kind.name) })}</p>)}
               </Field>
-              {kind.behavior === 'recurring' && (
+              {behavior === 'recurring' && (
                 <Field
                   label={t('Ask the owner first')}
                   hint={t('Before each renewal, the owner is asked whether to renew as is, renew with changes, or not renew. Buyers see the answer next to the date.')}
