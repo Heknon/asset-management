@@ -2,6 +2,7 @@ import { metrics, randomToken, sha256Hex } from '@am/platform';
 import { AppError, type AuthProviderInfo, type Me, type PasswordLogin, type SignedInSession } from '@am/core';
 import { isAdministrator, type ExternalIdentity, type UserRecord } from '../domain/model.js';
 import type { IdentityStore, PasswordProvider, RedirectProvider, RedirectState, TokenIssuer } from './ports.js';
+import { orgTagFor } from './directory-import.js';
 
 export interface IssuedSession {
   accessToken: string;
@@ -141,6 +142,9 @@ export class AuthService {
   }
 
   private async establish(identity: ExternalIdentity, userAgent: string | null): Promise<IssuedSession> {
+    // Where the person sits under the directory import's rule: their unit follows them at every sign-in.
+    const org = await orgTagFor(this.store, identity);
+    if (org) identity = { ...identity, tags: [...identity.tags, org] };
     const user = await this.store.transaction(async (tx) => {
       const u = await tx.upsertUserFromIdentity(identity);
       if (identity.source !== 'local') {

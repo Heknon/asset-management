@@ -179,6 +179,77 @@ export interface OrgImportResult {
   errors: Array<{ line: number; message: string }>;
 }
 
+// ─── Directory import ─────────────────────────────────────────────────────
+
+/**
+ * How the org tree is read from the directory: from attributes, in order
+ * (company › division › department), or from the folders (OUs) people sit in,
+ * minus the folders everyone shares. Every person gets the tag of their path
+ * (`org:R&D / Platform`), at the import and at each sign-in, and each unit is
+ * linked to its path's tag, so people stay placed without anyone's help.
+ */
+export const orgRuleSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('attributes'), attributes: z.array(z.string().min(1).max(60)).min(1).max(6) }),
+  z.object({ kind: z.literal('ou'), skip: z.array(z.string().max(200)).max(20).default([]) }),
+]);
+export type OrgRule = z.infer<typeof orgRuleSchema>;
+
+export interface DirectoryRuleOption {
+  rule: OrgRule;
+  /** "company › division › department", or "Folders (OU)". */
+  label: string;
+  /** People this rule places in a unit. */
+  placed: number;
+  units: number;
+  depth: number;
+}
+
+export interface DirectoryUnitPreview {
+  path: string[];
+  /** People placed directly in this unit. */
+  people: number;
+  /** An existing unit it will be linked to (same name path, or already linked). */
+  existingId: string | null;
+  /** Suggested head: the person most of the unit reports to. Null when the directory does not say. */
+  manager: { name: string; email: string | null } | null;
+}
+
+export interface DirectoryPreview {
+  people: number;
+  /** False when the directory had more people than one import reads; leavers are then not deactivated. */
+  complete: boolean;
+  options: DirectoryRuleOption[];
+  rule: OrgRule;
+  units: DirectoryUnitPreview[];
+  /** People the rule cannot place (no department, …): placed by hand afterwards. */
+  unplaced: { count: number; sample: Array<{ name: string; email: string | null }> };
+  users: { create: number; update: number; deactivate: number; deactivateSample: string[] };
+}
+
+export const directoryPreviewSchema = z.object({ rule: orgRuleSchema.optional() });
+
+export const directoryApplySchema = z.object({
+  rule: orgRuleSchema,
+  /** Name paths left out (with everything beneath them). */
+  exclude: z.array(z.array(z.string().max(200)).max(10)).max(500).default([]),
+  /** Make the suggested heads managers of their units. */
+  managers: z.boolean().default(true),
+  /** Deactivate directory accounts that are no longer in the directory. */
+  deactivateLeavers: z.boolean().default(true),
+  kinds: z.array(z.string().min(1).max(40)).max(10).default(['Company', 'Division', 'Department', 'Team']),
+});
+export type DirectoryApply = z.infer<typeof directoryApplySchema>;
+
+export interface DirectoryApplyResult {
+  unitsCreated: number;
+  unitsLinked: number;
+  usersCreated: number;
+  usersUpdated: number;
+  usersDeactivated: number;
+  managersSet: number;
+  unplaced: number;
+}
+
 export interface UnitPerson extends UserSummary {
   role: UnitRole;
   source: 'manual' | 'directory';

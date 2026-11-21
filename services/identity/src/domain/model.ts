@@ -16,6 +16,8 @@ export interface ExternalIdentity {
   tags: string[];
   /** Provider says this person is an administrator (member of a configured admin group). */
   directoryAdmin: boolean;
+  /** Directory attributes that may say where the person sits (company, division, department…), for the org tree's rule. */
+  attributes?: Record<string, string[]>;
 }
 
 export interface UserRecord {

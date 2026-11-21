@@ -4,7 +4,8 @@ import { AccessService } from './application/access-service.js';
 import { AuthService } from './application/auth-service.js';
 import { DirectoryService } from './application/directory-service.js';
 import { OrgService } from './application/org-service.js';
-import type { PasswordProvider, RedirectProvider } from './application/ports.js';
+import type { DirectoryCrawler, PasswordProvider, RedirectProvider } from './application/ports.js';
+import { DirectoryImportService } from './application/directory-import.js';
 import { GoogleSignIn, type GoogleClient } from './application/google-sign-in.js';
 import { identityConfig, signInMethods } from './config.js';
 import { normalizeUsername } from './domain/model.js';
@@ -24,7 +25,7 @@ export type IdentityConfig = BaseConfig & z.infer<z.ZodObject<typeof identityCon
 /** Directory sign-in (LDAP / ADFS) and the scrypt implementation: Node-only on the server; the browser runtime has local accounts only. */
 export interface IdentityAdapters {
   scrypt: ScryptFn;
-  directories?(config: IdentityConfig, logger: Logger): { passwords: Map<string, PasswordProvider>; redirect: RedirectProvider | null };
+  directories?(config: IdentityConfig, logger: Logger): { passwords: Map<string, PasswordProvider>; redirect: RedirectProvider | null; crawler?: DirectoryCrawler | null };
   /** Google's OpenID Connect client (server and serverless only). */
   google?(clientId: string, clientSecret: string): GoogleClient;
 }
@@ -62,10 +63,12 @@ export const defineIdentityService = (adapters: IdentityAdapters) => {
       const publicUrl = config.PUBLIC_URL.replace(/\/$/, '');
       // MCP clients sign people in here: they register, the person accepts on /oauth/authorize, they get tokens.
       registerOAuthRoutes(app, new OAuthService(new PgOAuthStore(database.db), auth, publicUrl));
+      const org = new OrgService(store);
       registerRoutes(app, {
         auth,
         directory: new DirectoryService(store, hasher, !!google),
-        org: new OrgService(store),
+        org,
+        directoryImport: new DirectoryImportService(store, org, directories.crawler ?? null, config.LDAP_CRAWL_LIMIT),
         access: new AccessService(store),
         jwks: () => issuer.jwks(),
         publicUrl,

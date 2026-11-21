@@ -2,7 +2,8 @@ import { AppError } from '@am/core';
 import { Client, type Entry } from 'ldapts';
 import * as oidc from 'openid-client';
 import type { Logger } from 'pino';
-import type { PasswordProvider, RedirectProvider, RedirectState } from '../application/ports.js';
+import type { DirectoryCrawler, PasswordProvider, RedirectProvider, RedirectState } from '../application/ports.js';
+import { orgAttributeCandidates, type DirectoryPerson } from '../domain/directory.js';
 import { normalizeUsername, otherNamesOf, type ExternalIdentity } from '../domain/model.js';
 
 // ─── LDAP / Active Directory ─────────────────────────────────────────────────
@@ -27,6 +28,10 @@ export interface LdapSettings {
   adminGroups: string[];
   /** User attributes that place people in units, e.g. department, division. */
   unitAttributes: string[];
+  /** Who is everyone (the directory import): e.g. people, not computers or service accounts. */
+  crawlFilter: string;
+  /** The attribute naming someone's manager (a DN). */
+  managerAttribute: string;
 }
 
 /** RFC 4515 filter value escaping — prevents LDAP injection through the username. */
@@ -76,7 +81,7 @@ export class LdapPasswordProvider implements PasswordProvider {
       const { searchEntries } = await service.search(this.s.userBaseDn, {
         scope: 'sub',
         filter: this.s.userFilter.replaceAll('{username}', escapeLdapFilter(login)),
-        attributes: ['dn', this.s.usernameAttribute, this.s.displayNameAttribute, ...this.s.nameAttributes, this.s.emailAttribute, this.s.membershipAttribute, ...this.s.unitAttributes],
+        attributes: ['dn', this.s.usernameAttribute, this.s.displayNameAttribute, ...this.s.nameAttributes, this.s.emailAttribute, this.s.membershipAttribute, ...this.s.unitAttributes, ...orgAttributeCandidates],
         sizeLimit: 2,
       });
       if (searchEntries.length !== 1) return null;
@@ -116,12 +121,85 @@ export class LdapPasswordProvider implements PasswordProvider {
         groups,
         tags: attributeTags(this.s.unitAttributes, (a) => all(entry![a])),
         directoryAdmin: groups.some((g) => adminSet.has(g.toLowerCase())),
+        // The org tree's rule places people by these (it is applied at sign-in too).
+        attributes: Object.fromEntries(orgAttributeCandidates.map((a) => [a, all(entry![a])]).filter(([, v]) => (v?.length ?? 0) > 0)),
       };
     } catch (err) {
       this.logger.error({ err: { message: (err as Error).message } }, 'LDAP authentication failed');
       throw new AppError('unavailable', 'The directory is not reachable right now');
     } finally {
       await service.unbind().catch(() => undefined);
+    }
+  }
+}
+
+/**
+ * Reads everyone in the directory for the import: page by page, people only
+ * (not computers or disabled accounts), with where they sit and who their
+ * manager is. Group memberships come from the membership attribute (memberOf).
+ */
+export class LdapCrawler implements DirectoryCrawler {
+  constructor(
+    private readonly s: LdapSettings,
+    private readonly logger: Logger,
+  ) {}
+
+  async crawl(limit: number): Promise<{ people: DirectoryPerson[]; complete: boolean }> {
+    const c = new Client({
+      url: this.s.url,
+      timeout: 60_000,
+      connectTimeout: 5_000,
+      tlsOptions: this.s.caCert ? { ca: [this.s.caCert], minVersion: 'TLSv1.2' } : { minVersion: 'TLSv1.2' },
+    });
+    const people: DirectoryPerson[] = [];
+    let complete = true;
+    try {
+      if (this.s.startTls) await c.startTLS(this.s.caCert ? { ca: [this.s.caCert] } : {});
+      await c.bind(this.s.bindDn, this.s.bindPassword);
+      const attributes = [
+        this.s.usernameAttribute,
+        this.s.displayNameAttribute,
+        ...this.s.nameAttributes,
+        this.s.emailAttribute,
+        this.s.membershipAttribute,
+        this.s.managerAttribute,
+        ...this.s.unitAttributes,
+        'userAccountControl',
+        ...orgAttributeCandidates,
+      ];
+      pages: for await (const page of c.searchPaginated(this.s.userBaseDn, { scope: 'sub', filter: this.s.crawlFilter, attributes, paged: { pageSize: 500 } })) {
+        for (const e of page.searchEntries) {
+          // Active Directory: "account disabled" is bit 2 of userAccountControl.
+          const uac = Number(first(e.userAccountControl) ?? 0);
+          if (uac & 2) continue;
+          const username = first(e[this.s.usernameAttribute]);
+          if (!username) continue;
+          if (people.length >= limit) {
+            complete = false;
+            break pages;
+          }
+          const displayName = first(e[this.s.displayNameAttribute]) ?? username;
+          const email = first(e[this.s.emailAttribute])?.toLowerCase() ?? null;
+          people.push({
+            dn: e.dn,
+            username: normalizeUsername(username),
+            displayName,
+            email,
+            otherNames: otherNamesOf(this.s.nameAttributes.flatMap((a) => all(e[a])), [displayName, username, email]),
+            groups: all(e[this.s.membershipAttribute]),
+            attributes: Object.fromEntries(orgAttributeCandidates.map((a) => [a, all(e[a])]).filter(([, v]) => (v?.length ?? 0) > 0)),
+            managerDn: first(e[this.s.managerAttribute]),
+            tags: attributeTags(this.s.unitAttributes, (a) => all(e[a])),
+            directoryAdmin: all(e[this.s.membershipAttribute]).some((g) => this.s.adminGroups.some((x) => x.toLowerCase() === g.toLowerCase())),
+          });
+        }
+      }
+      return { people, complete };
+    } catch (err) {
+      this.logger.error({ err: { message: (err as Error).message } }, 'LDAP crawl failed');
+      throw new AppError('unavailable', 'The directory could not be read right now');
+    } finally {
+      await c.unbind().catch(() => undefined);
     }
   }
 }
