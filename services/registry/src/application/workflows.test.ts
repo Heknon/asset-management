@@ -198,3 +198,51 @@ describe('login fields', () => {
     expect((await assets.get(admin, item.id)).attributes.admin).toEqual({ url: 'https://miro.com/admin', username: 'it@corp.com', secret: 'S3cret-admin' });
   });
 });
+
+describe('team fields', () => {
+  it('lets a team mark an item as theirs, so it carries their fields, without anyone else having to know them', async () => {
+    const store = new PgRegistryStore(await database(), false);
+    const unit = (uid: string, name: string, path: string[]) => store.upsertUnitRef({ id: uid, key: name.toLowerCase(), name, kind: 'team', parentId: path.at(-2) ?? null, path, archived: false });
+    await unit(U.company, 'Company', [U.company]);
+    await unit(U.procurement, 'Procurement', [U.company, U.procurement]);
+    await unit(U.rnd, 'R&D', [U.company, U.rnd]);
+    await unit(U.lab, 'Lab', [U.company, U.rnd, U.lab]);
+    for (const p of [dana, tom, noa]) await store.upsertUserRef({ id: p.userId, displayName: p.displayName, active: true });
+    const types = new TypeService(store);
+    const assets = new AssetService(store, new AccessResolver(store));
+    const requests = new RequestService(store, assets);
+    const license = await types.createFromTemplate('software_license');
+    const text = (key: string, required = false) => ({ id: crypto.randomUUID(), key, label: key, kind: 'text' as const, required, restricted: false, showInTable: false, config: {} });
+    const avi = await new VariantService(store).create(admin, license.id, { unitId: U.lab, name: 'AVI license', description: null, sections: [], fields: [text('workstation', true), text('mac')] });
+
+    // Tom asks for a license: "for us, this is an AVI license".
+    const asked = await requests.create(tom, { title: 'Keysight for the lab', description: '', unitId: U.lab, assetTypeId: license.id, quantity: 1, estimatedCost: null, neededBy: null, link: null, variantId: avi.id });
+    expect(asked.variantId).toBe(avi.id);
+    // Somewhere else, it does not fit.
+    await expect(requests.create(dana, { ...asked, title: 'For procurement', unitId: U.procurement, variantId: avi.id, estimatedCost: null })).rejects.toThrow(/only available/);
+
+    // Procurement buys it without knowing the lab's fields (the workstation is required, but not of them).
+    const item = await assets.create(dana, { assetTypeId: license.id, name: 'Keysight', ownerId: tom.userId, unitId: U.lab, variantId: null, catalogId: null, requestId: asked.id, attributes: { vendor: 'Keysight', renewal_date: '2027-01-15' }, reminderOverrides: {} });
+    expect(item.variantId).toBe(avi.id);
+
+    // Tom (no edit rights) fills them in; only the team's fields.
+    const asTom = await assets.get(tom, item.id);
+    expect(asTom.teamFields).toEqual({ choices: [{ id: avi.id, name: 'AVI license', unitId: U.lab }], canFill: true });
+    const filled = await assets.setTeamFields(tom, item.id, { attributes: { workstation: 'WS-12', mac: 'aa:bb' } });
+    expect(filled.attributes).toMatchObject({ vendor: 'Keysight', workstation: 'WS-12', mac: 'aa:bb' });
+    await expect(assets.setTeamFields(tom, item.id, { attributes: { vendor: 'Other' } })).rejects.toThrow(/team’s own fields/);
+    await expect(assets.update(tom, item.id, { name: 'x' })).rejects.toThrow();
+    // Someone outside the team may not.
+    expect((await assets.get(noa, item.id)).teamFields).toEqual({ choices: [], canFill: false });
+    await expect(assets.setTeamFields(noa, item.id, { attributes: { mac: 'cc' } })).rejects.toThrow(/team/);
+
+    // Items nobody marked stay as they are; the team can turn its fields on later, and off.
+    const plain = await assets.create(dana, { assetTypeId: license.id, name: 'Plain', ownerId: tom.userId, unitId: U.lab, variantId: null, catalogId: null, attributes: { vendor: 'X', renewal_date: '2027-01-15' }, reminderOverrides: {} });
+    expect(plain.variantId).toBeNull();
+    const marked = await assets.setTeamFields(tom, plain.id, { variantId: avi.id, attributes: { mac: 'dd' } });
+    expect(marked).toMatchObject({ variantId: avi.id, attributes: { mac: 'dd' } });
+    const removed = await assets.setTeamFields(tom, plain.id, { variantId: null, attributes: {} });
+    expect(removed.variantId).toBeNull();
+    expect(removed.attributes.mac).toBeUndefined();
+  });
+});

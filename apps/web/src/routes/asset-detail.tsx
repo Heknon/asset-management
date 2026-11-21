@@ -1,7 +1,7 @@
 import { canSeeField, isRestricted, type ActivityEntry, type AssetType, type FieldDefinition } from '@am/core';
 import { useMutation } from '@tanstack/react-query';
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
-import { ArrowLeft, CalendarClock, FolderOpen, History, MoreHorizontal, Pencil, Sparkles, Trash2, Workflow } from 'lucide-react';
+import { CalendarClock, Plus, Users, FolderOpen, History, MoreHorizontal, Pencil, Sparkles, Trash2, Workflow } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { AssetFormSheet } from '@/components/asset-form';
@@ -20,7 +20,7 @@ import { api, ApiError } from '@/lib/api';
 import { useActivity, useAsset, useAssetRequest, useCatalog, useInvalidateAssets, useLookups, useMe, useObligations } from '@/lib/queries';
 import { plural, t, tMaybe } from '@/lib/i18n';
 import { tj } from '@/lib/i18n-react';
-import { formatDate, formatDateTime } from '@/lib/utils';
+import { formatDate, formatDateTime, inSentence } from '@/lib/utils';
 import type { Asset, Obligation, Permission, WorkflowView } from '@am/core';
 import { useRemember } from '@/lib/recent';
 
@@ -34,7 +34,7 @@ export function AssetDetailPage() {
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const type = asset.data ? lookups.typeById.get(asset.data.assetTypeId) : undefined;
-  // The template plus the team variant's fields, named after the variant.
+  // The template plus the fields a team added to this item.
   const schema = asset.data ? lookups.schemaOf(asset.data.assetTypeId, asset.data.variantId) : undefined;
   useRemember(asset.data && type ? { kind: 'asset', id: asset.data.id, title: asset.data.name, subtitle: asset.data.reference, icon: type.icon, color: type.color } : null);
 
@@ -71,9 +71,8 @@ export function AssetDetailPage() {
             <span className="font-mono text-xs text-subtle" title={t('Item ID')}>
               {a.reference}
             </span>
-            <Link to="/assets" search={{ type: type.id }} className="inline-flex items-center gap-1 hover:text-fg">
-              <ArrowLeft className="size-3" />
-              {schema.name !== type.name ? `${schema.name} · ${type.name}` : type.name}
+            <Link to="/assets" search={{ type: type.id }} className="hover:text-fg" title={t('All {type} items', { type: inSentence(type.name) })}>
+              {type.name}
             </Link>
             <StatusBadge type={type} status={a.status} />
             <Link to="/units/$unitId" params={{ unitId: a.unitId }} className="hover:text-fg">
@@ -102,7 +101,8 @@ export function AssetDetailPage() {
       />
       <div className="mx-auto grid grid-cols-1 w-full max-w-6xl gap-6 px-4 sm:px-6 py-6 lg:grid-cols-[minmax(0,1fr)_380px]">
         <div className="space-y-6">
-          <Details assetId={a.id} type={schema} attributes={a.attributes} ownerId={a.ownerId} canSeeRestricted={can('restricted')} canEdit={canEdit} />
+          <Details assetId={a.id} type={type} attributes={a.attributes} ownerId={a.ownerId} canSeeRestricted={can('restricted')} canEdit={canEdit} />
+          <TeamFields asset={a} type={type} canSeeRestricted={can('restricted')} />
           <Documents assetId={a.id} canEdit={can('attach')} canManage={can('delete')} currentUserId={me.userId} />
           <Conversation assetId={a.id} permissions={a.permissions} />
         </div>
@@ -202,6 +202,120 @@ function Details({ assetId, type, attributes, ownerId, canSeeRestricted, canEdit
           </dl>
         </div>
       ))}
+    </Card>
+  );
+}
+
+/**
+ * A team's own fields on this item ("for us, this is an AVI license"). Only
+ * items a team marked have them; the team turns them on, fills them in and
+ * removes them, without edit rights on the item. Nobody else has to fill them.
+ */
+function TeamFields({ asset, type, canSeeRestricted }: { asset: Asset; type: AssetType; canSeeRestricted: boolean }) {
+  const { variantById, unitById } = useLookups();
+  const invalidate = useInvalidateAssets();
+  const meId = useMe().data?.userId;
+  const [removing, setRemoving] = useState(false);
+  const access = asset.teamFields ?? { choices: [], canFill: false };
+  const variant = asset.variantId ? variantById.get(asset.variantId) : undefined;
+  const save = useMutation({
+    mutationFn: (body: { variantId?: string | null; attributes?: Record<string, unknown> }) => api.put<Asset>(`/api/registry/assets/${asset.id}/team-fields`, { attributes: {}, ...body }),
+    onSuccess: () => invalidate(asset.id),
+  });
+  const saveValue = (attributes: Record<string, unknown>) =>
+    save.mutateAsync({ attributes }).catch((e) => {
+      toast.error(e instanceof ApiError ? e.message : t('Could not save'));
+      throw e;
+    });
+  const turnOn = (variantId: string) =>
+    save.mutate({ variantId }, { onError: (e) => toast.error(e instanceof ApiError ? e.message : t('Could not save')) });
+  const others = access.choices.filter((c) => c.id !== asset.variantId);
+  const teamName = (unitId: string) => unitById.get(unitId)?.name ?? '';
+
+  if (!variant) {
+    if (!others.length) return null;
+    const add = (c: (typeof others)[number]) => t('Add {team}’s fields ({name})', { team: teamName(c.unitId), name: c.name });
+    return (
+      <Card className="flex flex-wrap items-center gap-3">
+        <Users className="size-4 shrink-0 text-muted" />
+        <p className="min-w-0 flex-1 text-[13px] text-muted">{t('Does your team keep more details about this {type}? Add your fields to this item only.', { type: inSentence(type.name) })}</p>
+        {others.length === 1 ? (
+          <Button size="sm" icon={<Plus className="size-3.5" />} loading={save.isPending} onClick={() => turnOn(others[0]!.id)}>
+            {add(others[0]!)}
+          </Button>
+        ) : (
+          <Menu trigger={<Button size="sm" icon={<Plus className="size-3.5" />} loading={save.isPending}>{t('Add team fields')}</Button>}>
+            {others.map((c) => (
+              <MenuItem key={c.id} onSelect={() => turnOn(c.id)}>
+                {add(c)}
+              </MenuItem>
+            ))}
+          </Menu>
+        )}
+      </Card>
+    );
+  }
+
+  const fields = variant.fields.filter((f) => canSeeField(f, { canSeeRestricted, isOwner: !!asset.ownerId && asset.ownerId === meId }));
+  return (
+    <Card padded={false}>
+      <div className="flex items-center gap-2 border-b border-border px-5 py-3">
+        <Users className="size-4 text-muted" />
+        <div className="min-w-0 flex-1">
+          <h3 className="truncate text-[13px] font-semibold">{t('{team}’s fields', { team: teamName(variant.unitId) })}</h3>
+          <p className="truncate text-xs text-subtle">{t('For them, this is: {name}', { name: variant.name })}</p>
+        </div>
+        {access.canFill && (
+          <Menu trigger={<Button size="icon" aria-label={t('More')} icon={<MoreHorizontal className="size-4" />} />}>
+            {others.map((c) => (
+              <MenuItem key={c.id} onSelect={() => turnOn(c.id)}>
+                {t('Switch to {team}’s fields ({name})', { team: teamName(c.unitId), name: c.name })}
+              </MenuItem>
+            ))}
+            <MenuItem danger icon={<Trash2 />} onSelect={() => setRemoving(true)}>
+              {t('Remove these fields')}
+            </MenuItem>
+          </Menu>
+        )}
+      </div>
+      {fields.length ? (
+        <dl className="grid grid-cols-[140px_minmax(0,1fr)] gap-x-6 gap-y-3 px-5 py-4 text-[13px]">
+          {fields.map((f) => {
+            const empty = asset.attributes[f.key] === undefined || asset.attributes[f.key] === null || asset.attributes[f.key] === '';
+            const display = empty && f.required ? <span className="text-warning">{t('To fill in')}</span> : <AttributeValue field={f} value={asset.attributes[f.key] as never} />;
+            return (
+              <div key={f.key} className="contents">
+                <dt className="text-muted">{f.label}</dt>
+                <dd className="min-w-0">
+                  {access.canFill && (!isRestricted(f) || canSeeRestricted) && !(f.kind === 'date' && f.config.tracking?.derive) ? (
+                    <InlineEdit
+                      label={f.label}
+                      display={display}
+                      initial={asset.attributes[f.key]}
+                      editor={(_close, value, setValue) => <AttributeInput id={`team-${f.key}`} field={f} value={value} onChange={setValue} />}
+                      onSave={(v) => saveValue({ [f.key]: v })}
+                    />
+                  ) : (
+                    display
+                  )}
+                </dd>
+              </div>
+            );
+          })}
+        </dl>
+      ) : (
+        <p className="px-5 py-4 text-xs text-muted">{t('No fields of their own yet; their workflows apply.')}</p>
+      )}
+      <ConfirmDialog
+        open={removing}
+        onOpenChange={setRemoving}
+        danger
+        title={t('Remove {team}’s fields from {name}?', { team: teamName(variant.unitId), name: asset.name })}
+        description={t('What was filled in them is removed from this item (the history keeps it).')}
+        confirmLabel={t('Remove')}
+        loading={save.isPending}
+        onConfirm={() => save.mutate({ variantId: null }, { onSuccess: () => setRemoving(false), onError: (e) => toast.error(e instanceof ApiError ? e.message : t('Could not save')) })}
+      />
     </Card>
   );
 }
@@ -336,7 +450,7 @@ function Activity({ assetId, type }: { assetId: string; type: AssetType }) {
     if (key.startsWith('workflow:')) return tMaybe(key.slice(9));
     if (key === 'note') return t('Note');
     if (key.startsWith('attributes.')) return type.fields.find((f) => f.key === key.slice(11))?.label ?? key.slice(11);
-    return { name: t('Name'), status: t('Status'), ownerId: t('Owner'), unitId: t('Team'), catalogId: t('Catalog'), variantId: t('Kind'), reminderOverrides: t('Reminders'), request: t('Request') }[key] ?? key;
+    return { name: t('Name'), status: t('Status'), ownerId: t('Owner'), unitId: t('Team'), catalogId: t('Catalog'), variantId: t('Team fields'), reminderOverrides: t('Reminders'), request: t('Request') }[key] ?? key;
   };
   return (
     <Card>

@@ -13,6 +13,7 @@ import {
   type AssetCreate,
   type AssetQuery,
   type AssetUpdate,
+  type TeamFieldsInput,
   type Page,
   type Permission,
   type Principal,
@@ -30,6 +31,9 @@ import type { AccessResolver } from './access.js';
 import type { RegistryStore } from './ports.js';
 import { itemSchema, referenceOf, type ItemSchema } from './schema.js';
 import { completeRenewals, finishPurchase, purchaseUnit, Responsibility, workflowFor, workflowView } from './workflows.js';
+
+/** A team's own fields: never held to "required" when the item is saved (whoever buys it does not fill them). */
+const teamKeys = (sch: ItemSchema) => new Set((sch.variant?.fields ?? []).map((f) => f.key));
 
 export class AssetService {
   constructor(
@@ -69,7 +73,65 @@ export class AssetService {
       const unitId = asset.workflowStates[def.key]?.unitId ?? def.responsibleUnitId ?? asset.unitId;
       if (!can.has(unitId)) can.set(unitId, await resp.canAct(unitId));
     }
-    return this.present(principal, asset, sch, scope.shared, (unitId) => can.get(unitId) ?? false);
+    const presented = this.present(principal, asset, sch, scope.shared, (unitId) => can.get(unitId) ?? false);
+    return { ...presented, teamFields: await this.teamFieldsAccess(this.store, principal, asset, sch, resp, presented.permissions.includes('edit')) };
+  }
+
+  /** Team field sets that fit where the item sits; a team's own may be turned on by its people, any by those who edit the item. */
+  private async teamFieldsAccess(store: RegistryStore, principal: Principal, asset: AssetState, sch: ItemSchema, resp: Responsibility, canEdit: boolean) {
+    const variants = (await store.listVariants({ assetTypeId: asset.assetTypeId, unitIds: asset.unitPath })).filter((v) => !v.archived && asset.unitPath.includes(v.unitId));
+    const choices: Array<{ id: string; name: string; unitId: string }> = [];
+    for (const v of variants) if (canEdit || (await resp.canAct(v.unitId))) choices.push({ id: v.id, name: v.name, unitId: v.unitId });
+    return { choices, canFill: !!sch.variant && (canEdit || (await resp.canAct(sch.variant.unitId))) };
+  }
+
+  /**
+   * "For us, this is …": a team turns its fields on for an item, switches
+   * them, removes them, or fills them in. Their own people may, without edit
+   * rights on the item; only the team's fields change.
+   */
+  async setTeamFields(principal: Principal, id: string, input: TeamFieldsInput): Promise<Asset> {
+    await this.store.transaction(async (tx) => {
+      const current = await tx.getAsset(id, { forUpdate: true });
+      if (!current) throw AppError.notFound('Asset');
+      const scope = await this.resolver.assetScope(principal, current, tx);
+      const perms = authorize(principal, 'view', scope);
+      const canEdit = perms.has('edit');
+      const resp = new Responsibility(tx, principal);
+      const variantId = input.variantId !== undefined ? input.variantId : current.variantId;
+      const before = await this.schemaOf(tx, current);
+      const sch = await this.resolveVariant(tx, current.assetTypeId, variantId, current.unitPath, current.variantId);
+      for (const v of [before.variant, sch.variant]) {
+        if (v && !canEdit && !(await resp.canAct(v.unitId))) throw AppError.forbidden(`Only ${v.name}’s team (or whoever edits the item) can change its fields`);
+      }
+      if (!sch.variant && !before.variant) throw AppError.validation('Choose whose fields to add');
+      const own = new Set((sch.variant?.fields ?? []).map((f) => f.key));
+      const outside = Object.keys(input.attributes).filter((k) => !own.has(k));
+      if (outside.length) throw AppError.validation(`Only the team’s own fields can be set here (${outside.join(', ')})`);
+      await this.assertPeople(sch, null, input.attributes, tx);
+      const { merged, blocked } = mergeAttributes(sch.schema.fields, current.values, input.attributes, perms.has('restricted'));
+      if (blocked.length) throw AppError.forbidden(`Changing ${blocked.join(', ')} needs the “See secrets” permission`);
+      const draft: AssetDraft = {
+        assetTypeId: current.assetTypeId,
+        typeVersion: current.typeVersion,
+        name: current.name,
+        status: current.status,
+        ownerId: current.ownerId,
+        unitId: current.unitId,
+        catalogId: current.catalogId,
+        variantId: sch.variant?.id ?? null,
+        // Only the team's fields are being touched: nothing else is held to "required" here.
+        values: validatedValues(sch.schema, merged, new Set(sch.schema.fields.map((f) => f.key))),
+        reminderOverrides: current.reminderOverrides,
+      };
+      // Removed or switched team fields show up in the history too.
+      const changes = diff({ fields: [...sch.schema.fields, ...(before.variant && before.variant.id !== sch.variant?.id ? before.variant.fields : [])] }, current, draft);
+      if (!Object.keys(changes).length) return;
+      const saved = await tx.saveAsset(id, draft, principal.userId, await this.searchText(tx, sch, draft, current.refNo));
+      await tx.addActivity({ assetId: id, actorId: principal.userId, actorName: principal.displayName, action: 'updated', changes });
+      await tx.publish('asset.changed', assetChangedEvent(saved, sch.schema, await this.kinds(tx)));
+    });
+    return this.get(principal, id);
   }
 
   /**
@@ -125,7 +187,13 @@ export class AssetService {
     if (!type) throw AppError.validation('Unknown asset type');
     if (type.archived) throw AppError.validation(`"${type.name}" is archived; new assets cannot be created`);
     const unitPath = await this.unitPath(input.unitId, store);
-    const sch = await this.resolveVariant(store, type.id, input.variantId, unitPath);
+    // Bought for a request that said "for us, this is …": the item gets that team's fields.
+    let variantId = input.variantId;
+    if (!variantId && input.requestId) {
+      const request = await store.getRequest(input.requestId);
+      if (request?.kind === 'purchase' && request.assetTypeId === type.id && request.workflowVariantId) variantId = request.workflowVariantId;
+    }
+    const sch = await this.resolveVariant(store, type.id, variantId, unitPath);
     // Someone a catalog is shared with (with "Add items") may add to it, inside its unit.
     const scope = await this.resolver.assetScope(principal, { unitPath, assetTypeId: type.id, catalogId: input.catalogId }, store);
     const perms = authorize(principal, 'create', scope);
@@ -143,7 +211,7 @@ export class AssetService {
       unitId: input.unitId,
       catalogId: input.catalogId,
       variantId: sch.variant?.id ?? null,
-      values: validatedValues(sch.schema, merged),
+      values: validatedValues(sch.schema, merged, teamKeys(sch)),
       reminderOverrides: validatedOverrides(sch.schema, input.reminderOverrides),
     };
     const run = async (tx: RegistryStore) => {
@@ -211,7 +279,7 @@ export class AssetService {
         unitId: patch.unitId ?? current.unitId,
         catalogId,
         variantId: sch.variant?.id ?? null,
-        values: validatedValues(sch.schema, merged),
+        values: validatedValues(sch.schema, merged, teamKeys(sch)),
         reminderOverrides: patch.reminderOverrides ? validatedOverrides(sch.schema, patch.reminderOverrides) : current.reminderOverrides,
       };
       const changes = diff(sch.schema, current, draft);

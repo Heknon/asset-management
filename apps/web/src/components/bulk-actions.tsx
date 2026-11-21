@@ -1,5 +1,5 @@
 import type { Asset } from '@am/core';
-import { Check, Download, FolderOpen, Trash2, UserRound, X } from 'lucide-react';
+import { Check, Download, FolderOpen, Trash2, UserRound, Users, X } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { api, ApiError } from '@/lib/api';
@@ -7,7 +7,9 @@ import { plural, t, tMaybe } from '@/lib/i18n';
 import { useCatalogs, useInvalidateAssets, useLookups } from '@/lib/queries';
 import { PersonPicker } from './pickers';
 import { Button } from './ui/button';
-import { ConfirmDialog, Menu, MenuItem, MenuSeparator, Popover } from './ui/overlay';
+import { ConfirmDialog, Dialog, Menu, MenuItem, MenuSeparator, Popover } from './ui/overlay';
+import { Field, Select } from './ui/form';
+import { AttributeInput } from './attribute';
 
 /** Runs `fn` for every item, a few at a time; the server still checks each item's permissions. */
 async function forEach(items: Asset[], fn: (a: Asset) => Promise<unknown>) {
@@ -46,6 +48,7 @@ export function BulkActions({ items, onClear, onExport, extra }: { items: Asset[
 
   /** What a bulk action did: a whole sentence per action (word order differs by language). */
   type Verb = 'updated' | 'reassigned' | 'moved' | 'removed' | 'deleted';
+  const teamFields = (body: { variantId?: string | null; attributes?: Record<string, unknown> }) => run('updated', (a) => api.put(`/api/registry/assets/${a.id}/team-fields`, { attributes: {}, ...body }));
   const doneAll: Record<Verb, () => string> = {
     updated: () => plural(n, 'Updated {n} item', 'Updated {n} items'),
     reassigned: () => plural(n, 'Reassigned {n} item', 'Reassigned {n} items'),
@@ -88,6 +91,7 @@ export function BulkActions({ items, onClear, onExport, extra }: { items: Asset[
             ))}
           </Menu>
         )}
+        {typeIds.size === 1 && <TeamFieldsBulk items={items} busy={busy} onSet={(body) => void teamFields(body)} />}
         <Popover
           open={ownerOpen}
           onOpenChange={setOwnerOpen}
@@ -135,6 +139,84 @@ export function BulkActions({ items, onClear, onExport, extra }: { items: Asset[
         loading={busy}
         onConfirm={() => void run('deleted', (a) => api.delete(`/api/registry/assets/${a.id}`), true).then(() => setDeleting(false))}
       />
+    </>
+  );
+}
+
+/**
+ * A team's fields on many items at once: add them ("these are all AVI
+ * licenses for us"), remove them, or fill one in for all of them. Only team
+ * field sets that fit every selected item are offered; the server checks
+ * each item (its team's people, or whoever edits it).
+ */
+function TeamFieldsBulk({ items, busy, onSet }: { items: Asset[]; busy: boolean; onSet: (body: { variantId?: string | null; attributes?: Record<string, unknown> }) => void }) {
+  const { variantsFor, variantById, unitById } = useLookups();
+  const [filling, setFilling] = useState(false);
+  const [fieldKey, setFieldKey] = useState<string>('');
+  const [value, setValue] = useState<unknown>(undefined);
+  const typeId = items[0]!.assetTypeId;
+  const units = [...new Set(items.map((a) => a.unitId))];
+  const options = variantsFor(typeId, units[0]).filter((v) => units.every((u) => variantsFor(typeId, u).some((x) => x.id === v.id)));
+  const current = new Set(items.map((a) => a.variantId));
+  const shared = current.size === 1 && items[0]!.variantId ? variantById.get(items[0]!.variantId) : undefined;
+  const anyMarked = items.some((a) => a.variantId);
+  if (!options.length && !anyMarked) return null;
+  const team = (unitId: string) => unitById.get(unitId)?.name ?? '';
+  const field = shared?.fields.find((f) => f.key === fieldKey) ?? shared?.fields[0];
+  return (
+    <>
+      <Menu align="start" trigger={<Button size="sm" variant="ghost" icon={<Users className="size-3.5" />} disabled={busy} aria-label={t('Team fields')}><span className="max-sm:sr-only">{t('Team fields')}</span></Button>}>
+        {options.filter((v) => !(shared && shared.id === v.id)).map((v) => (
+          <MenuItem key={v.id} onSelect={() => onSet({ variantId: v.id })}>
+            {t('Add {team}’s fields ({name})', { team: team(v.unitId), name: v.name })}
+          </MenuItem>
+        ))}
+        {shared && shared.fields.length > 0 && (
+          <MenuItem onSelect={() => { setFieldKey(shared.fields[0]!.key); setValue(undefined); setFilling(true); }}>
+            {t('Fill in a field of {team}’s…', { team: team(shared.unitId) })}
+          </MenuItem>
+        )}
+        {anyMarked && (
+          <>
+            <MenuSeparator />
+            <MenuItem danger onSelect={() => onSet({ variantId: null })}>
+              {t('Remove team fields')}
+            </MenuItem>
+          </>
+        )}
+      </Menu>
+      {shared && field && (
+        <Dialog
+          open={filling}
+          onOpenChange={setFilling}
+          title={t('Fill in for {items}', { items: plural(items.length, '{n} item', '{n} items') })}
+          footer={
+            <>
+              <Button onClick={() => setFilling(false)}>{t('Cancel')}</Button>
+              <Button variant="primary" onClick={() => { setFilling(false); onSet({ attributes: { [field.key]: value ?? null } }); }}>
+                {t('Save')}
+              </Button>
+            </>
+          }
+        >
+          <div className="space-y-4">
+            <Field label={t('Field')}>
+              {(id) => (
+                <Select id={id} value={field.key} onChange={(e) => { setFieldKey(e.target.value); setValue(undefined); }}>
+                  {shared.fields.map((f) => (
+                    <option key={f.key} value={f.key}>
+                      {f.label}
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </Field>
+            <Field label={field.label} hint={t('Every selected item gets this value; leave it empty to clear it.')}>
+              {(id) => <AttributeInput id={id} field={field} value={value} onChange={setValue} />}
+            </Field>
+          </div>
+        </Dialog>
+      )}
     </>
   );
 }

@@ -5,7 +5,7 @@ import type { RegistryStore } from './ports.js';
 export interface ItemSchema {
   type: AssetType;
   variant: TypeVariant | null;
-  /** Template + variant fields; named after the variant ("Design license") when there is one. */
+  /** Template + the team's fields; still named after the template (a team's fields do not make it another kind of thing). */
   schema: AssetType;
 }
 
@@ -13,7 +13,7 @@ export async function itemSchema(store: RegistryStore, assetTypeId: string, vari
   const type = await store.getType(assetTypeId);
   if (!type) return null;
   const variant = variantId ? await store.getVariant(variantId) : null;
-  return { type, variant, schema: variant ? { ...withVariant(type, variant), name: variant.name } : type };
+  return { type, variant, schema: variant ? withVariant(type, variant) : type };
 }
 
 export const referenceOf = (type: Pick<AssetType, 'refPrefix'>, refNo: number) => formatReference(type.refPrefix, refNo);

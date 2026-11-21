@@ -300,7 +300,7 @@ export function RequestDetailPage() {
   const request = useRequest(requestId);
   const events = useRequestEvents(requestId);
   const me = useMe().data!;
-  const { typeById } = useLookups();
+  const { typeById, variantById, unitById } = useLookups();
   const act = useAct(requestId);
   useRemember(request.data ? { kind: 'request', id: request.data.id, title: request.data.title, subtitle: t('Request') } : null);
   const [comment, setComment] = useState('');
@@ -319,6 +319,7 @@ export function RequestDetailPage() {
   const handler = r.access === 'handler';
   const mine = r.requesterId === me.userId;
   const type = r.assetTypeId ? typeById.get(r.assetTypeId) : undefined;
+  const teamVariant = r.kind === 'purchase' && r.variantId ? variantById.get(r.variantId) : undefined;
   const open = r.statusInfo.category === 'todo' || r.statusInfo.category === 'active';
   const fulfilAs = fulfilType ? typeById.get(fulfilType) : undefined;
   const status = (s: string, note?: string) => act.mutate({ action: 'status', status: s, ...(note && { note }) });
@@ -378,6 +379,11 @@ export function RequestDetailPage() {
             {r.description ? <p className="text-[14px] leading-relaxed whitespace-pre-wrap">{r.description}</p> : <p className="text-[13px] text-subtle">{t('No details given.')}</p>}
             <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-[13px] xl:grid-cols-4">
               <Detail label={t('Kind')}>{type ? <span className="inline-flex items-center gap-1.5"><TypeIcon icon={type.icon} color={type.color} size={18} />{type.name}</span> : t('Not specified')}</Detail>
+              {teamVariant && (
+                <Detail label={t('For {team}, this is', { team: unitById.get(teamVariant.unitId)?.name ?? '' })}>
+                  <span title={t('The item gets {team}’s fields; they fill them in.', { team: unitById.get(teamVariant.unitId)?.name ?? '' })}>{teamVariant.name}</span>
+                </Detail>
+              )}
               <Detail label={t('Quantity')}>{r.quantity ?? '—'}</Detail>
               <Detail label={t('Rough budget')}>{r.estimatedCost ? formatMoney(r.estimatedCost.amount, r.estimatedCost.currency) : '—'}</Detail>
               <Detail label={t('Needed by')}>{r.neededBy ? `${formatDate(r.neededBy)} · ${relativeDays(r.neededBy)}` : '—'}</Detail>

@@ -24,6 +24,7 @@ import {
   type RequestUpdate,
 } from '@am/core';
 import { metrics } from '@am/platform';
+import { assertFitsVariant } from '../domain/asset.js';
 import { accessOf, assertMove, isOpen, requestNumber, requestSearchText, type RequestState } from '../domain/request.js';
 import type { AssetService } from './asset-service.js';
 import { finishPurchase, publishRequestChange, purchaseUnit, requestWorkflowDefs, Responsibility, startRequestWorkflows, workflowFor, workflowView } from './workflows.js';
@@ -135,6 +136,7 @@ export class RequestService {
       responsibleUnitId: buyingUnit,
       workflows,
       overall,
+      variantId: r.workflowVariantId,
       ...(r.snippet && { snippet: r.snippet }),
     };
   }
@@ -192,16 +194,28 @@ export class RequestService {
   async create(p: Principal, input: RequestCreate): Promise<PurchaseRequest> {
     await this.assertCanRequestFor(p, input.unitId);
     if (input.assetTypeId && !(await this.store.getType(input.assetTypeId))) throw AppError.validation('Unknown asset type');
+    await this.assertTeamFields(input.variantId, input.assetTypeId, input.unitId);
     return this.store.transaction(async (tx) => (await this.presentAll(p, [await this.insert(tx, input, { id: p.userId, name: p.displayName })], tx))[0]!);
   }
 
+  /** "For us, this is …": the team's fields must be for this template and for the asking team (or a unit above it). */
+  private async assertTeamFields(variantId: string | null, assetTypeId: string | null, unitId: string, store: RegistryStore = this.store) {
+    if (!variantId) return;
+    const variant = await store.getVariant(variantId);
+    if (!variant || variant.archived) throw AppError.validation('Unknown or archived team fields');
+    if (!assetTypeId) throw AppError.validation('Choose what is being requested before adding team fields');
+    const unit = await store.getUnit(unitId);
+    assertFitsVariant(variant, assetTypeId, unit?.path ?? [unitId]);
+  }
+
   /** Creates a request at its workflow's first status (purchases, and renewals opened by the system). */
-  private async insert(tx: RegistryStore, input: RequestCreate & Pick<RequestRow, 'kind' | 'renewal'>, actor: { id: string; name: string }, variantId: string | null = null): Promise<RequestState> {
+  private async insert(tx: RegistryStore, input: RequestCreate & Pick<RequestRow, 'kind' | 'renewal'>, actor: { id: string; name: string }): Promise<RequestState> {
+    const variantId = input.variantId;
     const wf = await workflowFor(tx, input.assetTypeId);
     const first = initialStatus(wf);
     const created = await tx.insertRequest(input, actor, '', first);
     const withSearch = await tx.updateRequest(created.id, input, await this.searchText(tx, { ...input, seq: created.seq, requesterName: actor.name }));
-    // A renewal follows the renewed item's team variant; workflows that run alongside the purchase start now.
+    // A renewal follows the renewed item's team fields, a purchase the ones asked for; workflows that run alongside the purchase start now.
     if (variantId) {
       await tx.setRequestWorkflowVariant(created.id, variantId);
       withSearch.workflowVariantId = variantId;
@@ -264,9 +278,9 @@ export class RequestService {
         link: null,
         kind: 'renewal',
         renewal: { assetId: asset.id, fieldKey: field.key, obligationId },
+        variantId: asset.variantId,
       },
       actor,
-      asset.variantId,
     );
   }
 
@@ -289,7 +303,18 @@ export class RequestService {
         neededBy: patch.neededBy !== undefined ? patch.neededBy : r.neededBy,
         link: patch.link !== undefined ? patch.link : r.link,
       };
+      const variantId = patch.variantId !== undefined ? patch.variantId : row.assetTypeId === r.assetTypeId && row.unitId === r.unitId ? r.workflowVariantId : null;
+      if (variantId !== r.workflowVariantId) {
+        if (r.kind === 'renewal') throw AppError.validation('A renewal follows the item’s team fields');
+        await this.assertTeamFields(variantId, row.assetTypeId, row.unitId, tx);
+      }
       const saved = await tx.updateRequest(id, row, await this.searchText(tx, { ...row, seq: r.seq, requesterName: r.requesterName }));
+      if (variantId !== r.workflowVariantId) {
+        await tx.setRequestWorkflowVariant(id, variantId);
+        saved.workflowVariantId = variantId;
+        // The new team's workflows that run alongside the purchase start now.
+        await startRequestWorkflows(tx, saved, 'created', { id: p.userId, name: p.displayName });
+      }
       await tx.addRequestEvent({ requestId: id, actorId: p.userId, actorName: p.displayName, kind: 'edited', body: null, fromStatus: null, toStatus: null });
       return (await this.presentAll(p, [saved], tx))[0]!;
     });
