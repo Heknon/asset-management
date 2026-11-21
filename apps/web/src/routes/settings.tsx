@@ -28,7 +28,7 @@ import { Field, Input, Segmented, Switch } from '@/components/ui/form';
 import { ConfirmDialog, Dialog, Menu, MenuItem } from '@/components/ui/overlay';
 import { useMediaQuery } from '@/lib/hooks';
 import { api, ApiError } from '@/lib/api';
-import { keys, useOrgWorkflow, usePurchaseUnit, useDateKinds, useGroupMembers, useGroups, useLookups, useMe, useProviders, useUsers } from '@/lib/queries';
+import { keys, useOrgWorkflow, usePurchaseUnit, useDateKinds, useGroupMembers, useGroups, useLookups, useMe, useProviders, useUsers, useEmailSending } from '@/lib/queries';
 import { useMyOrg } from '@/lib/org';
 import { formatDateTime, formatDurations, slugKey } from '@/lib/utils';
 import { intlLocale, plural, t, tMaybe } from '@/lib/i18n';
@@ -469,6 +469,7 @@ export function AccessPage() {
   );
 }
 export function ProfilePage() {
+  const email = useEmailSending();
   const me = useMe().data!;
   const qc = useQueryClient();
   const prefs = useSave((p: Partial<typeof me.preferences>) => api.patch('/api/identity/me/preferences', p), [keys.me], t('Preferences saved'));
@@ -483,7 +484,7 @@ export function ProfilePage() {
         <Card>
           <LanguageSetting />
         </Card>
-        <Card className="space-y-4">
+        {email && <Card className="space-y-4">
           <h2 className="text-[13px] font-semibold">{t('Notifications')}</h2>
           <Switch
             checked={me.preferences.emailReminders}
@@ -497,7 +498,7 @@ export function ProfilePage() {
             label={t('Outlook calendar invites')}
             description={t('All-day entries on your calendar that move or cancel when the date changes')}
           />
-        </Card>
+        </Card>}
         <Card className="space-y-3">
           <h2 className="text-[13px] font-semibold">{t('Calendar subscription')}</h2>
           <p className="text-xs text-muted">{t('Subscribe in Outlook (Add calendar → Subscribe from web) to see every item you own or are a contact for. Treat the link like a password.')}</p>

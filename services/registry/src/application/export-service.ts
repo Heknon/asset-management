@@ -88,7 +88,7 @@ export class ExportService {
       { header: 'ID', value: (a) => a.reference },
       { header: 'Name', value: (a) => a.name },
       { header: 'Type', value: (a) => typeById.get(a.assetTypeId)?.name },
-      ...(variants.length ? [{ header: 'Kind', value: (a: Asset) => (a.variantId ? variantById.get(a.variantId)?.name : '') }] : []),
+      ...(variants.length ? [{ header: 'Team fields', value: (a: Asset) => (a.variantId ? variantById.get(a.variantId)?.name : '') }] : []),
       { header: 'Status', value: (a) => typeById.get(a.assetTypeId)?.statuses.find((s) => s.value === a.status)?.label ?? a.status },
       { header: 'Team', value: (a, n) => n.unitPath(a.unitId) },
       { header: 'Catalog', value: (a, n) => (a.catalogId ? n.catalog(a.catalogId) : '') },

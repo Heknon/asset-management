@@ -222,6 +222,7 @@ export async function republishAssets(store: RegistryStore, where: { typeIds?: s
   const kinds = new Map((await store.listDateKinds()).map((k) => [k.id, k]));
   const schemas = new Map<string, Awaited<ReturnType<typeof itemSchema>>>();
   for (const assetId of new Set(ids)) {
+    await store.resplitAsset(assetId);
     const asset = await store.getAsset(assetId);
     if (!asset) continue;
     const key = `${asset.assetTypeId}|${asset.variantId ?? ''}`;

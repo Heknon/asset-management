@@ -645,6 +645,8 @@ export interface Obligation {
   confirmOn: IsoDate | null;
   /** The open renewal request for this date, if any: where the buying stands. */
   renewalRequest: RenewalRequestRef | null;
+  /** In lists: the caller handles this date (snooze, dismiss, ask the owner), catalog shares included. */
+  canHandle?: boolean;
 }
 
 export interface RenewalRequestRef {

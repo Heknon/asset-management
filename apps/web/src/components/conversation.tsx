@@ -5,7 +5,7 @@ import { Fragment, useMemo, useRef, useState, type KeyboardEvent, type ReactNode
 import { toast } from 'sonner';
 import { api, ApiError } from '@/lib/api';
 import { useDebounced } from '@/lib/hooks';
-import { keys, useComments, useMe, usePeople, usePeopleSearch } from '@/lib/queries';
+import { keys, useComments, useMe, usePeople, usePeopleSearch, useEmailSending } from '@/lib/queries';
 import { cn, formatDateTime } from '@/lib/utils';
 import { t } from '@/lib/i18n';
 import { Button } from './ui/button';
@@ -19,6 +19,7 @@ import { Menu, MenuItem } from './ui/overlay';
  * @mentioned people and the owner are emailed.
  */
 export function Conversation({ assetId, permissions }: { assetId: string; permissions: readonly Permission[] }) {
+  const email = useEmailSending();
   const comments = useComments(assetId);
   const me = useMe().data!;
   const qc = useQueryClient();
@@ -102,7 +103,7 @@ export function Conversation({ assetId, permissions }: { assetId: string; permis
         </ol>
       )}
       <div className={cn('px-4 pb-4', items.length ? 'border-t border-border pt-3' : 'pt-1')}>
-        {!items.length && permissions.includes('comment') && <p className="mb-2 text-xs text-muted">{t('Ask the owner a question, note a vendor update, or record a decision. Type @ to mention someone — they’ll get an email.')}</p>}
+        {!items.length && permissions.includes('comment') && <p className="mb-2 text-xs text-muted">{email ? t('Ask the owner a question, note a vendor update, or record a decision. Type @ to mention someone — they’ll get an email.') : t('Ask the owner a question, note a vendor update, or record a decision. Type @ to mention someone.')}</p>}
         {permissions.includes('comment') ? (
           <Composer key={items.length} people={mentioned} submitLabel={t('Send')} pending={post.isPending} onSubmit={(body) => post.mutate(body)} />
         ) : (

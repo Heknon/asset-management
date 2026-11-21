@@ -57,6 +57,8 @@ function environment(origin: string, s: Secrets): Record<string, string> {
     MAX_UPLOAD_BYTES: String(25 * 1024 * 1024),
     REGISTRY_URL: origin,
     // scheduler: mail goes to the in-browser mailbox; reminders follow this device's time zone
+    // Mail never leaves the browser here: it goes to the in-browser mailbox (Sent emails).
+    EMAIL_SENDING: 'on',
     SMTP_URL: 'smtp://mailbox.local',
     MAIL_FROM: 'Asset Management <assets@mailbox.local>',
     REMINDER_TIMEZONE: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',

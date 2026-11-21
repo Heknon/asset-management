@@ -1,3 +1,4 @@
+import { eventKey, sendOnce } from './send-once.js';
 import type { RequestChanged } from '@am/core';
 import type { Logger } from 'pino';
 import { requestMessage } from '../domain/messages.js';
@@ -34,13 +35,20 @@ export class RequestNotifier {
     } else if (e.kind === 'comment') {
       people.add(e.requesterId);
       if (e.assigneeId) people.add(e.assigneeId);
+      // Nobody has picked it up yet: whoever handles new requests hears the requester's question.
+      else if (e.actorId === e.requesterId) {
+        this.inbox.forEach((m) => emails.add(m.toLowerCase()));
+        const unit = (await this.store.unitPaths([e.unitId])).get(e.unitId) ?? [e.unitId];
+        (await this.store.nearestManagers(unit)).forEach((id) => people.add(id));
+      }
     } else if (e.kind === 'assigned') {
       if (e.assigneeId) people.add(e.assigneeId);
     } else {
       people.add(e.requesterId);
     }
     // An added workflow's responsible unit hears when it starts (the purchase is done) and when it moves.
-    const responsible = e.workflow ? [e.workflow.responsibleUnitId] : e.kind === 'fulfilled' ? (e.waitingOn ?? []).map((w) => w.responsibleUnitId) : [];
+    // Workflows that start with the request (created) or once it is bought (fulfilled): their units hear then.
+    const responsible = e.workflow ? [e.workflow.responsibleUnitId] : e.kind === 'fulfilled' || e.kind === 'created' ? (e.waitingOn ?? []).map((w) => w.responsibleUnitId) : [];
     for (const unitId of new Set(responsible.filter((u): u is string => !!u))) {
       const path = (await this.store.unitPaths([unitId])).get(unitId) ?? [unitId];
       (await this.store.nearestManagers(path)).forEach((id) => people.add(id));
@@ -54,10 +62,10 @@ export class RequestNotifier {
     ];
     const unique = [...new Map(recipients.map((r) => [r.email.toLowerCase(), r])).values()];
     const notice = { ...e, url: `${this.appUrl}/requests/${e.requestId}` };
+    const key = eventKey('request_email', e);
     for (const r of unique) {
       try {
-        await this.mailer.send({ to: r.email, ...requestMessage(notice, r.name) });
-        notificationsSent.inc({ channel: 'request_email', outcome: 'sent' });
+        if (await sendOnce(this.store, this.mailer, key, { to: r.email, ...requestMessage(notice, r.name) })) notificationsSent.inc({ channel: 'request_email', outcome: 'sent' });
       } catch (err) {
         notificationsSent.inc({ channel: 'request_email', outcome: 'failed' });
         this.logger.error({ err, to: r.email }, 'request email failed');

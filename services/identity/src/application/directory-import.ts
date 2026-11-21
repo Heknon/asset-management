@@ -69,7 +69,7 @@ export class DirectoryImportService {
     const options = suggestRules(people);
     const chosen = rule ?? (await this.store.getSetting<OrgRule>(ORG_RULE_KEY)) ?? options[0]?.rule ?? { kind: 'ou', skip: [] };
     const plan = planUnits(chosen, people);
-    const find = this.matcher(await this.store.listUnits(true));
+    const find = this.matcher((await this.store.listUnits(true)).filter((u) => !u.archived));
     const accounts = await this.store.directoryAccounts('ldap');
     const known = new Set(accounts.map((a) => a.externalId?.toLowerCase()).filter(Boolean));
     const present = new Set(people.map((p) => p.dn.toLowerCase()));
@@ -103,7 +103,8 @@ export class DirectoryImportService {
 
     // 1. Units, parents first: linked to their path, created when missing.
     const units = await this.store.listUnits(true);
-    const find = this.matcher(units);
+    // Archived units are not reused (people would land in a unit nobody sees); their keys stay taken.
+    const find = this.matcher(units.filter((u) => !u.archived));
     const taken = new Set(units.map((u) => u.key));
     const unitOf = new Map<string, string>();
     const touched: string[] = [];
@@ -170,6 +171,8 @@ export class DirectoryImportService {
     }
 
     // 3. Who belongs where follows the links, now that everyone has their tag.
+    // Units linked to a path the directory no longer has are re-synced too: their people moved on.
+    for (const u of units) if (!touched.includes(u.id) && u.directoryMembers.some((l) => l.toLowerCase().startsWith('org:'))) touched.push(u.id);
     await this.store.transaction(async (tx) => {
       for (const id of touched) await tx.syncUnitDirectory(id);
     });
@@ -186,7 +189,7 @@ export class DirectoryImportService {
         await this.store.transaction((tx) =>
           tx.setManualPeople(
             unitId,
-            manual.filter((x) => x.role === 'member').map((x) => x.id),
+            manual.filter((x) => x.role === 'member' && x.id !== headId).map((x) => x.id),
             [...manual.filter((x) => x.role === 'manager').map((x) => x.id), headId],
           ),
         );

@@ -9,7 +9,7 @@ import { DateKindBadge } from '@/components/badges';
 import { ObligationList } from '@/components/obligations';
 import { Card, EmptyState, PageHeader, Skeleton, Stat } from '@/components/ui/display';
 import { Segmented, Select } from '@/components/ui/form';
-import { useAssetTypes, useAssets, useDateKinds, useMe, useObligations, useRequestCounts, useRequests, useSummary, useUnits } from '@/lib/queries';
+import { useAssetTypes, useAssets, useDateKinds, useMe, useObligations, useRequestCounts, useRequests, useSummary, useUnits, useEmailSending } from '@/lib/queries';
 import { useNewRequest } from '@/components/request-form';
 import { RequestStatusBadge } from '@/components/badges';
 import { Button } from '@/components/ui/button';
@@ -37,6 +37,7 @@ const groupsOf = (items: Obligation[], today: string) => {
  * Each step ticks off as it is done; the card goes away once all three are.
  */
 function GetStarted() {
+  const email = useEmailSending();
   const { canManageOrganization } = useMyOrg();
   const units = useUnits();
   const types = useAssetTypes();
@@ -52,7 +53,7 @@ function GetStarted() {
     <Card className="space-y-4">
       <div>
         <h2 className="text-[15px] font-semibold">{t('Get started')}</h2>
-        <p className="text-[13px] text-muted">{t('Three steps and renewals start showing up here, with reminders by email.')}</p>
+        <p className="text-[13px] text-muted">{email ? t('Three steps and renewals start showing up here, with reminders by email.') : t('Three steps and renewals start showing up here.')}</p>
       </div>
       <ol className="grid gap-3 md:grid-cols-3">
         {steps.map((st, i) => (
@@ -175,7 +176,7 @@ export function UpcomingPage() {
 /** Acting on dates (renew, snooze, ask the owner) is the “Handle renewals” permission. */
 function useCanEditObligation() {
   const { can } = useMyOrg();
-  return (o: Obligation) => can(o.unitId, 'renew', o.assetTypeId);
+  return (o: Obligation) => o.canHandle ?? can(o.unitId, 'renew', o.assetTypeId);
 }
 
 /** "Do you still need it?" questions waiting for me, with one-click answers. */
