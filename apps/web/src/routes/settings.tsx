@@ -164,7 +164,7 @@ export function WorkflowsPage() {
     <>
       <PageHeader
         title={t('Request workflow')}
-        description={t('The statuses purchase and renewal requests go through, and who moves them. Templates can have their own (Templates → a template → Requests).')}
+        description={t('The statuses purchase and renewal requests go through, and who moves them. Templates can have their own, and add more workflows (Templates → a template → Workflows).')}
         actions={
           draft && (
             <>

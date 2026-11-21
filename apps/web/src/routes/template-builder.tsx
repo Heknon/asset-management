@@ -1323,10 +1323,10 @@ function DateMeaning({ field, fields, kinds, onChange }: { field: Extract<FieldD
                   });
                 }}
               >
-                <option value="schedule">{t('Renewed on a schedule (every year, every term…)')}</option>
-                <option value="manual">{t('Renewed to a date you set each time')}</option>
+                <option value="schedule">{t('Repeats on a schedule')}</option>
+                <option value="manual">{t('Renewed to a date you set')}</option>
                 <option value="once">{t('Once, then done')}</option>
-                <option value="none">{t('For reference only (no reminders)')}</option>
+                <option value="none">{t('For reference, no reminders')}</option>
               </Select>
             )}
           </Field>

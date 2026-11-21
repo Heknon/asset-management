@@ -1698,5 +1698,12 @@
   "A linked item — add a new Linked item field instead": "פריט מקושר — הוסיפו במקום שדה חדש מסוג פריט מקושר",
   "Choose a catalog": "בחירת קטלוג",
   "Search catalogs…": "חיפוש קטלוגים…",
-  "No matching catalogs": "לא נמצאו קטלוגים"
+  "No matching catalogs": "לא נמצאו קטלוגים",
+  "{n} workflow of its own": "תהליך {n} משלו",
+  "{n} workflows of its own": "{n} תהליכים משלו",
+  "More workflows": "תהליכים נוספים",
+  "Repeats on a schedule": "חוזר לפי לוח זמנים",
+  "Renewed to a date you set": "מתחדש לתאריך שקובעים",
+  "For reference, no reminders": "לעיון, בלי תזכורות",
+  "The statuses purchase and renewal requests go through, and who moves them. Templates can have their own, and add more workflows (Templates → a template → Workflows).": "הסטטוסים שבקשות רכישה וחידוש עוברות, ומי מקדם אותן. לתבניות יכול להיות תהליך משלהן, והן יכולות להוסיף תהליכים (תבניות ← תבנית ← תהליכים)."
 }

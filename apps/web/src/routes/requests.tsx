@@ -120,6 +120,10 @@ function RequestRow({ r, meId, onOpen }: { r: PurchaseRequest; meId: string; onO
             <span className="truncate font-medium">{r.title}</span>
             <span className="hidden shrink-0 text-xs text-subtle sm:inline">{r.number}</span>
           </span>
+          {/* Phones: the status gets its own line, so a long one does not squeeze the title. */}
+          <span className="my-0.5 flex sm:hidden">
+            <OverallBadge r={r} />
+          </span>
           {r.snippet ? (
             <Highlight snippet={r.snippet} className="block truncate text-xs text-muted" />
           ) : (
@@ -149,7 +153,9 @@ function RequestRow({ r, meId, onOpen }: { r: PurchaseRequest; meId: string; onO
           </span>
         )}
         <span className="hidden sm:contents">{r.assigneeId ? <AssigneeAvatar id={r.assigneeId} /> : <span className="w-[22px]" />}</span>
-        <OverallBadge r={r} />
+        <span className="hidden sm:contents">
+          <OverallBadge r={r} />
+        </span>
       </button>
     </li>
   );
@@ -357,7 +363,14 @@ export function RequestDetailPage() {
       />
       <div className="mx-auto grid grid-cols-1 w-full max-w-6xl gap-6 px-4 sm:px-6 py-6 lg:grid-cols-[minmax(0,1fr)_340px]">
         <div className="space-y-6">
-          <Card>
+          <Card className="space-y-3">
+            {/* With more workflows, this is the buyers' part only; "Where it stands" shows the rest. */}
+            {r.workflows.length > 0 && (
+              <p className="text-[13px] font-semibold">
+                {r.kind === 'renewal' ? t('Renewal') : t('Purchase')}
+                <span className="ms-2 text-xs font-normal text-muted">{r.responsibleUnitId ? <UnitPath id={r.responsibleUnitId} leafOnly /> : t('People who handle requests')}</span>
+              </p>
+            )}
             <Stepper r={r} />
           </Card>
           {r.workflows.length > 0 && <WorkflowsCard r={r} pending={act.isPending} onMove={(workflow, s) => act.mutate({ action: 'status', status: s, workflow })} />}
@@ -387,7 +400,7 @@ export function RequestDetailPage() {
           </Card>
           <Card>
             <h2 className="mb-4 text-[13px] font-semibold">{t('Activity')}</h2>
-            <Timeline events={events.data ?? []} statuses={r.statuses} workflows={r.workflows} />
+            <Timeline events={events.data ?? []} statuses={r.statuses} workflows={r.workflows} renewal={r.kind === 'renewal'} />
             <form
               className="mt-4 space-y-2"
               onSubmit={(e) => {
@@ -504,7 +517,7 @@ function Detail({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-function Timeline({ events, statuses, workflows }: { events: RequestEvent[]; statuses: RequestStatusInfo[]; workflows: PurchaseRequest['workflows'] }) {
+function Timeline({ events, statuses, workflows, renewal }: { events: RequestEvent[]; statuses: RequestStatusInfo[]; workflows: PurchaseRequest['workflows']; renewal: boolean }) {
   const label = (key: string, workflow?: string | null) => (workflow ? workflows.find((w) => w.key === workflow)?.statuses : statuses)?.find((s) => s.key === key) ?? { label: key.replace(/_/g, ' '), color: '#94a3b8' };
   const ids = events.filter((e) => e.kind === 'assigned' && e.body).map((e) => e.body!);
   const people = usePeople(ids);
@@ -527,7 +540,7 @@ function Timeline({ events, statuses, workflows }: { events: RequestEvent[]; sta
       case 'edited':
         return tj('{actor} edited the details', { actor });
       case 'fulfilled':
-        return e.body ? tj('{actor} finished it: {status}', { actor, status: badge() }) : tj('{actor} finished it by adding the item: {status}', { actor, status: badge() });
+        return e.body || renewal ? tj('{actor} finished it: {status}', { actor, status: badge() }) : tj('{actor} finished it by adding the item: {status}', { actor, status: badge() });
       default:
         return actor;
     }
