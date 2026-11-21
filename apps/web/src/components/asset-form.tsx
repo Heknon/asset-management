@@ -38,7 +38,8 @@ const fromAsset = (type: AssetType, a: Asset | null, me: string | undefined, def
   ownerId: a?.ownerId ?? request?.requesterId ?? me ?? null,
   unitId: a?.unitId ?? request?.unitId ?? defaultUnit,
   catalogId: a ? a.catalogId : (catalog?.id ?? null),
-  variantId: a?.variantId ?? null,
+  // A request that said “for us, this is …” gives the new item that team's fields.
+  variantId: a ? a.variantId : request && request.assetTypeId === type.id ? request.variantId : null,
   attributes: { ...(a?.attributes ?? {}) },
   reminderOverrides: { ...(a?.reminderOverrides ?? {}) },
 });
@@ -64,7 +65,7 @@ export function AssetFormSheet({
   catalog?: Catalog | null;
 }) {
   const me = useMe().data;
-  const { kindById, unitById, schemaOf, variantsFor } = useLookups();
+  const { kindById, unitById, schemaOf, variantsFor, variantById } = useLookups();
   const { mine, can } = useMyOrg();
   const navigate = useNavigate();
   const invalidate = useInvalidateAssets();
@@ -90,16 +91,23 @@ export function AssetFormSheet({
   // A team variant adds its own fields to the template's.
   const schema = schemaOf(type.id, draft.variantId) ?? type;
   const variantOptions = variantsFor(type.id, draft.unitId);
+  // A team's own fields are never required here: the team fills them in, whenever.
+  const teamKeys = useMemo(() => new Set(schema.fields.slice(type.fields.length).map((f) => f.key)), [schema, type]);
   const derived = useMemo(() => computeDerivedDates(schema.fields, draft.attributes as Attributes), [schema.fields, draft.attributes]);
 
+  const variant = draft.variantId ? variantById.get(draft.variantId) : undefined;
   const sections = useMemo(() => {
     const groups = new Map<string, FieldDefinition[]>();
-    for (const f of schema.fields) {
+    for (const f of type.fields) {
       const key = f.section ?? '';
       groups.set(key, [...(groups.get(key) ?? []), f]);
     }
-    return [...groups.entries()].sort(([a], [b]) => (a === '' ? -1 : b === '' ? 1 : schema.sections.indexOf(a) - schema.sections.indexOf(b)));
-  }, [schema]);
+    const out: Array<[string, FieldDefinition[], string?]> = [...groups.entries()].sort(([a], [b]) => (a === '' ? -1 : b === '' ? 1 : type.sections.indexOf(a) - type.sections.indexOf(b)));
+    // The team's own fields come last, as theirs: whoever buys the item can leave them to the team.
+    const extra = schema.fields.slice(type.fields.length);
+    if (variant && extra.length) out.push([t('{team}’s fields', { team: unitById.get(variant.unitId)?.name ?? '' }), extra, t('Optional here: they can fill them in later.')]);
+    return out;
+  }, [schema, type, variant, unitById]);
 
   const save = useMutation({
     mutationFn: () => {
@@ -172,13 +180,13 @@ export function AssetFormSheet({
             )}
           </Field>
           {(variantOptions.length > 0 || draft.variantId) && (
-            <Field label={t('Kind')} className="col-span-2" hint={draft.variantId ? variantHint(schema.fields.length - type.fields.length, variantOptions.find((v) => v.id === draft.variantId)?.workflows?.length ?? 0) : t('Your team has its own versions of this template')}>
+            <Field label={t('Team fields')} className="col-span-2" hint={draft.variantId ? variantHint(schema.fields.length - type.fields.length, variantOptions.find((v) => v.id === draft.variantId)?.workflows?.length ?? 0) : t('Only if a team keeps more details about this item. They can fill them in later.')}>
               {(id) => (
                 <Select id={id} value={draft.variantId ?? ''} onChange={(e) => setDraft({ ...draft, variantId: e.target.value || null })}>
-                  <option value="">{t('Standard {type}', { type: inSentence(type.name) })}</option>
+                  <option value="">{t('None')}</option>
                   {variantOptions.map((v) => (
                     <option key={v.id} value={v.id}>
-                      {v.name}
+                      {t('{team}: {name}', { team: unitById.get(v.unitId)?.name ?? '', name: v.name })}
                     </option>
                   ))}
                 </Select>
@@ -195,9 +203,10 @@ export function AssetFormSheet({
           </Field>
         </div>
 
-        {sections.map(([section, fields]) => (
+        {sections.map(([section, fields, note]) => (
           <fieldset key={section || '_'} className="space-y-4">
             {section && <legend className="mb-3 text-xs font-semibold tracking-wide text-subtle uppercase">{section}</legend>}
+            {note && <p className="-mt-2 text-xs text-muted">{note}</p>}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               {fields.map((f) => {
                 const restricted = isRestricted(f);
@@ -232,7 +241,7 @@ export function AssetFormSheet({
                   <Field
                     key={f.key}
                     label={f.kind === 'boolean' ? '' : f.label}
-                    required={f.required}
+                    required={f.required && !teamKeys.has(f.key)}
                     error={errors[f.key]}
                     hint={kind ? `${tMaybe(kind.name)} · ${formatDurations(draft.reminderOverrides[f.key] ?? tracking!.reminders ?? kind.defaultReminders)}` : f.description}
                     className={wide ? 'col-span-2' : 'col-span-2 sm:col-span-1'}

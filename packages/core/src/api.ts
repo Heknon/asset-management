@@ -330,6 +330,8 @@ export interface Asset {
   permissions: Permission[];
   /** The item's own workflows ("Machine status"), from its template and team variant. */
   workflows: WorkflowView[];
+  /** On the item's own page: the teams' fields the caller may turn on for it, and whether they may fill the ones it has. */
+  teamFields?: TeamFieldsAccess;
   createdAt: string;
   updatedAt: string;
   /** When searching: where the query matched, with «highlights». */
@@ -405,6 +407,25 @@ export const assetUpdateSchema = z
   })
   .partial();
 export type AssetUpdate = z.infer<typeof assetUpdateSchema>;
+
+/**
+ * A team's own fields on an item ("for us, this is a Design license"): the
+ * team turns them on, switches or removes them, and fills them in, without
+ * edit rights on the item. Only the items a team marks get them.
+ */
+export interface TeamFieldsAccess {
+  /** Team field sets the caller may turn on for this item (their team's, fitting where the item sits). */
+  choices: Array<{ id: string; name: string; unitId: string }>;
+  /** The caller may fill (and remove) the item's current team fields. */
+  canFill: boolean;
+}
+
+export const teamFieldsSchema = z.object({
+  /** The team field set; null removes it (its values go with it). Omitted: keep the current one. */
+  variantId: uuid.nullable().optional(),
+  attributes: attributesInput.default({}),
+});
+export type TeamFieldsInput = z.infer<typeof teamFieldsSchema>;
 
 /** Query-string booleans: only "true"/"1" are true (z.coerce.boolean treats "false" as true). */
 const queryBool = (fallback: boolean) =>
@@ -762,6 +783,8 @@ export interface PurchaseRequest {
   workflows: WorkflowView[];
   /** The purchase and every added workflow together. */
   overall: CombinedStatus;
+  /** "For us, this is …": the requesting team's fields the item gets when it is created. */
+  variantId: string | null;
   snippet?: string;
 }
 
@@ -774,6 +797,8 @@ export const requestCreateSchema = z.object({
   estimatedCost: z.object({ amount: z.number().min(0).max(1e12), currency: z.string().length(3) }).nullable().default(null),
   neededBy: isoDateSchema.nullable().default(null),
   link: z.string().url().max(2000).nullable().default(null),
+  /** "For us, this is …": the team's own fields the new item should carry (whoever buys it does not need to know them). */
+  variantId: uuid.nullable().default(null),
 });
 export type RequestCreate = z.infer<typeof requestCreateSchema>;
 export const requestUpdateSchema = requestCreateSchema.partial();

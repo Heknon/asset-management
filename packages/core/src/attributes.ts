@@ -124,14 +124,19 @@ function checkValue(field: FieldDefinition, raw: unknown): { ok: true; value: At
  * empty values, and fills in derived dates. Derived inputs are ignored: they are
  * always recomputed so that they can never drift from their source.
  */
-export function validateAttributes(type: Pick<AssetType, 'fields'>, input: Record<string, unknown>): { values: Attributes; issues: AttributeIssue[] } {
+/**
+ * `optional`: fields whose "required" is not enforced here (a team's own
+ * fields: whoever buys the item does not fill them; the team does, later).
+ */
+export function validateAttributes(type: Pick<AssetType, 'fields'>, input: Record<string, unknown>, opts: { optional?: ReadonlySet<string> } = {}): { values: Attributes; issues: AttributeIssue[] } {
   const values: Attributes = {};
   const issues: AttributeIssue[] = [];
+  const required = (f: FieldDefinition) => f.required && !opts.optional?.has(f.key);
   for (const field of type.fields) {
     if (field.kind === 'date' && field.config.tracking?.derive) continue;
     const raw = input[field.key];
     if (isEmpty(raw)) {
-      if (field.required) issues.push({ field: field.key, message: 'Required' });
+      if (required(field)) issues.push({ field: field.key, message: 'Required' });
       continue;
     }
     const r = checkValue(field, raw);
@@ -140,7 +145,7 @@ export function validateAttributes(type: Pick<AssetType, 'fields'>, input: Recor
   }
   Object.assign(values, computeDerivedDates(type.fields, values));
   for (const field of type.fields) {
-    if (field.required && field.kind === 'date' && field.config.tracking?.derive && values[field.key] === undefined) {
+    if (required(field) && field.kind === 'date' && field.config.tracking?.derive && values[field.key] === undefined) {
       issues.push({ field: field.key, message: `Cannot be computed until "${field.config.tracking.derive.from}" is set` });
     }
   }

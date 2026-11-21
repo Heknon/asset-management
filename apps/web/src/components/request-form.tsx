@@ -6,10 +6,10 @@ import { toast } from 'sonner';
 import { api, ApiError } from '@/lib/api';
 import { t, tMaybe } from '@/lib/i18n';
 import { useMyOrg } from '@/lib/org';
-import { keys, useAssetTypes } from '@/lib/queries';
+import { keys, useAssetTypes, useLookups } from '@/lib/queries';
 import { AssetTypeSelect, CurrencySelect, UnitPicker } from './pickers';
 import { Button } from './ui/button';
-import { Field, Input, Textarea } from './ui/form';
+import { Field, Input, Select, Textarea } from './ui/form';
 import { Sheet } from './ui/overlay';
 import { TypeIcon } from './type-icon';
 import { cn } from '@/lib/utils';
@@ -24,9 +24,10 @@ interface Draft {
   currency: string;
   neededBy: string;
   link: string;
+  variantId: string | null;
 }
 
-const empty = (unitId: string | null): Draft => ({ title: '', description: '', unitId, assetTypeId: null, quantity: '', amount: '', currency: 'USD', neededBy: '', link: '' });
+const empty = (unitId: string | null): Draft => ({ title: '', description: '', unitId, assetTypeId: null, quantity: '', amount: '', currency: 'USD', neededBy: '', link: '', variantId: null });
 
 /**
  * "I need something" — written for anyone in the company. Three questions
@@ -35,6 +36,7 @@ const empty = (unitId: string | null): Draft => ({ title: '', description: '', u
 export function RequestFormSheet({ open, onOpenChange, request }: { open: boolean; onOpenChange: (o: boolean) => void; request?: PurchaseRequest }) {
   const { requestTargets } = useMyOrg();
   const types = useAssetTypes();
+  const { variantsFor, unitById } = useLookups();
   const qc = useQueryClient();
   const navigate = useNavigate();
   const [d, setD] = useState<Draft>(() => empty(requestTargets[0]?.unit.id ?? null));
@@ -55,6 +57,7 @@ export function RequestFormSheet({ open, onOpenChange, request }: { open: boolea
             currency: request.estimatedCost?.currency ?? 'USD',
             neededBy: request.neededBy ?? '',
             link: request.link ?? '',
+            variantId: request.variantId,
           }
         : empty(requestTargets[0]?.unit.id ?? null),
     );
@@ -72,6 +75,7 @@ export function RequestFormSheet({ open, onOpenChange, request }: { open: boolea
         estimatedCost: d.amount ? { amount: Number(d.amount), currency: d.currency.toUpperCase() } : null,
         neededBy: d.neededBy || null,
         link: d.link.trim() || null,
+        variantId: teamOptions.some((v) => v.id === d.variantId) ? d.variantId : null,
       };
       return request ? api.patch<PurchaseRequest>(`/api/registry/requests/${request.id}`, body) : api.post<PurchaseRequest>('/api/registry/requests', body);
     },
@@ -95,6 +99,8 @@ export function RequestFormSheet({ open, onOpenChange, request }: { open: boolea
     if (d.title.trim().length >= 3 && d.unitId) save.mutate();
   };
   const popular = (types.data ?? []).slice(0, 4);
+  // "For us, this is …": team field sets of this kind of thing, for the asking team.
+  const teamOptions = d.assetTypeId ? variantsFor(d.assetTypeId, d.unitId) : [];
 
   return (
     <Sheet
@@ -164,6 +170,21 @@ export function RequestFormSheet({ open, onOpenChange, request }: { open: boolea
             </div>
           )}
         </Field>
+
+        {teamOptions.length > 0 && (
+          <Field label={t('For us, this is…')} error={errors.variantId} hint={t('Optional. The item gets your team’s extra fields; whoever buys it doesn’t need to know them.')}>
+            {(id) => (
+              <Select id={id} value={d.variantId ?? ''} onChange={(e) => setD({ ...d, variantId: e.target.value || null })}>
+                <option value="">{t('Nothing special')}</option>
+                {teamOptions.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {t('{team}: {name}', { team: unitById.get(v.unitId)?.name ?? '', name: v.name })}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
+        )}
 
         <div className="grid grid-cols-2 gap-4">
           <Field label={t('How many?')} error={errors.quantity}>
