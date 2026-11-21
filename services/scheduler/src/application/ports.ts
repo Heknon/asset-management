@@ -22,6 +22,7 @@ export interface SchedulerStore {
   upsertAsset(ref: AssetRef, version: number): Promise<boolean>;
   markAssetDeleted(assetId: string): Promise<void>;
   activeObligations(assetId: string, opts?: { forUpdate?: boolean }): Promise<ObligationRecord[]>;
+  closedDates(assetId: string): Promise<Array<{ fieldKey: string; dueDate: string }>>;
   createObligation(assetId: string, tracked: TrackedDate): Promise<ObligationRecord>;
   updateObligation(id: string, tracked: TrackedDate, dateChanged: boolean): Promise<void>;
   resolveObligation(id: string, state: ObligationRecord['state'], by: string | null, note?: string | null): Promise<void>;

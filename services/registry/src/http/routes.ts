@@ -62,6 +62,8 @@ export interface Features {
 }
 
 export function registerRoutes(app: FastifyInstance, { types, variants, assets, catalogs, comments, exports, imports, requests, search }: Services, features: Features): void {
+  // After a template change, items whose values moved (a field made secret) are searchable again once re-indexed.
+  const reindexLater = () => void assets.reindex({ unindexed: true }).catch((err) => app.log.error({ err }, 'search reindex failed'));
   app.get(`${PREFIX}/features`, async (req) => {
     requirePrincipal(req);
     return features;
@@ -100,7 +102,9 @@ export function registerRoutes(app: FastifyInstance, { types, variants, assets, 
     await types.assertCanManage(requirePrincipal(req));
     const body = parse(assetTypeInputSchema.extend({ version: z.number().int().positive() }), req.body);
     const { version, ...input } = body;
-    return types.updateType(parse(idParam, req.params).id, input, version);
+    const saved = await types.updateType(parse(idParam, req.params).id, input, version);
+    reindexLater();
+    return saved;
   });
   // ─── Request workflows ───────────────────────────────────────────────────
   app.get(`${PREFIX}/workflows/default`, async (req) => {
@@ -141,7 +145,9 @@ export function registerRoutes(app: FastifyInstance, { types, variants, assets, 
   );
   app.put(`${PREFIX}/variants/:id`, async (req) => {
     const { version, ...input } = parse(typeVariantInputSchema.omit({ unitId: true }).extend({ version: z.number().int().positive() }), req.body);
-    return variants.update(requirePrincipal(req), parse(idParam, req.params).id, input, version);
+    const saved = await variants.update(requirePrincipal(req), parse(idParam, req.params).id, input, version);
+    reindexLater();
+    return saved;
   });
   app.post(`${PREFIX}/variants/:id/archive`, async (req) => {
     const { archived } = parse(z.object({ archived: z.boolean() }), req.body);

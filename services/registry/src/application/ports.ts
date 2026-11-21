@@ -97,6 +97,9 @@ export interface RegistryStore {
   insertAsset(draft: AssetDraft, actorId: string, searchText: string): Promise<AssetState>;
   saveAsset(id: string, draft: AssetDraft, actorId: string, searchText: string): Promise<AssetState>;
   setSearchText(id: string, searchText: string): Promise<void>;
+  /** Re-stores an item's values by its current schema (secrets with the secrets) and marks it for re-indexing. */
+  resplitAsset(id: string): Promise<void>;
+  allAssetIds(): Promise<string[]>;
   deleteAsset(id: string): Promise<void>;
   assetIdsOfTypes(typeIds: string[]): Promise<string[]>;
   /** Assets whose search text must be rebuilt: in these units or beneath them, owned by / referencing these people, or never indexed. */

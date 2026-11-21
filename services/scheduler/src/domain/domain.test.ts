@@ -64,6 +64,10 @@ describe('reconcile', () => {
 
   it('is a no-op when nothing changed (idempotent re-delivery)', () => {
     expect(reconcile([obligation()], event([tracked()]))).toEqual([]);
+    // Completed or dismissed earlier: an unrelated edit does not bring it back; a new date does.
+    const t = tracked();
+    expect(reconcile([], event([t]), [{ fieldKey: t.fieldKey, dueDate: t.date }])).toEqual([]);
+    expect(reconcile([], event([{ ...t, date: '2028-01-01' }]), [{ fieldKey: t.fieldKey, dueDate: t.date }])).toHaveLength(1);
   });
 
   it('moves the same obligation when the date is edited', () => {
@@ -110,6 +114,11 @@ describe('reminder slots', () => {
     expect(dueReminderSlot(s, '2027-01-28')).toBeNull();
     expect(dueReminderSlot(s, '2027-01-30')).toBe('snooze:2027-01-30');
     expect(nextReminderDate(s, '2027-01-28')).toBe('2027-01-30');
+    // After the snooze: the due day and the weekly nudges come back, nothing from before it.
+    expect(dueReminderSlot(s, '2027-01-31')).toBeNull();
+    expect(dueReminderSlot(s, '2027-02-01')).toBe('due:2027-02-01');
+    expect(dueReminderSlot(s, '2027-02-09')).toBe('overdue:2027-02-08');
+    expect(nextReminderDate(s, '2027-01-31')).toBe('2027-02-01');
   });
 
   it('computes urgency and next reminder', () => {

@@ -51,10 +51,12 @@ export class RequestService {
   }
 
   /** Handles the purchase: may renew there, or belongs to the unit responsible for purchases. */
-  private async isHandler(p: Principal, r: Pick<RequestState, 'unitPath' | 'assetTypeId'>, store = this.store) {
-    if (effectivePermissions(p, { unitPath: r.unitPath, assetTypeId: r.assetTypeId ?? '' }).has('renew')) return true;
+  private async isHandler(p: Principal, r: Pick<RequestState, 'unitPath' | 'assetTypeId'> & { kind?: RequestState['kind'] }, store = this.store) {
     const unit = await purchaseUnit(store);
-    return !!unit && (await new Responsibility(store, p).canAct(unit));
+    if (unit && (await new Responsibility(store, p).canAct(unit))) return true;
+    // With a purchase unit, renewing is its job alone: others ask, they do not finish renewals.
+    if (unit && r.kind === 'renewal') return false;
+    return effectivePermissions(p, { unitPath: r.unitPath, assetTypeId: r.assetTypeId ?? '' }).has('renew');
   }
 
   private async presentAll(p: Principal, rows: Array<RequestState & { snippet?: string }>, store = this.store): Promise<PurchaseRequest[]> {
@@ -80,7 +82,7 @@ export class RequestService {
         const u = r.workflowStates[d.key]?.unitId ?? d.responsibleUnitId ?? r.unitId;
         units.set(u, await canAct(u));
       }
-      const handler = buyer || effectivePermissions(p, { unitPath: r.unitPath, assetTypeId: r.assetTypeId ?? '' }).has('renew');
+      const handler = buyer || (!(buyingUnit && r.kind === 'renewal') && effectivePermissions(p, { unitPath: r.unitPath, assetTypeId: r.assetTypeId ?? '' }).has('renew'));
       out.push(this.present(p, r, workflows.get(k)!, handler, buyingUnit, defs, (u) => units.get(u) ?? false));
     }
     return out;
@@ -143,9 +145,23 @@ export class RequestService {
 
   private async load(p: Principal, id: string, opts?: { forUpdate?: boolean }, store = this.store) {
     const r = await store.getRequest(id, opts);
-    const visible = r && (r.requesterId === p.userId || effectivePermissions(p, { unitPath: r.unitPath, assetTypeId: r.assetTypeId ?? '' }).has('view'));
-    if (!r || !visible) throw AppError.notFound('Request');
+    if (!r || !(await this.canSee(p, r, store))) throw AppError.notFound('Request');
     return r;
+  }
+
+  /**
+   * Who sees a request: its requester, people who see its team, the purchase
+   * unit (it handles them all), units responsible for one of its workflows,
+   * and the owner of the item being renewed. The same people as its lists.
+   */
+  private async canSee(p: Principal, r: RequestState, store: RegistryStore) {
+    if (r.requesterId === p.userId || effectivePermissions(p, { unitPath: r.unitPath, assetTypeId: r.assetTypeId ?? '' }).has('view')) return true;
+    const resp = new Responsibility(store, p);
+    const unit = await purchaseUnit(store);
+    if (unit && (await resp.canAct(unit))) return true;
+    for (const s of Object.values(r.workflowStates)) if (await resp.canAct(s.unitId)) return true;
+    if (r.renewal) return (await store.getAsset(r.renewal.assetId))?.ownerId === p.userId;
+    return false;
   }
 
   private async searchText(store: RegistryStore, r: Pick<RequestState, 'seq' | 'title' | 'description' | 'requesterName' | 'link' | 'unitId' | 'assetTypeId'>) {
@@ -292,6 +308,10 @@ export class RequestService {
       const requesterCanEdit = r.requesterId === p.userId && r.statusCategory === 'todo';
       if (!handler && !requesterCanEdit) throw AppError.forbidden('This request can no longer be edited');
       if (!isOpen(r)) throw AppError.validation('Closed requests cannot be edited');
+      // A renewal is about one item: its team and template are the item's.
+      if (r.kind === 'renewal' && ((patch.unitId && patch.unitId !== r.unitId) || (patch.assetTypeId !== undefined && patch.assetTypeId !== r.assetTypeId))) {
+        throw AppError.validation('A renewal stays with its item’s team and template');
+      }
       if (patch.unitId && patch.unitId !== r.unitId) await this.assertCanRequestFor(p, patch.unitId);
       const row = {
         title: patch.title ?? r.title,
@@ -309,6 +329,18 @@ export class RequestService {
         await this.assertTeamFields(variantId, row.assetTypeId, row.unitId, tx);
       }
       const saved = await tx.updateRequest(id, row, await this.searchText(tx, { ...row, seq: r.seq, requesterName: r.requesterName }));
+      // Another template can follow another workflow: keep the status if it has it, else start it over.
+      if (row.assetTypeId !== r.assetTypeId) {
+        const next = await workflowFor(tx, row.assetTypeId);
+        const same = next.statuses.find((x) => x.key === r.status);
+        const status = same ?? initialStatus(next);
+        if (!same || same.category !== r.statusCategory) {
+          await tx.setRequestStatus(id, { key: status.key, category: status.category });
+          saved.status = status.key;
+          saved.statusCategory = status.category;
+        }
+        if (variantId === r.workflowVariantId) await startRequestWorkflows(tx, saved, 'created', { id: p.userId, name: p.displayName });
+      }
       if (variantId !== r.workflowVariantId) {
         await tx.setRequestWorkflowVariant(id, variantId);
         saved.workflowVariantId = variantId;

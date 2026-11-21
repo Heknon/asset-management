@@ -226,7 +226,8 @@ export function spendOf(fields: readonly FieldDefinition[], values: Attributes):
   let total = 0;
   let currency: string | null = null;
   for (const f of fields) {
-    if (f.kind !== 'currency' || !f.config.countsTowardSpend) continue;
+    // A restricted cost stays with the secrets: it is not shown as spend to everyone.
+    if (f.kind !== 'currency' || !f.config.countsTowardSpend || isRestricted(f)) continue;
     const v = values[f.key];
     if (typeof v !== 'number') continue;
     total += v;

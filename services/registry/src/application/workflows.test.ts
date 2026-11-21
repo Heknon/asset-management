@@ -159,6 +159,12 @@ describe('added workflows', () => {
   it('lets only the purchase unit renew an item once there is one; others ask for it', async () => {
     const labEditor = person(5, 'Lia', [U.lab], [{ unitId: U.lab, assetTypeId: null, permissions: ['view', 'comment', 'create', 'edit', 'renew'] }]);
     await expect(assets.advance(labEditor, item.id, 'renewal_date')).rejects.toThrow(/responsible for purchases/);
+    // Not by asking and then finishing the renewal request either: with a purchase unit, it handles renewals.
+    const open = (await requests.list(admin, { scope: 'all', status: 'open', kind: 'renewal', renewalAssetId: item.id, limit: 50, offset: 0 })).items;
+    for (const r of open) await requests.act(admin, r.id, { action: 'status', status: 'cancelled' }).catch(() => undefined);
+    const asked = await requests.requestRenewal(labEditor, item.id, { fieldKey: 'renewal_date', obligationId: null, note: '' });
+    expect(asked.moves.filter((m) => m.category === 'done')).toEqual([]);
+    await expect(requests.update(labEditor, asked.id, { unitId: U.procurement })).rejects.toThrow(/stays with its item/);
     // Avi buys (Procurement), even with only "view" on the item.
     const renewed = await assets.advance(avi, item.id, 'renewal_date');
     expect(renewed.attributes.renewal_date).not.toBe(item.attributes.renewal_date);
@@ -221,7 +227,7 @@ describe('team fields', () => {
     const requests = new RequestService(store, assets);
     const license = await types.createFromTemplate('software_license');
     const text = (key: string, required = false) => ({ id: crypto.randomUUID(), key, label: key, kind: 'text' as const, required, restricted: false, showInTable: false, config: {} });
-    const avi = await new VariantService(store).create(admin, license.id, { unitId: U.lab, name: 'AVI license', description: null, sections: [], fields: [text('workstation', true), text('mac')] });
+    const avi = await new VariantService(store).create(admin, license.id, { unitId: U.lab, name: 'AVI license', description: null, sections: [], fields: [text('workstation', true), text('mac'), { ...text('bench_password'), kind: 'secret' as const }] });
 
     // Tom asks for a license: "for us, this is an AVI license".
     const asked = await requests.create(tom, { title: 'Keysight for the lab', description: '', unitId: U.lab, assetTypeId: license.id, quantity: 1, estimatedCost: null, neededBy: null, link: null, variantId: avi.id });
@@ -238,6 +244,12 @@ describe('team fields', () => {
     expect(asTom.teamFields).toEqual({ choices: [{ id: avi.id, name: 'AVI license', unitId: U.lab }], canFill: true });
     const filled = await assets.setTeamFields(tom, item.id, { attributes: { workstation: 'WS-12', mac: 'aa:bb' } });
     expect(filled.attributes).toMatchObject({ vendor: 'Keysight', workstation: 'WS-12', mac: 'aa:bb' });
+    // A team's secret is kept with the secrets, out of the open values that filters read.
+    await assets.setTeamFields(admin, item.id, { attributes: { bench_password: 'Hunter2-bench' } });
+    const row = await (store as unknown as { db: { selectFrom: (t: string) => { select: (c: string[]) => { where: (a: string, b: string, c: string) => { executeTakeFirstOrThrow: () => Promise<{ attributes: unknown; restricted_attributes: unknown }> } } } } }).db
+      .selectFrom('assets').select(['attributes', 'restricted_attributes']).where('id', '=', item.id).executeTakeFirstOrThrow();
+    expect(JSON.stringify(row.attributes)).not.toContain('Hunter2');
+    expect(JSON.stringify(row.restricted_attributes)).toContain('Hunter2');
     await expect(assets.setTeamFields(tom, item.id, { attributes: { vendor: 'Other' } })).rejects.toThrow(/team’s own fields/);
     await expect(assets.update(tom, item.id, { name: 'x' })).rejects.toThrow();
     // Someone outside the team may not.

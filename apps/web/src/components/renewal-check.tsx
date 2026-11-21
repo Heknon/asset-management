@@ -15,9 +15,10 @@ import { Textarea } from './ui/form';
 import { Dialog } from './ui/overlay';
 
 /** "Waiting for owner" / "Owner: renew" … next to a date. */
-export function CheckBadge({ check }: { check: Obligation['check'] }) {
+export function CheckBadge({ check, mine = false }: { check: Obligation['check']; /** The viewer owns the item: it is waiting on them. */ mine?: boolean }) {
   if (!check) return null;
   const meta = renewalDecisionMeta[check.status];
+  if (mine && check.status === 'asked') return <Badge tone={meta.tone}>{t('Waiting for your answer')}</Badge>;
   const detail =
     check.status === 'asked'
       ? t(check.message ? 'Asked by {name}: {message}' : 'Asked by {name}', { name: check.askedByName ?? t('someone'), message: check.message })

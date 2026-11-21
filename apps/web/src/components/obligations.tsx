@@ -70,10 +70,11 @@ export function useObligationActions() {
 export function useIsBuyer() {
   const me = useMe().data;
   const purchase = usePurchaseUnit().data;
-  const { mine } = useMyOrg();
+  const { mine, can } = useMyOrg();
   // With a purchase unit, its people renew everything, whatever their access to the item.
   if (!purchase?.unitId) return { buyer: true, everywhere: !!me?.isAdmin };
-  const buyer = !!me?.isAdmin || mine.some((m) => m.unit.path.includes(purchase.unitId!));
+  // As the server: its people (and those of teams beneath it), anyone who manages it, and admins.
+  const buyer = !!me?.isAdmin || mine.some((m) => m.unit.path.includes(purchase.unitId!)) || can(purchase.unitId, 'manage');
   return { buyer, everywhere: buyer };
 }
 
@@ -220,7 +221,7 @@ export function ObligationList({
                   )}
                   {!showAsset && <DueBadge obligation={o} />}
                   {!showAsset && <DateKindBadge kind={o.dateKind} />}
-                  <CheckBadge check={o.check} />
+                  <CheckBadge check={o.check} mine={mine} />
                   {o.renewalRequest && (
                     <Link to="/requests/$requestId" params={{ requestId: o.renewalRequest.id }} className="inline-flex items-center gap-1 hover:opacity-80" title={t('Renewal request {number}', { number: o.renewalRequest.number })}>
                       <RequestStatusBadge status={{ label: `${o.renewalRequest.number} · ${tMaybe(o.renewalRequest.label)}`, color: o.renewalRequest.color }} />

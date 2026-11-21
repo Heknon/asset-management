@@ -60,7 +60,7 @@ export class ObligationService {
         spend: e.spend,
       };
       if (!(await tx.upsertAsset(ref, e.version))) return; // stale or duplicate delivery
-      for (const action of reconcile(await tx.activeObligations(e.assetId, { forUpdate: true }), e)) {
+      for (const action of reconcile(await tx.activeObligations(e.assetId, { forUpdate: true }), e, await tx.closedDates(e.assetId))) {
         if (action.kind === 'create') await tx.createObligation(e.assetId, action.tracked);
         else if (action.kind === 'update') await tx.updateObligation(action.id, action.tracked, action.dateChanged);
         else await tx.resolveObligation(action.id, action.state, action.by);
@@ -126,14 +126,17 @@ export class ObligationService {
     const shared = principal.isAdmin
       ? undefined
       : [...(found.asset.ownerId === principal.userId ? ownerPermissions : []), ...(await this.store.catalogSharePermissions(found.asset.catalogId, await this.shareKeys.of(principal)))];
-    // Anyone who can see it may answer "still needed?" (owners usually only see); the rest is "Handle renewals".
-    authorize(principal, action.action === 'answer' ? 'view' : 'renew', { unitPath: found.asset.unitPath, assetTypeId: found.asset.assetTypeId, shared });
+    // The owner answers "still needed?" (owners usually only see); answering for them, and the rest, is "Handle renewals".
+    const isOwner = !!found.asset.ownerId && found.asset.ownerId === principal.userId;
+    authorize(principal, action.action === 'answer' && isOwner ? 'view' : 'renew', { unitPath: found.asset.unitPath, assetTypeId: found.asset.assetTypeId, shared });
     const o = found.obligation;
     const today = this.clock.today();
 
     switch (action.action) {
       case 'ask':
         assertActive(o);
+        if (!found.asset.ownerId) throw AppError.validation('This item has no owner to ask');
+        if (isOwner) throw AppError.validation('You own this item: answer it yourself');
         await this.recordCheck(found, {
           status: 'asked',
           askedAt: new Date(),
@@ -169,6 +172,8 @@ export class ObligationService {
       case 'snooze':
         assertActive(o);
         if (!isValidIsoDate(action.until) || action.until <= today) throw AppError.validation('Snooze until a future date');
+        // Snoozing hides reminders until then; past the date itself it would hide that it is due.
+        if (action.until > o.dueDate && o.dueDate > today) throw AppError.validation('Snooze until the due date at the latest');
         await this.store.setSnooze(id, action.until);
         break;
       case 'reopen':

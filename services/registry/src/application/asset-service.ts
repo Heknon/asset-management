@@ -171,6 +171,11 @@ export class AssetService {
    * unit responsible for purchases, that unit does it (others open a renewal
    * request); without one, whoever handles renewals for the item.
    */
+  private async isBuyer(store: RegistryStore, principal: Principal) {
+    const unit = await purchaseUnit(store);
+    return !!unit && (await new Responsibility(store, principal).canAct(unit));
+  }
+
   private async assertCanRenew(tx: RegistryStore, principal: Principal, asset: AssetState) {
     const buyingUnit = await purchaseUnit(tx);
     if (buyingUnit) {
@@ -211,7 +216,9 @@ export class AssetService {
     const sch = await this.resolveVariant(store, type.id, variantId, unitPath);
     // Someone a catalog is shared with (with "Add items") may add to it, inside its unit.
     const scope = await this.resolver.assetScope(principal, { unitPath, assetTypeId: type.id, catalogId: input.catalogId }, store);
-    const perms = authorize(principal, 'create', scope);
+    // The unit responsible for purchases creates what it bought for any team (fulfil checks the request).
+    const buying = !!input.requestId && (await this.isBuyer(store, principal));
+    const perms = buying ? effectivePermissions(principal, scope) : authorize(principal, 'create', scope);
     await this.assertCatalog(store, principal, input.catalogId, unitPath);
     await this.assertPeople(sch, input.ownerId, input.attributes, store);
     const { merged, blocked } = mergeAttributes(sch.schema.fields, {}, input.attributes, perms.has('restricted'));
@@ -253,6 +260,7 @@ export class AssetService {
       throw AppError.forbidden('You cannot fulfil this request');
     }
     if (request.statusCategory === 'done' || request.statusCategory === 'closed') throw AppError.conflict('The request is already closed');
+    if (request.kind !== 'purchase') throw AppError.validation('A renewal is finished on the request, not by creating an item');
     const wf = await workflowFor(tx, request.assetTypeId);
     // The new item's team variant decides which workflows follow the purchase ("Swap the new license").
     await finishPurchase(tx, request, wf, firstOfCategory(wf, 'done')!, { id: principal.userId, name: principal.displayName }, { body: null, note: null, assetId, variantId });
@@ -312,8 +320,8 @@ export class AssetService {
     const run = async (tx: RegistryStore) => {
       const current = await tx.getAsset(id, { forUpdate: true });
       if (!current) throw AppError.notFound('Asset');
-      // Finishing a renewal request: the request already checked its handler.
-      if (!opts.skipRequestId) await this.assertCanRenew(tx, principal, current);
+      // Also when finishing a renewal request: its unit may have been changed to one the person handles.
+      await this.assertCanRenew(tx, principal, current);
       const sch = await this.schemaOf(tx, current);
       const kinds = await this.kinds(tx);
       const { values, from, to } = advanceRecurringDate(sch.schema, current.values, fieldKey, kinds, opts.until);

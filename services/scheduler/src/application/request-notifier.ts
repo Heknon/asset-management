@@ -34,6 +34,12 @@ export class RequestNotifier {
     } else if (e.kind === 'comment') {
       people.add(e.requesterId);
       if (e.assigneeId) people.add(e.assigneeId);
+      // Nobody has picked it up yet: whoever handles new requests hears the requester's question.
+      else if (e.actorId === e.requesterId) {
+        this.inbox.forEach((m) => emails.add(m.toLowerCase()));
+        const unit = (await this.store.unitPaths([e.unitId])).get(e.unitId) ?? [e.unitId];
+        (await this.store.nearestManagers(unit)).forEach((id) => people.add(id));
+      }
     } else if (e.kind === 'assigned') {
       if (e.assigneeId) people.add(e.assigneeId);
     } else {

@@ -69,8 +69,14 @@ export const registryService = defineService<RegistryDB, typeof registryConfig>(
     });
 
     // Assets created before search existed (or after an upgrade) get indexed in the background.
-    void assets
-      .reindex({ unindexed: true })
+    // Once: re-store values by the current schemas (team secrets used to be kept with the open values).
+    void (async () => {
+      if (!(await store.getSetting('values_resplit_v1'))) {
+        for (const id of await store.allAssetIds()) await store.resplitAsset(id);
+        await store.putSetting('values_resplit_v1', true);
+      }
+    })()
+      .then(() => assets.reindex({ unindexed: true }))
       .then((n) => n && logger.info({ assets: n }, 'search index rebuilt'))
       .catch((err) => logger.error({ err }, 'search reindex failed'));
     logger.info({ fuzzy }, 'search ready');
