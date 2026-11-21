@@ -27,9 +27,15 @@ function trackedFields(type: Pick<AssetType, 'fields'>) {
   return type.fields.filter((f): f is FieldOf<'date'> => f.kind === 'date' && !!f.config.tracking);
 }
 
+/** How a date behaves: the field's own choice, else its kind's. */
+export function behaviorOf(field: FieldOf<'date'>, kind: Pick<DateKind, 'behavior'>): DateKind['behavior'] {
+  return field.config.tracking?.behavior ?? kind.behavior;
+}
+
 function recurrenceFor(field: FieldOf<'date'>, kind: DateKind, values: Attributes): Duration | null {
-  if (kind.behavior !== 'recurring') return null;
+  if (behaviorOf(field, kind) !== 'recurring') return null;
   const r = field.config.tracking?.recurrence;
+  if (r?.mode === 'manual') return null;
   if (r?.mode === 'fixed') return r.every;
   if (r?.mode === 'field') {
     const n = values[r.field];
@@ -63,11 +69,11 @@ export function resolveTrackedDates(
       label: field.label,
       date,
       derived: !!tracking.derive,
-      dateKind: { id: kind.id, key: kind.key, name: kind.name, color: kind.color, behavior: kind.behavior, actionLabel: kind.actionLabel },
+      dateKind: { id: kind.id, key: kind.key, name: kind.name, color: kind.color, behavior: behaviorOf(field, kind), actionLabel: kind.actionLabel },
       recurrence: recurrenceFor(field, kind, values),
-      reminders: kind.behavior === 'informational' ? [] : (reminderOverrides[field.key] ?? tracking.reminders ?? kind.defaultReminders),
+      reminders: behaviorOf(field, kind) === 'informational' ? [] : (reminderOverrides[field.key] ?? tracking.reminders ?? kind.defaultReminders),
       notify: { owner: tracking.notify.owner, userIds: [...new Set(userIds)], emails: tracking.notify.emails, unitManagers: tracking.notify.unitManagers },
-      confirmBefore: kind.behavior === 'recurring' ? (tracking.confirmBefore ?? null) : null,
+      confirmBefore: behaviorOf(field, kind) === 'recurring' ? (tracking.confirmBefore ?? null) : null,
     });
   }
   return out.sort((a, b) => a.date.localeCompare(b.date));

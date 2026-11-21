@@ -32,6 +32,8 @@ export const recurrenceSchema = z.discriminatedUnion('mode', [
   z.object({ mode: z.literal('fixed'), every: durationSchema }),
   /** Interval read from a number field, e.g. "Term (months)". */
   z.object({ mode: z.literal('field'), field: fieldKeySchema, unit: z.enum(durationUnits) }),
+  /** No fixed term: each renewal says the new date ("bought a year, got a year and 10 days"). */
+  z.object({ mode: z.literal('manual') }),
 ]);
 export type Recurrence = z.infer<typeof recurrenceSchema>;
 
@@ -52,6 +54,13 @@ export type NotifyRule = z.infer<typeof notifyRuleSchema>;
 
 export const dateTrackingSchema = z.object({
   dateKindId: z.string().uuid(),
+  /**
+   * How this date comes back, when not as its kind usually does: `recurring`
+   * (renewed: on a schedule, or to a date given each time), `milestone` (once,
+   * then done) or `informational` (no reminders). What the date *is* (its
+   * kind) and how it behaves are separate choices.
+   */
+  behavior: z.enum(['milestone', 'recurring', 'informational']).optional(),
   derive: dateDerivationSchema.optional(),
   recurrence: recurrenceSchema.optional(),
   reminders: z.array(durationSchema).max(10).optional(),
