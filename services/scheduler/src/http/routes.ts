@@ -7,7 +7,12 @@ import type { ReminderDispatcher } from '../application/reminder-dispatcher.js';
 
 const PREFIX = '/api/scheduler';
 
-export function registerRoutes(app: FastifyInstance, obligations: ObligationService, dispatcher: ReminderDispatcher): void {
+export function registerRoutes(app: FastifyInstance, obligations: ObligationService, dispatcher: ReminderDispatcher, features: { emailSending: boolean } = { emailSending: false }): void {
+  // Whether email leaves the app (EMAIL_SENDING): the web app does not promise emails that are not sent.
+  app.get(`${PREFIX}/features`, async (req) => {
+    requirePrincipal(req);
+    return features;
+  });
   app.get(`${PREFIX}/obligations`, async (req) => obligations.list(requirePrincipal(req), parse(obligationQuerySchema, req.query)));
   app.get(`${PREFIX}/summary`, async (req) => obligations.summary(requirePrincipal(req), parse(summaryQuerySchema, req.query)));
   app.get(`${PREFIX}/units/:id/rollup`, async (req) => obligations.rollup(requirePrincipal(req), parse(z.object({ id: z.string().uuid() }), req.params).id));

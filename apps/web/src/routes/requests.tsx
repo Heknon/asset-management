@@ -16,7 +16,7 @@ import { Avatar, Badge, Card, CompactSteps, EmptyState, PageHeader, Skeleton, Sp
 import { Field, Input, Segmented, Textarea } from '@/components/ui/form';
 import { Dialog } from '@/components/ui/overlay';
 import { api, ApiError } from '@/lib/api';
-import { keys, useLookups, useMe, usePeople, useRequest, useRequestCounts, useRequestEvents, useRequests } from '@/lib/queries';
+import { keys, useLookups, useMe, usePeople, useRequest, useRequestCounts, useRequestEvents, useRequests, useEmailSending } from '@/lib/queries';
 import { cn, formatDate, formatDateTime, formatMoney, relativeDays } from '@/lib/utils';
 import { useRemember } from '@/lib/recent';
 import { plural, t, tMaybe } from '@/lib/i18n';
@@ -296,6 +296,7 @@ function useAct(requestId: string) {
 }
 
 export function RequestDetailPage() {
+  const email = useEmailSending();
   const { requestId } = useParams({ strict: false }) as { requestId: string };
   const request = useRequest(requestId);
   const events = useRequestEvents(requestId);
@@ -418,7 +419,7 @@ export function RequestDetailPage() {
                 if (comment.trim()) act.mutate({ action: 'comment', body: comment.trim() }, { onSuccess: () => setComment('') });
               }}
             >
-              <Textarea rows={3} placeholder={handler ? t('Ask a question or post an update — the requester gets an email.') : t('Add a comment — the people handling this get an email.')} value={comment} onChange={(e) => setComment(e.target.value)} />
+              <Textarea rows={3} placeholder={email ? (handler ? t('Ask a question or post an update — the requester gets an email.') : t('Add a comment — the people handling this get an email.')) : handler ? t('Ask a question or post an update for the requester.') : t('Add a comment for the people handling this.')} value={comment} onChange={(e) => setComment(e.target.value)} />
               <div className="flex justify-end">
                 <Button type="submit" variant="primary" disabled={!comment.trim()} loading={act.isPending && act.variables?.action === 'comment'}>
                   {t('Comment')}

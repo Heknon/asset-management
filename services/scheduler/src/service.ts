@@ -11,8 +11,15 @@ import type { Mailer } from './application/ports.js';
 import { registerRoutes } from './http/routes.js';
 
 export const schedulerConfig = {
-  /** smtp://user:pass@host:587 or smtps://... (Exchange / Office 365 relay). */
-  SMTP_URL: z.string().url(),
+  /**
+   * Whether email leaves the app at all (reminders, invites, request and comment
+   * notifications). Off unless set to "on": nothing reaches SMTP, so rolling out
+   * cannot email a whole unit by accident. While off, emails are dropped, not
+   * queued: turning it on later starts from then, without a backlog.
+   */
+  EMAIL_SENDING: z.enum(['off', 'on']).default('off'),
+  /** smtp://user:pass@host:587 or smtps://... (Exchange / Office 365 relay). Only used when EMAIL_SENDING is on. */
+  SMTP_URL: z.string().url().default('smtp://mail.invalid'),
   MAIL_FROM: z.string().default('Asset Management <assets@example.com>'),
   /** Calendar day boundaries for reminders ("due today") use this IANA zone. */
   REMINDER_TIMEZONE: z.string().default('UTC'),
@@ -27,6 +34,18 @@ const DISPATCH_QUEUE = 'scheduler.dispatch';
 export type { Mailer } from './application/ports.js';
 
 export type SchedulerConfig = BaseConfig & z.infer<z.ZodObject<typeof schedulerConfig>>;
+
+/** Email sending is off: nothing is sent (and nothing will be sent later for it). */
+function heldMailer(logger: { info(obj: object, msg: string): void }): Mailer & { close?(): void } {
+  let held = 0;
+  logger.info({}, 'Email sending is off (EMAIL_SENDING=off): no email leaves the app');
+  return {
+    async send() {
+      held++;
+      if (held === 1 || held % 100 === 0) logger.info({ held }, 'Email sending is off: emails not sent');
+    },
+  };
+}
 
 /** How mail leaves: SMTP on the server; a mailbox kept in the browser in the browser runtime. */
 export interface SchedulerAdapters {
@@ -44,13 +63,13 @@ export const defineSchedulerService = (adapters: SchedulerAdapters) =>
       const appUrl = config.PUBLIC_URL.replace(/\/$/, '');
       const store = new PgSchedulerStore(database.db);
       const clock = { today: () => todayIn(config.REMINDER_TIMEZONE) };
-      const mailer = adapters.mailer(config);
+      const mailer = config.EMAIL_SENDING === 'on' ? adapters.mailer(config) : heldMailer(logger);
       onClose(() => mailer.close?.());
       const fromAddress = /<([^>]+)>/.exec(config.MAIL_FROM)?.[1] ?? config.MAIL_FROM;
 
       const obligations = new ObligationService(store, clock, appUrl);
       const dispatcher = new ReminderDispatcher(store, mailer, clock, logger, appUrl, { name: 'Asset Management', email: fromAddress });
-      registerRoutes(app, obligations, dispatcher);
+      registerRoutes(app, obligations, dispatcher, { emailSending: config.EMAIL_SENDING === 'on' });
       await registerBackup(app, { name: 'scheduler', database, logger, enabled: config.BACKUP_ENABLED, bus });
 
       await bus.subscribe('scheduler', 'asset.changed', (e) => obligations.onAssetChanged(e));

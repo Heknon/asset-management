@@ -131,6 +131,8 @@ export const useAssetTypes = () =>
 export const useAssetType = (id: string | undefined) =>
   useQuery({ queryKey: keys.assetType(id ?? ''), queryFn: () => api.get<AssetType>(`/api/registry/asset-types/${id}`), enabled: !!id });
 /** The unit responsible for purchases (null: whoever may renew). */
+/** Whether the app sends email at all (off while rolling out): nothing promises an email when it is off. */
+export const useEmailSending = () => useQuery({ queryKey: ['scheduler', 'features'], queryFn: () => api.get<{ emailSending: boolean }>('/api/scheduler/features'), staleTime: 300_000 }).data?.emailSending ?? false;
 export const usePurchaseUnit = () => useQuery({ queryKey: keys.purchaseUnit, queryFn: () => api.get<{ unitId: string | null }>('/api/registry/workflows/purchase-unit'), staleTime: 60_000 });
 export const useOrgWorkflow = () => useQuery({ queryKey: keys.workflow, queryFn: () => api.get<Workflow>('/api/registry/workflows/default'), staleTime: 60_000 });
 export const useDateKinds = () => useQuery({ queryKey: keys.dateKinds, queryFn: () => api.get<DateKind[]>('/api/registry/date-kinds'), staleTime: 60_000 });
