@@ -123,6 +123,17 @@ export const fieldDefinitionSchema = z.discriminatedUnion('kind', [
       })
       .default({}),
   }),
+  /**
+   * A sign-in: the address, the user name and the password (or key, or token)
+   * that go together. The address and user name are like any field; the
+   * password is a secret: stored apart, shown only to people who may see
+   * secrets (or the owner, when the field allows it), never searched.
+   */
+  z.object({
+    ...base,
+    kind: z.literal('login'),
+    config: z.object({ secretLabel: z.enum(['password', 'key', 'token']).default('password') }).default({}),
+  }),
   z.object({
     ...base,
     kind: z.literal('list'),
@@ -158,11 +169,17 @@ export const fieldKindMeta: Record<FieldKind, { label: string; description: stri
   secret: { label: 'Secret', description: 'License keys, PINs — always restricted' },
   assetRef: { label: 'Linked asset', description: 'Reference another asset, or several' },
   list: { label: 'List', description: 'Several short values: MAC addresses, hostnames, serials' },
+  login: { label: 'Login', description: 'Address, user name and password together' },
 };
 
 /** Secrets are always restricted, regardless of the flag. */
 export function isRestricted(field: FieldDefinition): boolean {
   return field.restricted || field.kind === 'secret';
+}
+
+/** A login's password (key, token): who may see it, when the login itself is visible. */
+export function canSeeLoginSecret(field: FieldDefinition, who: { canSeeRestricted: boolean; isOwner: boolean }): boolean {
+  return who.canSeeRestricted || (who.isOwner && !!field.ownerCanSee);
 }
 
 /** Whether this person may see a field's value: anyone for open fields; for restricted ones, "See secrets", or the owner when the field allows it. */

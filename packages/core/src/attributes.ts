@@ -1,8 +1,18 @@
 import { derivationOrder, type AssetType } from './asset-type.js';
 import { addDuration, isValidIsoDate, type Duration, type IsoDate } from './duration.js';
-import { canSeeField, isRestricted, type FieldDefinition } from './fields.js';
+import { canSeeField, canSeeLoginSecret, isRestricted, type FieldDefinition } from './fields.js';
 
-export type AttributeValue = string | number | boolean | string[];
+/** A Login field's value. `secret` is the password, key or token. */
+export interface LoginValue {
+  url?: string;
+  username?: string;
+  secret?: string;
+  /** Only in what is sent to someone who may not see the password: there is one. */
+  hasSecret?: boolean;
+}
+export type AttributeValue = string | number | boolean | string[] | LoginValue;
+
+export const isLoginValue = (v: unknown): v is LoginValue => !!v && typeof v === 'object' && !Array.isArray(v);
 export type Attributes = Record<string, AttributeValue>;
 
 export interface AttributeIssue {
@@ -14,6 +24,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function isEmpty(v: unknown): boolean {
+  if (isLoginValue(v)) return !v.url && !v.username && !v.secret;
   return v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0);
 }
 
@@ -72,6 +83,26 @@ function checkValue(field: FieldDefinition, raw: unknown): { ok: true; value: At
       const list = typeof raw === 'string' ? [raw] : raw;
       if (!Array.isArray(list) || list.some((v) => typeof v !== 'string' || !UUID.test(v))) return fail('Must be a list of linked items');
       return { ok: true, value: [...new Set(list as string[])] };
+    }
+    case 'login': {
+      if (!isLoginValue(raw)) return fail('Must be a login (address, user name, password)');
+      const out: LoginValue = {};
+      for (const k of ['url', 'username', 'secret'] as const) {
+        const v = raw[k];
+        if (v === undefined || v === null || v === '') continue;
+        if (typeof v !== 'string') return fail('Must be text');
+        if (v.length > 2000) return fail('Too long');
+        out[k] = k === 'secret' ? v : v.trim();
+      }
+      if (out.url) {
+        try {
+          const u = new URL(out.url);
+          if (u.protocol !== 'http:' && u.protocol !== 'https:') return fail('The address must be an http(s) URL');
+        } catch {
+          return fail('The address must be a valid URL');
+        }
+      }
+      return { ok: true, value: out };
     }
     case 'list': {
       const list = typeof raw === 'string' ? [raw] : raw;
@@ -156,6 +187,14 @@ export function mergeAttributes(
       blocked.push(key);
       continue;
     }
+    // A login's password: only people who may change secrets change it; others edit the address and user name around it.
+    if (field.kind === 'login' && !canTouchRestricted) {
+      const before = isLoginValue(existing[key]) ? (existing[key] as LoginValue) : {};
+      const next = isLoginValue(value) ? value : {};
+      if ('secret' in next && next.secret !== before.secret && next.secret !== undefined) blocked.push(key);
+      merged[key] = { ...next, ...(before.secret !== undefined ? { secret: before.secret } : { secret: undefined }) };
+      continue;
+    }
     merged[key] = value;
   }
   return { merged, blocked };
@@ -164,8 +203,18 @@ export function mergeAttributes(
 /** Removes restricted values for viewers that may not see them. */
 export function redactAttributes(fields: readonly FieldDefinition[], values: Attributes, canSeeRestricted: boolean, isOwner = false): Attributes {
   if (canSeeRestricted) return values;
-  const hidden = new Set(fields.filter((f) => !canSeeField(f, { canSeeRestricted, isOwner })).map((f) => f.key));
-  return Object.fromEntries(Object.entries(values).filter(([k]) => !hidden.has(k)));
+  const who = { canSeeRestricted, isOwner };
+  const hidden = new Set(fields.filter((f) => !canSeeField(f, who)).map((f) => f.key));
+  const out = Object.fromEntries(Object.entries(values).filter(([k]) => !hidden.has(k)));
+  // Logins stay visible without their password, unless this person may see it.
+  for (const f of fields) {
+    const v = out[f.key];
+    if (f.kind === 'login' && isLoginValue(v) && v.secret !== undefined && !canSeeLoginSecret(f, who)) {
+      const { secret: _secret, ...rest } = v;
+      out[f.key] = { ...rest, hasSecret: true };
+    }
+  }
+  return out;
 }
 
 export function spendOf(fields: readonly FieldDefinition[], values: Attributes): { amount: number; currency: string } | null {

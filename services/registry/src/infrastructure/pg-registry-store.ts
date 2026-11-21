@@ -1,4 +1,6 @@
 import {
+  isLoginValue,
+  type Attributes,
   AppError,
   defaultRefPrefix,
   normalizePermissions,
@@ -40,6 +42,13 @@ import { filterExpression, textSearch } from './sql-search.js';
 
 const json = (v: unknown) => JSON.stringify(v);
 const isUniqueViolation = (e: unknown) => (e as { code?: string }).code === '23505';
+
+/** Open and restricted values together; a login's password joins its address and user name. */
+function mergeStored(open: Attributes, restricted: Attributes): Attributes {
+  const out: Attributes = { ...open };
+  for (const [k, v] of Object.entries(restricted)) out[k] = isLoginValue(out[k]) && isLoginValue(v) ? { ...out[k], ...v } : v;
+  return out;
+}
 
 const toKind = (r: Selectable<RegistryDB['date_kinds']>): DateKind => ({
   id: r.id,
@@ -103,7 +112,7 @@ const toAsset = (r: AssetRow): AssetState & { snippet?: string } => ({
   catalogId: r.catalog_id,
   variantId: r.variant_id,
   refNo: r.ref_no,
-  values: { ...r.attributes, ...r.restricted_attributes },
+  values: mergeStored(r.attributes, r.restricted_attributes),
   reminderOverrides: r.reminder_overrides,
   workflowStates: r.workflow_states ?? {},
   version: r.version,
