@@ -251,7 +251,7 @@ export function AssetFormSheet({
 /** Per-asset reminder schedule, for when one contract needs more lead time than its template. */
 function ReminderOverrides({ type, value, onChange }: { type: AssetType; value: Record<string, Duration[]>; onChange: (v: Record<string, Duration[]>) => void }) {
   const { kindById } = useLookups();
-  const tracked = type.fields.filter((f) => f.kind === 'date' && f.config.tracking && kindById.get(f.config.tracking.dateKindId)?.behavior !== 'informational');
+  const tracked = type.fields.filter((f) => f.kind === 'date' && f.config.tracking && (f.config.tracking.behavior ?? kindById.get(f.config.tracking.dateKindId)?.behavior) !== 'informational');
   if (!tracked.length) return null;
   return (
     <fieldset className="space-y-3 rounded-xl border border-border p-4">

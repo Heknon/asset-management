@@ -137,6 +137,23 @@ describe('tracked dates', () => {
     expect(() => advanceRecurringDate(license, values, 'notice_deadline', kindById)).toThrow(/derived/);
   });
 
+  it('keeps what a date is apart from how it comes back', () => {
+    const withTracking = (patch: object) => ({
+      ...license,
+      fields: license.fields.map((f) => (f.key === 'renewal_date' && f.kind === 'date' ? { ...f, config: { ...f.config, tracking: { ...f.config.tracking!, ...patch } } } : f)),
+    });
+    // A renewal renewed to whatever date was bought: no term, still reminders, and Renew asks for the date.
+    const manual = withTracking({ recurrence: { mode: 'manual' } });
+    const [, renewal] = resolveTrackedDates(manual, values, kindById);
+    expect(renewal).toMatchObject({ recurrence: null, dateKind: { key: 'renewal', behavior: 'recurring' } });
+    expect(renewal!.reminders.length).toBeGreaterThan(0);
+    expect(() => advanceRecurringDate(manual, values, 'renewal_date', kindById)).toThrow(/no fixed term/);
+    expect(advanceRecurringDate(manual, values, 'renewal_date', kindById, '2028-01-25').to).toBe('2028-01-25');
+    // Still a Renewal, but once and done; or only for reference.
+    expect(resolveTrackedDates(withTracking({ behavior: 'milestone' }), values, kindById)[1]).toMatchObject({ recurrence: null, confirmBefore: null, dateKind: { key: 'renewal', behavior: 'milestone' } });
+    expect(resolveTrackedDates(withTracking({ behavior: 'informational' }), values, kindById)[1]!.reminders).toEqual([]);
+  });
+
   it('renews until a given date instead of one term later', () => {
     // Bought a year, given a year and 10 days.
     const r = advanceRecurringDate(license, values, 'renewal_date', kindById, '2028-01-25');

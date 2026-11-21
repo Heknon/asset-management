@@ -1,6 +1,7 @@
 import {
   allowedMoves,
   AppError,
+  behaviorOf,
   combineStatuses,
   effectivePermissions,
   initialStatus,
@@ -323,7 +324,8 @@ export class RequestService {
             else if (asset && field?.kind === 'date' && field.config.tracking?.recurrence !== undefined) await this.assets.advance(p, asset.id, field.key, { store: tx, skipRequestId: id });
             else if (asset && field?.kind === 'date' && field.config.tracking) {
               const kinds = await tx.listDateKinds();
-              if (kinds.find((k) => k.id === field.config.tracking!.dateKindId)?.behavior === 'recurring') await this.assets.advance(p, asset.id, field.key, { store: tx, skipRequestId: id });
+              const kind = kinds.find((k) => k.id === field.config.tracking!.dateKindId);
+              if (kind && behaviorOf(field, kind) === 'recurring') await this.assets.advance(p, asset.id, field.key, { store: tx, skipRequestId: id });
             }
           }
           // Picking up a request assigns it, so the requester knows who is on it.
