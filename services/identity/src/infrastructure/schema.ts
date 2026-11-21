@@ -35,6 +35,7 @@ export interface IdentityDB extends OutboxTable {
     created_at: Timestamp;
   };
   group_members: { group_id: string; user_id: string };
+  settings: { key: string; value: ColumnType<unknown, string, string>; updated_at: Generated<Date> };
   org_units: {
     id: Generated<string>;
     key: string;
@@ -251,6 +252,12 @@ export const migrations: Record<string, Migration> = {
   '0006_other_names': {
     async up(db) {
       await sql`alter table users add column other_names text[] not null default '{}'`.execute(db);
+    },
+  },
+  '0007_settings': {
+    async up(db) {
+      // How the org tree is read from the directory (the import's rule), and other settings to come.
+      await sql`create table settings (key text primary key, value jsonb not null, updated_at timestamptz not null default now())`.execute(db);
     },
   },
 };

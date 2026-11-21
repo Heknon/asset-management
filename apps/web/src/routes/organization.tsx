@@ -1,17 +1,19 @@
-import { memberRoles, roles, type MemberRole, type OrgImportResult, type OrgUnit, type OrgUnitInput } from '@am/core';
+import { memberRoles, roles, type DirectoryApplyResult, type DirectoryPreview, type MemberRole, type OrgImportResult, type OrgRule, type OrgUnit, type OrgUnitInput } from '@am/core';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { Building2, ChevronDown, ChevronRight, FileUp, MoreHorizontal, Plus, RefreshCcw, Search, Users } from 'lucide-react';
+import { Building2, ChevronDown, ChevronRight, FileUp, FolderTree, MoreHorizontal, Plus, RefreshCcw, Search, UserRound, Users } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { ColorPicker, UnitPicker } from '@/components/pickers';
 import { Button } from '@/components/ui/button';
-import { Card, EmptyState, PageHeader } from '@/components/ui/display';
-import { Field, Input, Segmented, Switch, TagInput, Textarea } from '@/components/ui/form';
+import { Checkbox, Field, Input, Segmented, Switch, TagInput, Textarea, type TagSuggestion } from '@/components/ui/form';
 import { Dialog, Drawer, Menu, MenuItem } from '@/components/ui/overlay';
 import { useMediaQuery } from '@/lib/hooks';
 import { api, ApiError } from '@/lib/api';
-import { keys, useLookups } from '@/lib/queries';
+import { useQuery } from '@tanstack/react-query';
+import { keys, useLookups, useProviders, useUnitPeople } from '@/lib/queries';
+import { PeopleTab } from './unit';
+import { Badge, Card, EmptyState, PageHeader, Spinner } from '@/components/ui/display';
 import { plural, t, tMaybe } from '@/lib/i18n';
 import { cn, slugKey } from '@/lib/utils';
 
@@ -28,6 +30,8 @@ const memberRoleText = (r: MemberRole) => (r === 'none' ? t('Members get no acce
 export function OrganizationPage() {
   const { units, unitById, childrenOf } = useLookups();
   const [selected, setSelected] = useState<string | 'new' | null>(null);
+  const [readingDirectory, setReadingDirectory] = useState(false);
+  const directoryImport = useQuery({ queryKey: ['directory-import'], queryFn: () => api.get<{ available: boolean }>('/api/identity/directory/import'), staleTime: 300_000 });
   const [newParent, setNewParent] = useState<string | null>(null);
   const [q, setQ] = useState('');
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -123,9 +127,14 @@ export function OrganizationPage() {
     <>
       <PageHeader
         title={t('Organization')}
-        description={t('Your company’s divisions, departments and teams. Link each to directory groups and people are placed in it automatically at sign-in.')}
+        description={directoryImport.data?.available ? t('Your company’s divisions, departments and teams. Import them from the directory: people are placed automatically, at every sign-in.') : t('Your company’s divisions, departments and teams, and who belongs to each.')}
         actions={
           <>
+            {directoryImport.data?.available && (
+              <Button icon={<FolderTree className="size-3.5" />} onClick={() => setReadingDirectory(true)}>
+                {t('Import from directory')}
+              </Button>
+            )}
             <Button icon={<FileUp className="size-3.5" />} onClick={() => setImporting(true)}>
               {t('Import org chart')}
             </Button>
@@ -176,6 +185,7 @@ export function OrganizationPage() {
         )}
       </div>
       <ImportDialog open={importing} onOpenChange={setImporting} />
+      {readingDirectory && <DirectoryImportDialog onClose={() => setReadingDirectory(false)} />}
     </>
   );
 }
@@ -211,6 +221,12 @@ function UnitEditor({ unit, parentId, onSaved, plain = false }: { unit: OrgUnit 
     onError: (e) => toast.error(e instanceof ApiError ? e.message : t('Could not save')),
   });
   const set = (patch: Partial<OrgUnitInput>) => setD((x) => ({ ...x, ...patch }));
+  // Directory links only mean something when people sign in through LDAP or ADFS.
+  const providers = useProviders();
+  const directory = !!providers.data?.some((p) => p.id === 'ldap' || p.id === 'oidc');
+  const people = useUnitPeople(unit?.id ?? null);
+  const suggest = (q: string): Promise<TagSuggestion[]> =>
+    api.get<Array<{ link: string; label: string; people: number }>>('/api/identity/directory/links', { q }).then((rows) => rows.map((r) => ({ value: r.link, label: r.label, detail: plural(r.people, '{n} person', '{n} people') })));
 
   return (
     <Card className={cn('space-y-5 self-start', plain && 'border-0 bg-transparent p-0 shadow-none')}>
@@ -268,18 +284,31 @@ function UnitEditor({ unit, parentId, onSaved, plain = false }: { unit: OrgUnit 
           </div>
         )}
       </Field>
-      <div className="space-y-4 rounded-xl border border-border p-4">
-        <div>
-          <p className="text-[13px] font-semibold">{t('Directory links')}</p>
-          <p className="text-xs text-muted">{t('People are placed in this unit when they sign in, if they match any of these. Use LDAP group DNs, ADFS group names, or attributes such as department=Platform.')}</p>
+      {directory && (
+        <div className="space-y-4 rounded-xl border border-border p-4">
+          <div>
+            <p className="text-[13px] font-semibold">{t('Directory links')}</p>
+            <p className="text-xs text-muted">{t('People are placed in this unit when they sign in, if they match any of these. Start typing: groups and attributes the directory has are suggested.')}</p>
+          </div>
+          <Field label={t('Members')}>
+            {(id) => <TagInput id={id} value={d.directoryMembers} onChange={(directoryMembers) => set({ directoryMembers })} suggest={suggest} placeholder={t('A group, or e.g. department=Platform')} />}
+          </Field>
+          <Field label={t('Managers')}>
+            {(id) => <TagInput id={id} value={d.directoryManagers} onChange={(directoryManagers) => set({ directoryManagers })} suggest={suggest} placeholder={t('A group of the unit’s leads')} />}
+          </Field>
         </div>
-        <Field label={t('Members')}>
-          {(id) => <TagInput id={id} value={d.directoryMembers} onChange={(directoryMembers) => set({ directoryMembers })} placeholder="CN=editor-platform,OU=Groups,DC=corp,DC=com" />}
-        </Field>
-        <Field label={t('Managers')}>
-          {(id) => <TagInput id={id} value={d.directoryManagers} onChange={(directoryManagers) => set({ directoryManagers })} placeholder="CN=editor-platform-leads,OU=Groups,DC=corp,DC=com" />}
-        </Field>
-      </div>
+      )}
+      {unit ? (
+        <div className="space-y-3 rounded-xl border border-border p-4">
+          <div>
+            <p className="text-[13px] font-semibold">{t('People')}</p>
+            <p className="text-xs text-muted">{directory ? t('People the directory places here, and anyone added by hand.') : t('Add the people of this unit, and its managers.')}</p>
+          </div>
+          <PeopleTab unitId={unit.id} people={people.data ?? []} editable bare directory={directory} />
+        </div>
+      ) : (
+        !directory && <p className="text-xs text-muted">{t('Add its people once it is created.')}</p>
+      )}
       <Field label={t('Color')}>{() => <ColorPicker value={d.color} onChange={(color) => set({ color })} />}</Field>
       {unit && <Switch checked={d.archived} onChange={(archived) => set({ archived })} label={t('Archived')} description={t('Hidden from pickers; nothing new can be added to it. Existing assets keep working.')} />}
     </Card>
@@ -344,6 +373,147 @@ function ImportDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o:
           </div>
         )}
       </div>
+    </Dialog>
+  );
+}
+
+/**
+ * Import from directory: reads everyone, suggests how the company is organised
+ * (best guess first), shows the tree with heads, and applies it. Only what the
+ * directory does not say is left to do by hand: people it cannot place, units
+ * without a clear head.
+ */
+function DirectoryImportDialog({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const [rule, setRule] = useState<OrgRule | undefined>(undefined);
+  const [excluded, setExcluded] = useState<string[][]>([]);
+  const [managers, setManagers] = useState(true);
+  const [leavers, setLeavers] = useState(true);
+  const preview = useQuery({
+    queryKey: ['directory-preview', rule ?? null],
+    queryFn: () => api.post<DirectoryPreview>('/api/identity/directory/import/preview', rule ? { rule } : {}),
+    staleTime: Infinity,
+    retry: false,
+  });
+  const p = preview.data;
+  const isExcluded = (path: string[]) => excluded.some((x) => x.length <= path.length && x.every((s, i) => s === path[i]));
+  const apply = useMutation({
+    mutationFn: () => api.post<DirectoryApplyResult>('/api/identity/directory/import/apply', { rule: p!.rule, exclude: excluded, managers, deactivateLeavers: leavers }),
+    onSuccess: (r) => {
+      void qc.invalidateQueries({ queryKey: keys.units });
+      void qc.invalidateQueries();
+      toast.success(t('Imported from the directory'), {
+        description: [
+          plural(r.unitsCreated, '{n} unit created', '{n} units created'),
+          plural(r.usersCreated + r.usersUpdated, '{n} person', '{n} people'),
+          r.managersSet ? plural(r.managersSet, '{n} head', '{n} heads') : null,
+          r.usersDeactivated ? plural(r.usersDeactivated, '{n} leaver deactivated', '{n} leavers deactivated') : null,
+          r.unplaced ? plural(r.unplaced, '{n} to place by hand', '{n} to place by hand') : null,
+        ]
+          .filter(Boolean)
+          .join(' · '),
+      });
+      onClose();
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : t('Could not import')),
+  });
+  const ruleKey = (r: OrgRule) => JSON.stringify(r);
+  const units = (p?.units ?? []).filter((u) => !isExcluded(u.path));
+  const missingHeads = units.filter((u) => !u.manager).length;
+  return (
+    <Dialog
+      open
+      onOpenChange={(o) => !o && onClose()}
+      title={t('Import from directory')}
+      description={t('Everyone in the directory gets an account and their unit. Their places follow the directory from now on, at every sign-in and every import.')}
+      className="sm:max-w-3xl"
+      footer={
+        <>
+          <Button onClick={onClose}>{t('Cancel')}</Button>
+          <Button variant="primary" disabled={!p || !units.length} loading={apply.isPending} onClick={() => apply.mutate()}>
+            {p ? t('Import {units} units and {people} people', { units: units.length, people: p.people }) : t('Import')}
+          </Button>
+        </>
+      }
+    >
+      {preview.isLoading ? (
+        <div className="flex items-center gap-3 py-10 text-[13px] text-muted">
+          <Spinner /> {t('Reading the directory… a large one takes a minute.')}
+        </div>
+      ) : preview.error ? (
+        <p className="rounded-lg bg-danger-soft px-3 py-2 text-[13px] text-danger">{preview.error instanceof ApiError ? preview.error.message : t('Could not read the directory')}</p>
+      ) : p ? (
+        <div className="space-y-5">
+          <p className="text-[13px]">
+            {t('{people} people', { people: p.people })} · {plural(units.length, '{n} unit', '{n} units')} · {t('{create} new accounts, {update} up to date', { create: p.users.create, update: p.users.update })}
+            {!p.complete && <span className="ms-1 text-warning">{t('(the directory has more people than one import reads)')}</span>}
+          </p>
+          {p.options.length > 1 && (
+            <Field label={t('Organised by')} hint={t('Our best guess comes first; pick another if it fits your company better.')}>
+              {() => (
+                <div className="flex flex-wrap gap-1.5">
+                  {p.options.map((o) => (
+                    <button
+                      key={ruleKey(o.rule)}
+                      type="button"
+                      onClick={() => (setRule(o.rule), setExcluded([]))}
+                      className={cn('rounded-lg border px-2.5 py-1.5 text-start text-[13px]', ruleKey(o.rule) === ruleKey(p.rule) ? 'border-accent bg-accent-soft text-accent-fg' : 'border-border hover:border-border-strong')}
+                    >
+                      <span className="block font-medium">{o.rule.kind === 'ou' ? t('Folders (OU)') : o.label}</span>
+                      <span className="block text-xs text-muted">{t('{placed} placed · {units} units', { placed: o.placed, units: o.units })}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </Field>
+          )}
+          <div>
+            <p className="mb-1.5 text-[13px] font-semibold">{t('Units')}</p>
+            <ul className="max-h-80 divide-y divide-border overflow-y-auto rounded-lg border border-border">
+              {(p.units ?? []).map((u) => {
+                const off = isExcluded(u.path);
+                return (
+                  <li key={u.path.join('/')} className={cn('flex items-center gap-2 py-1.5 pe-3 text-[13px]', off && 'opacity-50')} style={{ paddingInlineStart: `${0.75 + (u.path.length - 1) * 1.1}rem` }}>
+                    <Checkbox
+                      checked={!off}
+                      disabled={off && !excluded.some((x) => x.join('/') === u.path.join('/'))}
+                      onChange={(on) => setExcluded((xs) => (on ? xs.filter((x) => x.join('/') !== u.path.join('/')) : [...xs, u.path]))}
+                      label={<span className="font-medium">{u.path.at(-1)}</span>}
+                    />
+                    {u.existingId ? <Badge>{t('Exists')}</Badge> : <Badge tone="accent">{t('New')}</Badge>}
+                    <span className="ms-auto flex shrink-0 items-center gap-3 text-xs text-muted">
+                      {u.manager ? (
+                        <span className="inline-flex items-center gap-1" title={t('Suggested head')}>
+                          <UserRound className="size-3" /> {u.manager.name}
+                        </span>
+                      ) : (
+                        <span className="text-subtle">{t('No clear head')}</span>
+                      )}
+                      <span className="tabular-nums">{plural(u.people, '{n} person', '{n} people')}</span>
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+          <div className="space-y-2">
+            <Switch checked={managers} onChange={setManagers} label={t('Make the suggested heads managers of their units')} description={missingHeads ? plural(missingHeads, '{n} unit has no clear head: add one by hand later if it needs one.', '{n} units have no clear head: add one by hand later if they need one.') : undefined} />
+            <Switch
+              checked={leavers}
+              onChange={setLeavers}
+              disabled={!p.complete}
+              label={plural(p.users.deactivate, 'Deactivate {n} person who left the directory', 'Deactivate {n} people who left the directory')}
+              description={p.users.deactivateSample.length ? p.users.deactivateSample.join(', ') : t('Deactivated, never deleted: their items keep their history.')}
+            />
+          </div>
+          {p.unplaced.count > 0 && (
+            <div className="rounded-lg bg-warning-soft px-3 py-2 text-[13px]">
+              <p className="font-medium text-warning">{plural(p.unplaced.count, '{n} person the directory does not place', '{n} people the directory does not place')}</p>
+              <p className="text-xs text-muted">{t('They get an account; add them to a unit by hand (a unit’s People).')} {p.unplaced.sample.slice(0, 8).map((x) => x.name).join(', ')}{p.unplaced.count > 8 ? '…' : ''}</p>
+            </div>
+          )}
+        </div>
+      ) : null}
     </Dialog>
   );
 }

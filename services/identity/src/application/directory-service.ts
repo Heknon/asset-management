@@ -22,6 +22,11 @@ export class DirectoryService {
     });
   }
 
+  /** What a unit's directory link can be: group DNs and people's tags (`department=…`, `org:…`), matching what was typed. */
+  linkSuggestions(q: string) {
+    return this.store.directoryLinkSuggestions(q.trim(), 20);
+  }
+
   /** Admins set a manual account's password; the person is signed out everywhere. */
   async setPassword(id: string, password: string) {
     const user = await this.store.findUserById(id);

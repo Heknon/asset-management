@@ -82,6 +82,36 @@ export class PgIdentityStore implements IdentityStore {
   }
 
   /** Just-in-time provisioning: directory attributes are refreshed on every login. */
+  async getSetting<T>(key: string): Promise<T | null> {
+    const r = await this.db.selectFrom('settings').select('value').where('key', '=', key).executeTakeFirst();
+    return (r?.value as T | undefined) ?? null;
+  }
+
+  async putSetting(key: string, value: unknown) {
+    await this.db
+      .insertInto('settings')
+      .values({ key, value: JSON.stringify(value) })
+      .onConflict((oc) => oc.column('key').doUpdateSet({ value: JSON.stringify(value), updated_at: sql`now()` }))
+      .execute();
+  }
+
+  async directoryLinkSuggestions(q: string, limit: number) {
+    const like = `%${q.toLowerCase().replace(/[%_\\]/g, (c) => `\\${c}`)}%`;
+    const rows = await sql<{ link: string; label: string; people: number }>`
+      select link, max(label) as label, count(distinct user_id)::int as people from (
+        select g.external_id as link, g.name as label, m.user_id from groups g left join group_members m on m.group_id = g.id
+          where g.external_id is not null and (lower(g.external_id) like ${like} or lower(g.name) like ${like})
+        union all
+        select t as link, t as label, u.id as user_id from users u, unnest(u.directory_tags) t where u.active and lower(t) like ${like}
+      ) x group by link order by people desc, link limit ${limit}`.execute(this.db);
+    return rows.rows;
+  }
+
+  async directoryAccounts(source: AuthSource) {
+    const rows = await this.db.selectFrom('users').select(['id', 'external_id', 'active', 'display_name']).where('source', '=', source).execute();
+    return rows.map((r) => ({ id: r.id, externalId: r.external_id, active: r.active, displayName: r.display_name }));
+  }
+
   async upsertUserFromIdentity(identity: ExternalIdentity) {
     const existing =
       (await this.findUserByExternalId(identity.source, identity.externalId)) ?? (await this.findUserByUsername(identity.username, identity.source));

@@ -1,5 +1,5 @@
 import { Check, X } from 'lucide-react';
-import { forwardRef, useId, useState, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react';
+import { forwardRef, useEffect, useId, useState, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react';
 import { t } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 
@@ -103,15 +103,58 @@ export function Segmented<T extends string>({ value, onChange, options, classNam
 }
 
 /** Free-text values as removable chips (emails, directory group DNs, …). Enter or comma adds. */
-export function TagInput({ value, onChange, placeholder, validate, id }: { value: string[]; onChange: (v: string[]) => void; placeholder?: string; validate?: (v: string) => boolean; id?: string }) {
+export interface TagSuggestion {
+  value: string;
+  label: string;
+  detail?: string;
+}
+
+export function TagInput({
+  value,
+  onChange,
+  placeholder,
+  validate,
+  id,
+  suggest,
+}: {
+  value: string[];
+  onChange: (v: string[]) => void;
+  placeholder?: string;
+  validate?: (v: string) => boolean;
+  id?: string;
+  /** Offers values while typing (and on focus): picked with a click, or Enter on the highlighted one. */
+  suggest?: (q: string) => Promise<TagSuggestion[]>;
+}) {
   const [draft, setDraft] = useState('');
+  const [focused, setFocused] = useState(false);
+  const [options, setOptions] = useState<TagSuggestion[]>([]);
+  const [active, setActive] = useState(0);
+  useEffect(() => {
+    if (!suggest || !focused) return;
+    let live = true;
+    const timer = setTimeout(() => {
+      suggest(draft.trim())
+        .then((list) => live && (setOptions(list.filter((o) => !value.some((x) => x.toLowerCase() === o.value.toLowerCase()))), setActive(0)))
+        .catch(() => live && setOptions([]));
+    }, 150);
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [draft, focused, suggest, value]);
+  const pick = (v: string) => {
+    if (!value.some((x) => x.toLowerCase() === v.toLowerCase())) onChange([...value, v]);
+    setDraft('');
+  };
   const add = () => {
     const v = draft.trim().replace(/,$/, '');
     if (!v || (validate && !validate(v))) return;
     if (!value.some((x) => x.toLowerCase() === v.toLowerCase())) onChange([...value, v]);
     setDraft('');
   };
+  const showing = !!suggest && focused && options.length > 0;
   return (
+    <div className="relative">
     <div className="flex min-h-8 flex-wrap items-center gap-1 rounded-lg border border-border bg-surface px-1.5 py-1 focus-within:border-accent focus-within:ring-3 focus-within:ring-[var(--ring)]">
       {value.map((v) => (
         <span key={v} className="inline-flex max-w-full items-center gap-1 rounded-md bg-surface-2 py-0.5 pe-1 ps-2 font-mono text-[11px]">
@@ -126,8 +169,16 @@ export function TagInput({ value, onChange, placeholder, validate, id }: { value
         className="h-6 min-w-40 flex-1 bg-transparent px-1 text-[13px] outline-none placeholder:text-subtle"
         placeholder={value.length ? '' : placeholder}
         value={draft}
+        role={suggest ? 'combobox' : undefined}
+        aria-expanded={suggest ? showing : undefined}
+        aria-autocomplete={suggest ? 'list' : undefined}
         onChange={(e) => setDraft(e.target.value)}
-        onBlur={add}
+        onFocus={() => setFocused(true)}
+        onBlur={() => {
+          // A click on a suggestion lands before the list closes.
+          setTimeout(() => setFocused(false), 150);
+          add();
+        }}
         onPaste={(e) => {
           // A pasted column (one per line) or list ("a, b; c") becomes several entries.
           const parts = e.clipboardData.getData('text').split(/[\n\r,;\t]+/).map((x) => x.trim()).filter(Boolean);
@@ -139,12 +190,41 @@ export function TagInput({ value, onChange, placeholder, validate, id }: { value
           setDraft(rejected.join(', '));
         }}
         onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ',') {
+          if (showing && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+            e.preventDefault();
+            setActive((a) => (a + (e.key === 'ArrowDown' ? 1 : options.length - 1)) % options.length);
+          } else if (showing && e.key === 'Enter' && options[active]) {
+            e.preventDefault();
+            pick(options[active]!.value);
+          } else if (e.key === 'Escape') setFocused(false);
+          else if (e.key === 'Enter' || e.key === ',') {
             e.preventDefault();
             add();
           } else if (e.key === 'Backspace' && !draft && value.length) onChange(value.slice(0, -1));
         }}
       />
+    </div>
+      {showing && (
+        <ul role="listbox" className="absolute inset-x-0 top-full z-20 mt-1 max-h-64 overflow-y-auto rounded-lg border border-border bg-surface p-1 shadow-pop">
+          {options.map((o, i) => (
+            <li key={o.value} role="option" aria-selected={i === active}>
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => pick(o.value)}
+                onMouseEnter={() => setActive(i)}
+                className={cn('flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-start text-[13px]', i === active && 'bg-surface-2')}
+              >
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate">{o.label}</span>
+                  {o.label !== o.value && <span className="block truncate font-mono text-[11px] text-subtle">{o.value}</span>}
+                </span>
+                {o.detail && <span className="shrink-0 text-xs text-muted">{o.detail}</span>}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

@@ -325,8 +325,12 @@ export function RequestList({ items, title, empty }: { items: import('@am/core')
   );
 }
 
-/** Members and managers. Directory-synced people are read-only here; managers can add people by hand. */
-function PeopleTab({ unitId, people, editable }: { unitId: string; people: UnitPerson[]; editable: boolean }) {
+/**
+ * Members and managers. Directory-synced people are read-only here; managers
+ * can add people by hand. `bare`: inside another card (the Organization editor);
+ * `directory`: sign-in places people from a directory, so the hand-added are the exceptions.
+ */
+export function PeopleTab({ unitId, people, editable, bare = false, directory = true }: { unitId: string; people: UnitPerson[]; editable: boolean; bare?: boolean; directory?: boolean }) {
   const qc = useQueryClient();
   const [adding, setAdding] = useState<string | null>(null);
   const [role, setRole] = useState<UnitRole>('member');
@@ -346,11 +350,11 @@ function PeopleTab({ unitId, people, editable }: { unitId: string; people: UnitP
     { role: 'member', title: t('Members'), hint: t('See this unit’s assets and can request things for it.'), empty: t('No members yet') },
   ];
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-6 px-4 sm:px-6 py-6">
+    <div className={bare ? 'space-y-4' : 'mx-auto w-full max-w-4xl space-y-6 px-4 sm:px-6 py-6'}>
       {editable && (
         <Card className="flex flex-wrap items-end gap-2">
           <div className="min-w-64 flex-1">
-            <p className="mb-1.5 text-xs font-medium text-muted">{t('Add someone who isn’t in the directory group')}</p>
+            <p className="mb-1.5 text-xs font-medium text-muted">{directory ? t('Add someone who isn’t in the directory group') : t('Add a person')}</p>
             <PersonPicker value={adding} onChange={setAdding} placeholder={t('Search people')} />
           </div>
           <Select className="w-32" value={role} onChange={(e) => setRole(e.target.value as UnitRole)}>
