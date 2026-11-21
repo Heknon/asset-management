@@ -45,9 +45,9 @@ const tones: Record<Tone, string> = {
 };
 
 /** A badge either has a semantic tone or a custom color (rendered as a dot). */
-export function Badge({ children, tone = 'neutral', color, className }: { children: ReactNode; tone?: Tone; color?: string; className?: string }) {
+export function Badge({ children, tone = 'neutral', color, className, title }: { children: ReactNode; tone?: Tone; color?: string; className?: string; title?: string }) {
   return (
-    <span className={cn('inline-flex h-5 items-center gap-1.5 rounded-md px-1.5 text-xs font-medium whitespace-nowrap', color ? 'bg-surface-2 text-fg' : tones[tone], className)}>
+    <span title={title} className={cn('inline-flex h-5 items-center gap-1.5 rounded-md px-1.5 text-xs font-medium whitespace-nowrap', color ? 'bg-surface-2 text-fg' : tones[tone], className)}>
       {color && <span className="size-1.5 shrink-0 rounded-full" style={{ background: color }} />}
       {children}
     </span>
