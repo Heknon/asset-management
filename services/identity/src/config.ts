@@ -60,6 +60,11 @@ export const identityConfig = {
   LDAP_ADMIN_GROUPS: envList,
   /** User attributes that place people in units, matched as `attribute=value`, e.g. department,division. */
   LDAP_UNIT_ATTRIBUTES: envList,
+  /** The directory import reads everyone this filter matches under LDAP_USER_BASE_DN: people, not computers. */
+  LDAP_CRAWL_FILTER: z.string().default('(|(objectClass=inetOrgPerson)(&(objectCategory=person)(objectClass=user)))'),
+  LDAP_MANAGER_ATTRIBUTE: z.string().default('manager'),
+  /** At most this many people per import (bigger directories: the rest on the next run). */
+  LDAP_CRAWL_LIMIT: z.coerce.number().int().positive().max(200_000).default(50_000),
 
   /** ADFS (or any OpenID Connect provider). ADFS: https://adfs.example.com/adfs */
   OIDC_ENABLED: envBool(false),

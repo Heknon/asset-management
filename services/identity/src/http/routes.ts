@@ -15,6 +15,8 @@ import {
   passwordChangeSchema,
   passwordSetSchema,
   userUpdateSchema,
+  directoryApplySchema,
+  directoryPreviewSchema,
 } from '@am/core';
 import { ACCESS_COOKIE, parse, REFRESH_COOKIE, requireAdmin, requirePrincipal } from '@am/platform';
 import type { FastifyInstance, FastifyReply } from 'fastify';
@@ -23,6 +25,7 @@ import type { AuthService, IssuedSession } from '../application/auth-service.js'
 import type { AccessService } from '../application/access-service.js';
 import type { DirectoryService } from '../application/directory-service.js';
 import type { OrgService } from '../application/org-service.js';
+import type { DirectoryImportService } from '../application/directory-import.js';
 import type { RedirectState } from '../application/ports.js';
 import type { GoogleSignIn } from '../application/google-sign-in.js';
 import { registerGoogleRoutes } from './google-routes.js';
@@ -35,6 +38,7 @@ export interface RouteOptions {
   auth: AuthService;
   directory: DirectoryService;
   org: OrgService;
+  directoryImport: DirectoryImportService;
   access: AccessService;
   jwks: () => Promise<unknown>;
   publicUrl: string;
@@ -195,6 +199,26 @@ export function registerRoutes(app: FastifyInstance, o: RouteOptions): void {
   app.put(`${PREFIX}/units/:id/people`, async (req) => {
     const p = parse(unitPeopleSchema, req.body);
     return o.org.setPeople(requirePrincipal(req), parse(idParam, req.params).id, p.members, p.managers);
+  });
+
+  // ─── Directory import (LDAP): read everyone, suggest the org tree, apply ─────
+  app.get(`${PREFIX}/directory/import`, async (req) => {
+    requireAdmin(req);
+    return { available: o.directoryImport.available };
+  });
+  app.post(`${PREFIX}/directory/import/preview`, async (req) => {
+    requireAdmin(req);
+    return o.directoryImport.preview(parse(directoryPreviewSchema, req.body ?? {}).rule);
+  });
+  app.post(`${PREFIX}/directory/import/apply`, async (req) => {
+    requireAdmin(req);
+    return o.directoryImport.apply(parse(directoryApplySchema, req.body));
+  });
+  /** Suggestions while typing a unit's directory link: groups seen so far and people's tags. */
+  app.get(`${PREFIX}/directory/links`, async (req) => {
+    requireAdmin(req);
+    const { q } = parse(z.object({ q: z.string().max(200).default('') }), req.query);
+    return o.directory.linkSuggestions(q);
   });
 
   // ─── Administration ──────────────────────────────────────────────────────

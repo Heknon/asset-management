@@ -19,11 +19,17 @@ import type {
   UserSummary,
 } from '@am/core';
 import type { ExternalIdentity, Session, UserRecord } from '../domain/model.js';
+import type { DirectoryPerson } from '../domain/directory.js';
 
 /** Authenticates a username/password pair (local accounts, LDAP). */
 export interface PasswordProvider {
   readonly info: AuthProviderInfo;
   authenticate(username: string, password: string): Promise<ExternalIdentity | null>;
+}
+
+/** Reads everyone in the directory (LDAP), for the import. */
+export interface DirectoryCrawler {
+  crawl(limit: number): Promise<{ people: DirectoryPerson[]; complete: boolean }>;
 }
 
 /** Browser redirect flow (ADFS / OpenID Connect). */
@@ -102,6 +108,12 @@ export interface IdentityStore {
   revokeUserSessions(userId: string): Promise<void>;
 
   publishUserChanged(user: UserRecord): Promise<void>;
+  getSetting<T>(key: string): Promise<T | null>;
+  /** Known group DNs and people's tags containing `q`, with how many people each covers. */
+  directoryLinkSuggestions(q: string, limit: number): Promise<Array<{ link: string; label: string; people: number }>>;
+  putSetting(key: string, value: unknown): Promise<void>;
+  /** Directory accounts of one source: their external ids, to tell who left. */
+  directoryAccounts(source: AuthSource): Promise<Array<{ id: string; externalId: string | null; active: boolean; displayName: string }>>;
   publishUnitChanged(unitIds: string[]): Promise<void>;
   publishGroupChanged(groupIds: string[]): Promise<void>;
 }
