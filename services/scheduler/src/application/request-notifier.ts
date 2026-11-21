@@ -22,7 +22,7 @@ export class RequestNotifier {
 
   async onRequestChanged(e: RequestChanged): Promise<void> {
     // The renewals list shows where the renewal of each date stands.
-    if (e.requestKind === 'renewal' && e.renewal) {
+    if (e.requestKind === 'renewal' && e.renewal && !e.workflow) {
       await this.store.setRenewalRequest(e.renewal, { id: e.requestId, number: e.number, status: e.status, label: e.statusLabel, color: e.statusColor, category: e.statusCategory, at: e.at });
     }
     const people = new Set<string>();
@@ -38,6 +38,12 @@ export class RequestNotifier {
       if (e.assigneeId) people.add(e.assigneeId);
     } else {
       people.add(e.requesterId);
+    }
+    // An added workflow's responsible unit hears when it starts (the purchase is done) and when it moves.
+    const responsible = e.workflow ? [e.workflow.responsibleUnitId] : e.kind === 'fulfilled' ? (e.waitingOn ?? []).map((w) => w.responsibleUnitId) : [];
+    for (const unitId of new Set(responsible.filter((u): u is string => !!u))) {
+      const path = (await this.store.unitPaths([unitId])).get(unitId) ?? [unitId];
+      (await this.store.nearestManagers(path)).forEach((id) => people.add(id));
     }
     people.delete(e.actorId);
 

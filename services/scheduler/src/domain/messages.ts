@@ -98,6 +98,10 @@ export interface RequestNotice {
   actorName: string;
   note: string | null;
   kind: 'created' | 'status' | 'comment' | 'assigned' | 'fulfilled';
+  /** The change is to an added workflow ("Machine status"), not the purchase. */
+  workflow?: { name: string } | null;
+  /** Added workflows still open ("Swap the new license: To install"). */
+  waitingOn?: Array<{ name: string; label: string }>;
   url: string;
 }
 
@@ -127,6 +131,14 @@ export function noticeMessage(subject: string, n: Notice, recipientName: string)
 
 /** Short, human emails for request updates. */
 export function requestMessage(n: RequestNotice, recipientName: string): Message {
+  const still = n.waitingOn?.length ? ` Still open: ${n.waitingOn.map((w) => `${w.name} — ${w.label}`).join('; ')}.` : '';
+  if (n.workflow) {
+    return noticeMessage(
+      `${n.number}: ${n.workflow.name} is now “${n.statusLabel}”: ${n.title}`,
+      { eyebrow: `${n.number} · ${n.workflow.name}`, title: n.title, intro: `${n.actorName} moved ${n.workflow.name} to “${n.statusLabel}”.${still}`, quote: n.note, cta: { label: 'Open request', url: n.url } },
+      recipientName,
+    );
+  }
   const headline = {
     created: `New request ${n.number}: ${n.title}`,
     status: `${n.number} is now “${n.statusLabel}”: ${n.title}`,
@@ -134,7 +146,16 @@ export function requestMessage(n: RequestNotice, recipientName: string): Message
     assigned: `${n.number} was assigned: ${n.title}`,
     fulfilled: `${n.number} is ${n.requestKind === 'renewal' ? 'renewed' : 'done'}: ${n.title}`,
   }[n.kind];
-  const intro = n.kind === 'created' ? (n.requestKind === 'renewal' ? `${n.actorName} asked to renew “${n.title.replace(/^Renew /, '')}”.` : `${n.actorName} asked for “${n.title}”.`) : n.kind === 'comment' ? `${n.actorName} wrote:` : `${n.actorName} updated the request.`;
+  const intro =
+    n.kind === 'created'
+      ? n.requestKind === 'renewal'
+        ? `${n.actorName} asked to renew “${n.title.replace(/^Renew /, '')}”.`
+        : `${n.actorName} asked for “${n.title}”.`
+      : n.kind === 'comment'
+        ? `${n.actorName} wrote:`
+        : n.kind === 'fulfilled' && still
+          ? `${n.actorName} finished the purchase.${still}`
+          : `${n.actorName} updated the request.`;
   return noticeMessage(headline, { eyebrow: n.number, title: n.title, intro, quote: n.note, cta: { label: 'Open request', url: n.url } }, recipientName);
 }
 

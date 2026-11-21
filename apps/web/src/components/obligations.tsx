@@ -26,9 +26,9 @@ export function useObligationActions() {
   const onError = (e: unknown) => toast.error(e instanceof ApiError ? e.message : t('Something went wrong'));
 
   const advance = useMutation({
-    mutationFn: (o: Obligation) => api.post(`/api/registry/assets/${o.assetId}/dates/${o.fieldKey}/advance`),
-    onSuccess: (_d, o) => {
-      toast.success(t('{action}: {asset}', { action: tMaybe(o.dateKind.actionLabel), asset: o.assetName }), { description: t('{label} rolled forward', { label: o.label }) });
+    mutationFn: ({ o, until }: { o: Obligation; until?: string }) => api.post(`/api/registry/assets/${o.assetId}/dates/${o.fieldKey}/advance`, until ? { until } : {}),
+    onSuccess: (_d, { o, until }) => {
+      toast.success(t('{action}: {asset}', { action: tMaybe(o.dateKind.actionLabel), asset: o.assetName }), { description: until ? t('{label} is now {date}', { label: o.label, date: formatDate(until) }) : t('{label} rolled forward', { label: o.label }) });
       invalidate(o.assetId);
     },
     onError,
@@ -55,12 +55,45 @@ export function useObligationActions() {
 
   return {
     requestRenewal: (o: Obligation) => renewal.mutate(o),
-    primary: (o: Obligation) => (o.recurring ? advance.mutate(o) : act.mutate({ o, body: { action: 'complete' } })),
+    primary: (o: Obligation) => (o.recurring ? advance.mutate({ o }) : act.mutate({ o, body: { action: 'complete' } })),
+    /** Renewed until a given date ("a year and 10 days"), or a renewal with no fixed term. */
+    renewUntil: (o: Obligation, until: string) => advance.mutate({ o, until }),
     snooze: (o: Obligation, until: string) => act.mutate({ o, body: { action: 'snooze', until } }),
     dismiss: (o: Obligation) => act.mutate({ o, body: { action: 'dismiss' } }),
     reopen: (o: Obligation) => act.mutate({ o, body: { action: 'reopen' } }),
     pending: advance.isPending || act.isPending,
   };
+}
+
+/** A renewal with no fixed term needs its new date; any renewal can be given one ("bought a year, got a year and 10 days"). */
+export const needsNewDate = (o: Pick<Obligation, 'recurring' | 'dateKind'>) => !o.recurring && o.dateKind.behavior === 'recurring';
+
+function RenewUntilDialog({ obligation, onClose, onRenew }: { obligation: Obligation | null; onClose: () => void; onRenew: (until: string) => void }) {
+  const [until, setUntil] = useState('');
+  const o = obligation;
+  const suggested = o ? addDuration(o.dueDate, { amount: 1, unit: 'year' }) : '';
+  const value = until || suggested;
+  return (
+    <Dialog
+      open={!!o}
+      onOpenChange={(open) => !open && (onClose(), setUntil(''))}
+      title={o ? t('{action} until…', { action: tMaybe(o.dateKind.actionLabel) }) : ''}
+      description={o ? `${o.label} · ${o.assetName} · ${t('now {date}', { date: formatDate(o.dueDate) })}` : undefined}
+      footer={
+        <>
+          <Button onClick={() => (onClose(), setUntil(''))}>{t('Cancel')}</Button>
+          <Button variant="primary" disabled={!o || !value || value <= o.dueDate} onClick={() => (onRenew(value), setUntil(''))}>
+            {o && tMaybe(o.dateKind.actionLabel)}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-2">
+        <Input type="date" aria-label={t('New date')} min={o ? addDuration(o.dueDate, { amount: 1, unit: 'day' }) : undefined} value={value} onChange={(e) => setUntil(e.target.value)} />
+        <p className="text-xs text-muted">{o?.recurring ? t('Set the date you actually got, e.g. a year and 10 days. Reminders and the next renewal follow it.') : t('This date has no fixed term: set the new one. Reminders and the next renewal follow it.')}</p>
+      </div>
+    </Dialog>
+  );
 }
 
 function SnoozeDialog({ obligation, onClose, onSnooze }: { obligation: Obligation | null; onClose: () => void; onSnooze: (until: string) => void }) {
@@ -111,6 +144,7 @@ export function ObligationList({
   const { typeById } = useLookups();
   const me = useMe().data;
   const [snoozing, setSnoozing] = useState<Obligation | null>(null);
+  const [renewing, setRenewing] = useState<Obligation | null>(null);
   const [asking, setAsking] = useState<Obligation | null>(null);
   const [localAnswering, setLocalAnswering] = useState<Obligation | null>(null);
   const answer = answering !== undefined ? answering : localAnswering;
@@ -193,9 +227,9 @@ export function ObligationList({
                   size="sm"
                   variant={o.urgency === 'overdue' || o.urgency === 'due_soon' ? 'primary' : 'secondary'}
                   className={cn(o.urgency === 'later' && 'opacity-0 group-hover:opacity-100 focus:opacity-100 touch:opacity-100')}
-                  icon={o.recurring ? <RefreshCcw className="size-3.5" /> : <Check className="size-3.5" />}
+                  icon={o.recurring || needsNewDate(o) ? <RefreshCcw className="size-3.5" /> : <Check className="size-3.5" />}
                   disabled={actions.pending}
-                  onClick={() => actions.primary(o)}
+                  onClick={() => (needsNewDate(o) ? setRenewing(o) : actions.primary(o))}
                 >
                   {tMaybe(o.dateKind.actionLabel)}
                 </Button>
@@ -210,6 +244,11 @@ export function ObligationList({
                       <MenuItem icon={<CircleHelp />} onSelect={() => setAnswer(o)}>
                         {o.check && o.check.status !== 'asked' ? t('Change the answer…') : t('Answer for the owner…')}
                       </MenuItem>
+                      {o.recurring && (
+                        <MenuItem icon={<RefreshCcw />} onSelect={() => setRenewing(o)}>
+                          {t('{action} until a date…', { action: tMaybe(o.dateKind.actionLabel) })}
+                        </MenuItem>
+                      )}
                       {!o.renewalRequest && (
                         <MenuItem icon={<ShoppingCart />} onSelect={() => actions.requestRenewal(o)}>
                           {t('Open a renewal request')}
@@ -237,6 +276,14 @@ export function ObligationList({
       </ul>
       <AskOwnerDialog obligation={asking} onClose={() => setAsking(null)} />
       <AnswerDialog obligation={answer} onClose={() => setAnswer(null)} />
+      <RenewUntilDialog
+        obligation={renewing}
+        onClose={() => setRenewing(null)}
+        onRenew={(until) => {
+          if (renewing) actions.renewUntil(renewing, until);
+          setRenewing(null);
+        }}
+      />
       <SnoozeDialog
         obligation={snoozing}
         onClose={() => setSnoozing(null)}

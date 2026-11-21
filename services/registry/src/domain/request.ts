@@ -1,4 +1,4 @@
-import { allowedMoves, AppError, statusIn, type RequestAccess, type RequestKind, type RequestStatus, type StatusCategory, type Workflow } from '@am/core';
+import { allowedMoves, AppError, statusIn, type RequestAccess, type RequestKind, type RequestStatus, type StatusCategory, type Workflow, type WorkflowStates } from '@am/core';
 
 /** Pure rules of the request workflow. */
 
@@ -22,6 +22,10 @@ export interface RequestState {
   neededBy: string | null;
   link: string | null;
   assetId: string | null;
+  /** Where each added workflow stands (those started so far). */
+  workflowStates: WorkflowStates;
+  /** The team variant whose workflows it follows (the renewed or purchased item's). */
+  workflowVariantId: string | null;
   createdAt: Date;
   updatedAt: Date;
   commentCount: number;
@@ -38,8 +42,8 @@ export function assertMove(wf: Workflow, from: RequestStatus, to: RequestStatus,
   throw AppError.forbidden('Only people who handle requests for this team can do that');
 }
 
+/** The buyers' part is still open. */
 export const isOpen = (r: Pick<RequestState, 'statusCategory'>) => r.statusCategory === 'todo' || r.statusCategory === 'active';
-
 export function accessOf(isHandler: boolean, isRequester: boolean): RequestAccess {
   return isHandler ? 'handler' : isRequester ? 'requester' : 'viewer';
 }

@@ -15,6 +15,7 @@ import type {
   RequestEvent,
   RequestQuery,
   RequestStatus,
+  WorkflowStateValue,
   StatusCategory,
   SavedView,
   SavedViewInput,
@@ -119,6 +120,12 @@ export interface RegistryStore {
   updateRequest(id: string, row: RequestRow, searchText: string): Promise<RequestState>;
   getRequest(id: string, opts?: { forUpdate?: boolean }): Promise<RequestState | null>;
   setRequestStatus(id: string, status: { key: string; category: StatusCategory }, assetId?: string | null): Promise<void>;
+  /** Starts or moves one added workflow of a request. */
+  setRequestWorkflow(id: string, key: string, state: WorkflowStateValue): Promise<void>;
+  /** The team variant whose workflows a request follows. */
+  setRequestWorkflowVariant(id: string, variantId: string | null): Promise<void>;
+  /** Moves one added workflow of an item. */
+  setAssetWorkflow(id: string, key: string, state: WorkflowStateValue): Promise<void>;
   /** Open renewal requests of one item's date. */
   openRenewals(assetId: string, fieldKey: string): Promise<RequestState[]>;
   getSetting<T>(key: string): Promise<T | null>;
@@ -131,7 +138,7 @@ export interface RegistryStore {
     visibility: { userId: string; viewScopes: Scope[]; editScopes: Scope[]; myUnitIds: string[] },
   ): Promise<{ items: Array<RequestState & { snippet?: string }>; total: number }>;
   countRequests(visibility: { userId: string; viewScopes: Scope[]; editScopes: Scope[]; myUnitIds: string[] }): Promise<{ mine: number; team: number; handle: number; unassigned: number }>;
-  addRequestEvent(e: Omit<RequestEvent, 'id' | 'at'>): Promise<void>;
+  addRequestEvent(e: Omit<RequestEvent, 'id' | 'at' | 'workflow'> & { workflow?: string | null }): Promise<void>;
   listRequestEvents(requestId: string): Promise<RequestEvent[]>;
   requestForAsset(assetId: string): Promise<RequestState | null>;
 

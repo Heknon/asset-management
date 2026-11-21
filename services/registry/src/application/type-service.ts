@@ -19,7 +19,7 @@ import {
 } from '@am/core';
 import { assetChangedEvent } from '../domain/asset.js';
 import type { RegistryStore } from './ports.js';
-import { DEFAULT_WORKFLOW_KEY, organizationWorkflow } from './workflows.js';
+import { DEFAULT_WORKFLOW_KEY, organizationWorkflow, PURCHASE_UNIT_KEY, purchaseUnit } from './workflows.js';
 import { itemSchema } from './schema.js';
 
 export interface TemplateSummary {
@@ -89,15 +89,25 @@ export class TypeService {
     const current = await this.store.getType(id);
     if (!current) throw AppError.notFound('Asset type');
     // Older clients do not send the workflow: keep the one it has.
-    const parsed = await this.validated(input.requestWorkflow === undefined ? { ...input, requestWorkflow: current.requestWorkflow ?? null } : input);
+    const parsed = await this.validated({
+      ...input,
+      ...(input.requestWorkflow === undefined && { requestWorkflow: current.requestWorkflow ?? null }),
+      ...(input.workflows === undefined && { workflows: current.workflows ?? [] }),
+    });
     const before = current.requestWorkflow ?? (await organizationWorkflow(this.store));
     const after = parsed.requestWorkflow ?? (await organizationWorkflow(this.store));
 
     // A field added to the template must not clash with a team variant's own field.
     const variants = await this.store.listVariants({ assetTypeId: id, includeArchived: true });
-    const issues = parsed.fields.flatMap((f, i) =>
-      variants.filter((v) => v.fields.some((x) => x.key === f.key)).map((v) => ({ path: `fields.${i}.key`, message: `The team variant “${v.name}” already has a field "${f.key}"` })),
-    );
+    const issues = [
+      ...parsed.fields.flatMap((f, i) =>
+        variants.filter((v) => v.fields.some((x) => x.key === f.key)).map((v) => ({ path: `fields.${i}.key`, message: `The team variant “${v.name}” already has a field "${f.key}"` })),
+      ),
+      // Likewise a workflow: items and requests keep each workflow's state under its key.
+      ...(parsed.workflows ?? []).flatMap((w, i) =>
+        variants.filter((v) => (v.workflows ?? []).some((x) => x.key === w.key)).map((v) => ({ path: `workflows.${i}.key`, message: `The team variant “${v.name}” already has a workflow "${w.key}"` })),
+      ),
+    ];
     if (issues.length) throw AppError.validation('The template has problems', { issues });
     return this.store.transaction(async (tx) => {
       const type = await tx.updateType(id, parsed, expectedVersion);
@@ -110,6 +120,19 @@ export class TypeService {
   /** The organization's default request workflow, which templates without their own follow. */
   organizationWorkflow() {
     return organizationWorkflow(this.store);
+  }
+
+  purchaseUnit() {
+    return purchaseUnit(this.store);
+  }
+
+  async setPurchaseUnit(unitId: string | null): Promise<string | null> {
+    if (unitId) {
+      const u = await this.store.getUnit(unitId);
+      if (!u || u.archived) throw AppError.validation('Unknown or archived unit');
+    }
+    await this.store.putSetting(PURCHASE_UNIT_KEY, unitId);
+    return unitId;
   }
 
   async setOrganizationWorkflow(input: Workflow): Promise<Workflow> {
@@ -174,10 +197,22 @@ export class TypeService {
     const issues = [
       ...validateTypeStructure(parsed, new Set(kinds.map((k) => k.id))),
       ...(parsed.requestWorkflow ? validateWorkflow(parsed.requestWorkflow).map((i) => ({ ...i, path: `requestWorkflow.${i.path}` })) : []),
+      ...(await unknownResponsibleUnits(this.store, parsed.workflows ?? [])),
     ];
     if (issues.length) throw AppError.validation('The template has problems', { issues });
     return parsed;
   }
+}
+
+/** Every workflow's responsible unit must exist. */
+export async function unknownResponsibleUnits(store: RegistryStore, workflows: Array<{ name: string; responsibleUnitId: string | null }>) {
+  const issues: Array<{ path: string; message: string }> = [];
+  for (const [i, w] of workflows.entries()) {
+    if (!w.responsibleUnitId) continue;
+    const u = await store.getUnit(w.responsibleUnitId);
+    if (!u || u.archived) issues.push({ path: `workflows.${i}.responsibleUnitId`, message: `${w.name}: unknown or archived responsible unit` });
+  }
+  return issues;
 }
 
 /** Re-emits `asset.changed` for every asset of the given types or variants (after schema or kind changes). */

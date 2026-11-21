@@ -149,7 +149,7 @@ function RequestRow({ r, meId, onOpen }: { r: PurchaseRequest; meId: string; onO
           </span>
         )}
         <span className="hidden sm:contents">{r.assigneeId ? <AssigneeAvatar id={r.assigneeId} /> : <span className="w-[22px]" />}</span>
-        <RequestStatusBadge status={r.statusInfo} />
+        <OverallBadge r={r} />
       </button>
     </li>
   );
@@ -158,6 +158,79 @@ function RequestRow({ r, meId, onOpen }: { r: PurchaseRequest; meId: string; onO
 function AssigneeAvatar({ id }: { id: string }) {
   const p = usePeople([id]).get(id);
   return <Avatar name={p?.displayName ?? '?'} size={22} />;
+}
+
+/**
+ * One status for the whole request: the purchase's while it is open or was
+ * called off; once bought, whichever added workflow is still open
+ * ("Swap the new license: To install"), else done.
+ */
+export function OverallBadge({ r }: { r: PurchaseRequest }) {
+  const open = r.workflows.filter((w) => r.overall.waitingOn.includes(w.key) && w.statusInfo);
+  if (r.overall.waitingOn.includes('purchase') || !open.length) return <RequestStatusBadge status={r.statusInfo} />;
+  const first = open[0]!;
+  return (
+    <span className="inline-flex items-center gap-1" title={open.map((w) => `${tMaybe(w.name)}: ${tMaybe(w.statusInfo!.label)}`).join(' · ')}>
+      <RequestStatusBadge status={{ label: `${tMaybe(first.name)}: ${tMaybe(first.statusInfo!.label)}`, color: first.statusInfo!.color }} />
+      {open.length > 1 && <span className="text-xs text-muted">+{open.length - 1}</span>}
+    </span>
+  );
+}
+
+/**
+ * Every workflow of the request, for everyone: the purchase and the ones the
+ * template or the item's team added, each with the unit responsible for it
+ * and where it stands. The responsible unit moves its own.
+ */
+function WorkflowsCard({ r, onMove, pending }: { r: PurchaseRequest; onMove: (workflow: string, status: string) => void; pending: boolean }) {
+  const waitingOther = r.overall.waitingOn.filter((k) => k !== 'purchase');
+  return (
+    <Card className="space-y-3">
+      <div>
+        <h2 className="text-[13px] font-semibold">{t('Where it stands')}</h2>
+        <p className="text-xs text-muted">
+          {r.overall.category === 'done'
+            ? t('Done for everyone.')
+            : r.overall.category === 'closed'
+              ? t('This request is closed.')
+              : waitingOther.length && !r.overall.waitingOn.includes('purchase')
+                ? t('Bought — still waiting on: {names}', { names: r.workflows.filter((w) => waitingOther.includes(w.key)).map((w) => tMaybe(w.name)).join(', ') })
+                : t('Each part is moved by the unit responsible for it.')}
+        </p>
+      </div>
+      <ul className="divide-y divide-border rounded-lg border border-border">
+        <li className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 text-[13px]">
+          <span className="min-w-0 flex-1">
+            <span className="font-medium">{r.kind === 'renewal' ? t('Renewal') : t('Purchase')}</span>
+            <span className="ms-2 text-xs text-muted">{r.responsibleUnitId ? <UnitPath id={r.responsibleUnitId} leafOnly /> : t('People who handle requests')}</span>
+          </span>
+          <RequestStatusBadge status={r.statusInfo} />
+        </li>
+        {r.workflows.map((w) => (
+          <li key={w.key} className="space-y-2 px-3 py-2.5 text-[13px]">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span className="min-w-0 flex-1">
+                <span className="font-medium">{tMaybe(w.name)}</span>
+                <span className="ms-2 text-xs text-muted">
+                  <UnitPath id={w.responsibleUnitId} leafOnly />
+                </span>
+              </span>
+              {w.statusInfo ? <RequestStatusBadge status={w.statusInfo} /> : <Badge>{t('Starts when bought')}</Badge>}
+            </div>
+            {w.moves.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {w.moves.map((m) => (
+                  <Button key={m.key} size="sm" variant={m.category === 'done' ? 'primary' : m.category === 'closed' ? 'ghost' : 'secondary'} disabled={pending} icon={m.category === 'done' ? <Check className="size-3.5" /> : m.category === 'closed' ? <X className="size-3.5" /> : <ArrowRight className="size-3.5" />} onClick={() => onMove(w.key, m.key)}>
+                    {tMaybe(m.label)}
+                  </Button>
+                ))}
+              </div>
+            )}
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
 }
 
 // ─── Detail ──────────────────────────────────────────────────────────────────
@@ -203,7 +276,10 @@ function useAct(requestId: string) {
     mutationFn: (body: Record<string, unknown>) => api.post<PurchaseRequest>(`/api/registry/requests/${requestId}/actions`, body),
     onSuccess: (r, body) => {
       void qc.invalidateQueries({ queryKey: keys.requests });
-      if (body.action === 'status') {
+      if (body.action === 'status' && body.workflow) {
+        const w = r.workflows.find((x) => x.key === body.workflow);
+        if (w?.statusInfo) toast.success(t('{workflow}: moved to “{status}”', { workflow: tMaybe(w.name), status: tMaybe(w.statusInfo.label) }));
+      } else if (body.action === 'status') {
         toast.success(t('Moved to “{status}”', { status: tMaybe(r.statusInfo.label) }));
         // A finished renewal moved the item's date.
         if (r.kind === 'renewal' && r.statusInfo.category === 'done') void qc.invalidateQueries();
@@ -223,6 +299,8 @@ export function RequestDetailPage() {
   useRemember(request.data ? { kind: 'request', id: request.data.id, title: request.data.title, subtitle: t('Request') } : null);
   const [comment, setComment] = useState('');
   const [closing, setClosing] = useState<RequestStatusInfo | null>(null);
+  const [renewing, setRenewing] = useState<RequestStatusInfo | null>(null);
+  const [renewedUntil, setRenewedUntil] = useState('');
   const [reason, setReason] = useState('');
   const [editing, setEditing] = useState(false);
   const [fulfilType, setFulfilType] = useState<string | null>(null);
@@ -245,7 +323,7 @@ export function RequestDetailPage() {
   const primary = forward.find((m) => m.category === 'done') ?? forward.find((m) => m.category === 'active');
   for (const m of forward)
     actions.push(
-      <Button key={m.key} variant={m === primary ? 'primary' : 'secondary'} icon={m.category === 'done' ? <Check className="size-3.5" /> : <ArrowRight className="size-3.5" />} loading={act.isPending && act.variables?.status === m.key} onClick={() => status(m.key)}>
+      <Button key={m.key} variant={m === primary ? 'primary' : 'secondary'} icon={m.category === 'done' ? <Check className="size-3.5" /> : <ArrowRight className="size-3.5" />} loading={act.isPending && act.variables?.status === m.key} onClick={() => (r.kind === 'renewal' && m.category === 'done' ? setRenewing(m) : status(m.key))}>
         {r.kind === 'renewal' && m.category === 'done' ? t('{status} — roll the date forward', { status: tMaybe(m.label) }) : tMaybe(m.label)}
       </Button>,
     );
@@ -271,7 +349,7 @@ export function RequestDetailPage() {
               <ArrowLeft className="size-3" /> {t('Requests')}
             </Link>
             <span>{r.number}</span>
-            <RequestStatusBadge status={r.statusInfo} />
+            <OverallBadge r={r} />
             {r.kind === 'renewal' && <Badge tone="accent">{t('Renewal')}</Badge>}
           </span>
         }
@@ -282,6 +360,7 @@ export function RequestDetailPage() {
           <Card>
             <Stepper r={r} />
           </Card>
+          {r.workflows.length > 0 && <WorkflowsCard r={r} pending={act.isPending} onMove={(workflow, s) => act.mutate({ action: 'status', status: s, workflow })} />}
           <Card className="space-y-4">
             {r.description ? <p className="text-[14px] leading-relaxed whitespace-pre-wrap">{r.description}</p> : <p className="text-[13px] text-subtle">{t('No details given.')}</p>}
             <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-[13px] xl:grid-cols-4">
@@ -308,7 +387,7 @@ export function RequestDetailPage() {
           </Card>
           <Card>
             <h2 className="mb-4 text-[13px] font-semibold">{t('Activity')}</h2>
-            <Timeline events={events.data ?? []} statuses={r.statuses} />
+            <Timeline events={events.data ?? []} statuses={r.statuses} workflows={r.workflows} />
             <form
               className="mt-4 space-y-2"
               onSubmit={(e) => {
@@ -376,6 +455,29 @@ export function RequestDetailPage() {
         <Textarea autoFocus rows={4} placeholder={t('e.g. We already have a company-wide FigJam license — ask IT to add you.')} value={reason} onChange={(e) => setReason(e.target.value)} />
       </Dialog>
       <Dialog
+        open={!!renewing}
+        onOpenChange={(o) => !o && (setRenewing(null), setRenewedUntil(''))}
+        title={renewing ? t('{status} — renewed until?', { status: tMaybe(renewing.label) }) : ''}
+        description={t('Leave empty to roll the date forward by its usual term. Set it when you got something else, e.g. a year and 10 days, or when the date has no fixed term.')}
+        footer={
+          <>
+            <Button onClick={() => (setRenewing(null), setRenewedUntil(''))}>{t('Cancel')}</Button>
+            <Button
+              variant="primary"
+              onClick={() => {
+                act.mutate({ action: 'status', status: renewing!.key, ...(renewedUntil && { renewedUntil }) });
+                setRenewing(null);
+                setRenewedUntil('');
+              }}
+            >
+              {renewing && tMaybe(renewing.label)}
+            </Button>
+          </>
+        }
+      >
+        <Field label={t('Renewed until')}>{(id) => <Input id={id} type="date" value={renewedUntil} onChange={(e) => setRenewedUntil(e.target.value)} />}</Field>
+      </Dialog>
+      <Dialog
         open={choosingType}
         onOpenChange={setChoosingType}
         title={t('What are you adding?')}
@@ -402,13 +504,17 @@ function Detail({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-function Timeline({ events, statuses }: { events: RequestEvent[]; statuses: RequestStatusInfo[] }) {
-  const label = (key: string) => statuses.find((s) => s.key === key) ?? { label: key.replace(/_/g, ' '), color: '#94a3b8' };
+function Timeline({ events, statuses, workflows }: { events: RequestEvent[]; statuses: RequestStatusInfo[]; workflows: PurchaseRequest['workflows'] }) {
+  const label = (key: string, workflow?: string | null) => (workflow ? workflows.find((w) => w.key === workflow)?.statuses : statuses)?.find((s) => s.key === key) ?? { label: key.replace(/_/g, ' '), color: '#94a3b8' };
   const ids = events.filter((e) => e.kind === 'assigned' && e.body).map((e) => e.body!);
   const people = usePeople(ids);
   const line = (e: RequestEvent): ReactNode => {
     const actor = <span className="font-medium text-fg">{e.actorName}</span>;
-    const badge = () => <RequestStatusBadge status={label(e.toStatus!)} />;
+    const badge = () => <RequestStatusBadge status={label(e.toStatus!, e.workflow)} />;
+    if (e.workflow) {
+      const name = tMaybe(workflows.find((w) => w.key === e.workflow)?.name ?? e.workflow);
+      return e.fromStatus ? tj('{actor} moved {workflow} to {status}', { actor, workflow: name, status: badge() }) : tj('{workflow} started: {status}', { workflow: name, status: badge() });
+    }
     switch (e.kind) {
       case 'comment':
         return tj('{actor} commented', { actor });

@@ -82,6 +82,12 @@ export function advanceRecurringDate(
   values: Attributes,
   fieldKey: string,
   kinds: KindLookup,
+  /**
+   * The new date, when it is not simply one term later ("bought a year, got a
+   * year and 10 days"), or when the date has no fixed term. Reminders and the
+   * next renewal follow it like any other.
+   */
+  until?: IsoDate,
 ): { values: Attributes; from: IsoDate; to: IsoDate } {
   const field = trackedFields(type).find((f) => f.key === fieldKey);
   if (!field) throw AppError.validation(`"${fieldKey}" is not a tracked date`);
@@ -90,9 +96,15 @@ export function advanceRecurringDate(
   if (!kind) throw AppError.validation('Unknown date kind');
   const from = values[fieldKey];
   if (typeof from !== 'string') throw AppError.validation(`"${field.label}" has no value`);
-  const every = recurrenceFor(field, kind, values);
-  if (!every) throw AppError.validation(`"${field.label}" is not recurring or has no interval`);
-  const to = addDuration(from, every);
+  let to: IsoDate;
+  if (until) {
+    if (until <= from) throw AppError.validation(`The new ${field.label.toLowerCase()} must be after ${from}`);
+    to = until;
+  } else {
+    const every = recurrenceFor(field, kind, values);
+    if (!every) throw AppError.validation(`“${field.label}” has no fixed term: say until when it was renewed`);
+    to = addDuration(from, every);
+  }
   const next: Attributes = { ...values, [fieldKey]: to };
   return { values: { ...next, ...computeDerivedDates(type.fields, next) }, from, to };
 }

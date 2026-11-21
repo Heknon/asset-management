@@ -60,6 +60,7 @@ import { guessIcon, TypeIcon } from '@/components/type-icon';
 import { Button } from '@/components/ui/button';
 import { Badge, Card, EmptyState, PageHeader, SectionTitle, Spinner, Tabs } from '@/components/ui/display';
 import { WorkflowEditor } from '@/components/workflow-editor';
+import { AddedWorkflowsEditor } from '@/components/added-workflows';
 import { Checkbox, Field, Input, Segmented, Select, Switch, TagInput } from '@/components/ui/form';
 import { Drawer, Menu, MenuItem, Popover, Sheet } from '@/components/ui/overlay';
 import { fieldPresets, makeField, type FieldPreset } from '@/lib/field-presets';
@@ -193,11 +194,11 @@ export function TemplateBuilderPage() {
     );
   }
 
-  const issueTab = (path: string) => (path.startsWith('fields') ? 'fields' : path.startsWith('statuses') ? 'statuses' : path.startsWith('requestWorkflow') ? 'requests' : 'settings');
+  const issueTab = (path: string) => (path.startsWith('fields') ? 'fields' : path.startsWith('statuses') ? 'statuses' : path.startsWith('requestWorkflow') || path.startsWith('workflows') ? 'requests' : 'settings');
   const tabs = [
     { value: 'fields', label: t('Fields'), count: draft.fields.length },
     { value: 'statuses', label: t('Statuses'), count: draft.statuses.length },
-    { value: 'requests', label: t('Requests') },
+    { value: 'requests', label: t('Workflows'), count: (draft.workflows?.length ?? 0) + 1 },
     ...(!isNew ? [{ value: 'variants', label: t('Team variants') }] : []),
     { value: 'settings', label: t('Settings') },
   ];
@@ -296,7 +297,10 @@ export function TemplateBuilderPage() {
       )}
       {tab === 'requests' && (
         <div className="mx-auto w-full max-w-3xl px-4 py-6 sm:px-6">
-          <RequestWorkflowCard value={draft.requestWorkflow ?? null} saved={existing.data?.requestWorkflow ?? null} onChange={(requestWorkflow) => update({ requestWorkflow })} />
+          <div className="space-y-6">
+            <RequestWorkflowCard value={draft.requestWorkflow ?? null} saved={existing.data?.requestWorkflow ?? null} onChange={(requestWorkflow) => update({ requestWorkflow })} />
+            <AddedWorkflowsEditor value={draft.workflows ?? []} saved={existing.data?.workflows ?? []} onChange={(workflows) => update({ workflows })} ownTeamLabel={t('The item’s own team')} />
+          </div>
         </div>
       )}
       {tab === 'variants' && !isNew && (
@@ -416,7 +420,7 @@ function SchemaWorkbench({
   const issueAt = (f: FieldDefinition) => issues.some((x) => x.path.startsWith(`fields.${fields.indexOf(f)}.`));
 
   return (
-    <div className="grid min-h-0 flex-1 grid-cols-1 gap-6 px-4 py-6 sm:px-6 xl:grid-cols-[minmax(0,1fr)_420px]">
+    <div className="grid flex-1 grid-cols-1 gap-6 px-4 py-6 sm:px-6 xl:grid-cols-[minmax(0,1fr)_420px]">
       <div className="min-w-0 space-y-6">
         {info}
         <Card padded={false}>
@@ -607,7 +611,7 @@ export function VariantBuilderPage() {
   const { unitById } = useLookups();
   const qc = useQueryClient();
   const navigate = useNavigate();
-  const [draft, setDraft] = useState<TypeVariantInput & { version?: number; archived?: boolean }>({ unitId: unitParam ?? '', name: '', description: null, sections: [], fields: [] });
+  const [draft, setDraft] = useState<TypeVariantInput & { version?: number; archived?: boolean }>({ unitId: unitParam ?? '', name: '', description: null, sections: [], fields: [], workflows: [] });
   const [selected, setSelected] = useState<string | null>(null);
   const [issues, setIssues] = useState<Array<{ path: string; message: string }>>([]);
   const [dirty, setDirty] = useState(false);
@@ -616,7 +620,7 @@ export function VariantBuilderPage() {
 
   useEffect(() => {
     if (existing) {
-      setDraft({ unitId: existing.unitId, name: existing.name, description: existing.description, sections: existing.sections, fields: existing.fields, version: existing.version, archived: existing.archived });
+      setDraft({ unitId: existing.unitId, name: existing.name, description: existing.description, sections: existing.sections, fields: existing.fields, workflows: existing.workflows ?? [], version: existing.version, archived: existing.archived });
       setDirty(false);
     }
   }, [existing]);
@@ -627,7 +631,7 @@ export function VariantBuilderPage() {
   };
   const save = useMutation({
     mutationFn: () => {
-      const body = { name: draft.name, description: draft.description, sections: draft.sections, fields: draft.fields };
+      const body = { name: draft.name, description: draft.description, sections: draft.sections, fields: draft.fields, workflows: draft.workflows ?? [] };
       return isNew ? api.post<TypeVariant>(`/api/registry/asset-types/${typeId}/variants`, { ...body, unitId: draft.unitId }) : api.put<TypeVariant>(`/api/registry/variants/${variantId}`, { ...body, version: draft.version });
     },
     onSuccess: (v) => {
@@ -736,6 +740,15 @@ export function VariantBuilderPage() {
           </Card>
         }
       />
+      <div className="px-4 pb-6 sm:px-6">
+        <AddedWorkflowsEditor
+          value={draft.workflows ?? []}
+          saved={existing?.workflows ?? []}
+          inherited={tpl.workflows ?? []}
+          onChange={(workflows) => update({ workflows })}
+          ownTeamLabel={draft.unitId ? t('The item’s own team (in {unit})', { unit: unitById.get(draft.unitId)?.name ?? '' }) : t('The item’s own team')}
+        />
+      </div>
       <FormPreview open={previewOpen} onOpenChange={setPreviewOpen} draft={{ ...tpl, fields: [...tpl.fields, ...draft.fields], sections: [...tpl.sections, ...draft.sections] }} kinds={kinds.data ?? []} />
     </>
   );

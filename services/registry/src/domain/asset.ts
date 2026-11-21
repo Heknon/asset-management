@@ -12,6 +12,7 @@ import {
   type DateKind,
   type TypeVariant,
   type Duration,
+  type WorkflowStates,
 } from '@am/core';
 
 /** The registry's view of an asset: all values, unredacted. Redaction happens at the boundary. */
@@ -32,12 +33,14 @@ export interface AssetState {
   refNo: number;
   values: Attributes;
   reminderOverrides: Record<string, Duration[]>;
+  /** Where each added workflow ("Machine status") stands; missing ones are at their first status. */
+  workflowStates: WorkflowStates;
   version: number;
   createdAt: Date;
   updatedAt: Date;
 }
 
-export type AssetDraft = Omit<AssetState, 'id' | 'version' | 'createdAt' | 'updatedAt' | 'unitPath' | 'refNo'>;
+export type AssetDraft = Omit<AssetState, 'id' | 'version' | 'createdAt' | 'updatedAt' | 'unitPath' | 'refNo' | 'workflowStates'>;
 
 export const scopeOf = (a: Pick<AssetState, 'unitPath' | 'assetTypeId'>, shared?: readonly Permission[]): AccessScope => ({ unitPath: a.unitPath, assetTypeId: a.assetTypeId, ...(shared?.length && { shared }) });
 

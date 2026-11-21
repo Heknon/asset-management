@@ -16,6 +16,11 @@ import {
   type Page,
   type Permission,
   type Principal,
+  type WorkflowMove,
+  allowedMoves,
+  initialStatus,
+  statusIn,
+  workflowsOf,
 } from '@am/core';
 import { authorize } from '@am/platform';
 import { assertFitsVariant, assetChangedEvent, diff, resolveStatus, scopeOf, validatedOverrides, validatedValues, type AssetDraft, type AssetState } from '../domain/asset.js';
@@ -24,7 +29,7 @@ import { requestNumber } from '../domain/request.js';
 import type { AccessResolver } from './access.js';
 import type { RegistryStore } from './ports.js';
 import { itemSchema, referenceOf, type ItemSchema } from './schema.js';
-import { completeRenewals, requestChangedEvent, workflowFor } from './workflows.js';
+import { completeRenewals, finishPurchase, purchaseUnit, Responsibility, workflowFor, workflowView } from './workflows.js';
 
 export class AssetService {
   constructor(
@@ -56,7 +61,47 @@ export class AssetService {
     if (!asset) throw AppError.notFound('Asset');
     const scope = await this.resolver.assetScope(principal, asset);
     authorize(principal, 'view', scope);
-    return this.present(principal, asset, await this.schemaOf(this.store, asset), scope.shared);
+    const sch = await this.schemaOf(this.store, asset);
+    // Who may move each workflow is only worked out for the item's own page.
+    const resp = new Responsibility(this.store, principal);
+    const can = new Map<string, boolean>();
+    for (const def of workflowsOf(sch.type, sch.variant, 'item')) {
+      const unitId = asset.workflowStates[def.key]?.unitId ?? def.responsibleUnitId ?? asset.unitId;
+      if (!can.has(unitId)) can.set(unitId, await resp.canAct(unitId));
+    }
+    return this.present(principal, asset, sch, scope.shared, (unitId) => can.get(unitId) ?? false);
+  }
+
+  /**
+   * Moves one of the item's own workflows ("Machine status": Installing →
+   * Running). Anyone who sees the item sees it; its responsible unit moves it,
+   * and the owner makes the moves marked for the requester.
+   */
+  async moveWorkflow(principal: Principal, id: string, key: string, move: WorkflowMove): Promise<Asset> {
+    await this.store.transaction(async (tx) => {
+      const asset = await tx.getAsset(id, { forUpdate: true });
+      if (!asset) throw AppError.notFound('Asset');
+      authorize(principal, 'view', await this.resolver.assetScope(principal, asset, tx));
+      const sch = await this.schemaOf(tx, asset);
+      const def = workflowsOf(sch.type, sch.variant, 'item').find((w) => w.key === key);
+      if (!def) throw AppError.notFound('Workflow');
+      const state = asset.workflowStates[key];
+      const unitId = state?.unitId ?? def.responsibleUnitId ?? asset.unitId;
+      const from = state ? statusIn(def, state.status) : initialStatus(def);
+      const to = def.statuses.find((s) => s.key === move.status);
+      if (!to) throw AppError.validation(`Unknown status "${move.status}"`);
+      if (from.key === to.key) throw AppError.validation(`It is already ${to.label.toLowerCase()}`);
+      const actor = { isHandler: await new Responsibility(tx, principal).canAct(unitId), isRequester: asset.ownerId === principal.userId };
+      if (!allowedMoves(def, from.key, actor).some((s) => s.key === to.key)) {
+        if (!def.transitions.some((x) => x.from === from.key && x.to === to.key)) throw AppError.validation(`${def.name} cannot go from ${from.label} to ${to.label}`);
+        throw AppError.forbidden(`${def.name} is moved by the unit responsible for it`);
+      }
+      await tx.setAssetWorkflow(id, key, { status: to.key, category: to.category, unitId, at: new Date().toISOString() });
+      const changes: Record<string, { from: unknown; to: unknown }> = { [`workflow:${def.name}`]: { from: from.label, to: to.label } };
+      if (move.note) changes.note = { from: null, to: move.note };
+      await tx.addActivity({ assetId: id, actorId: principal.userId, actorName: principal.displayName, action: 'updated', changes });
+    });
+    return this.get(principal, id);
   }
 
   /** For other application services (conversations): the asset and the caller's permissions, or not found / forbidden. */
@@ -105,7 +150,7 @@ export class AssetService {
       const created = await tx.insertAsset(draft, principal.userId, '');
       await tx.setSearchText(created.id, await this.searchText(tx, sch, draft, created.refNo));
       const changes = diff(sch.schema, null, draft);
-      if (input.requestId) changes.request = { from: null, to: await this.fulfil(tx, principal, input.requestId, created.id) };
+      if (input.requestId) changes.request = { from: null, to: await this.fulfil(tx, principal, input.requestId, created.id, draft.variantId) };
       await tx.addActivity({ assetId: created.id, actorId: principal.userId, actorName: principal.displayName, action: 'created', changes });
       await tx.publish('asset.changed', assetChangedEvent(created, sch.schema, await this.kinds(tx)));
       return created;
@@ -116,18 +161,18 @@ export class AssetService {
   }
 
   /** Closes the request this new asset was bought for. Only its handlers may do this. */
-  private async fulfil(tx: RegistryStore, principal: Principal, requestId: string, assetId: string): Promise<string> {
+  private async fulfil(tx: RegistryStore, principal: Principal, requestId: string, assetId: string, variantId: string | null): Promise<string> {
     const request = await tx.getRequest(requestId, { forUpdate: true });
     if (!request) throw AppError.validation('Unknown request');
-    if (!effectivePermissions(principal, { unitPath: request.unitPath, assetTypeId: request.assetTypeId ?? '' }).has('renew')) {
+    const buyingUnit = await purchaseUnit(tx);
+    const buyer = !!buyingUnit && (await new Responsibility(tx, principal).canAct(buyingUnit));
+    if (!buyer && !effectivePermissions(principal, { unitPath: request.unitPath, assetTypeId: request.assetTypeId ?? '' }).has('renew')) {
       throw AppError.forbidden('You cannot fulfil this request');
     }
     if (request.statusCategory === 'done' || request.statusCategory === 'closed') throw AppError.conflict('The request is already closed');
     const wf = await workflowFor(tx, request.assetTypeId);
-    const done = firstOfCategory(wf, 'done')!;
-    await tx.setRequestStatus(request.id, done, assetId);
-    await tx.addRequestEvent({ requestId: request.id, actorId: principal.userId, actorName: principal.displayName, kind: 'fulfilled', body: null, fromStatus: request.status, toStatus: done.key });
-    await tx.publish('request.changed', requestChangedEvent({ ...request, status: done.key, statusCategory: 'done' }, wf, { id: principal.userId, name: principal.displayName }, 'fulfilled', request.status, null));
+    // The new item's team variant decides which workflows follow the purchase ("Swap the new license").
+    await finishPurchase(tx, request, wf, firstOfCategory(wf, 'done')!, { id: principal.userId, name: principal.displayName }, { body: null, note: null, assetId, variantId });
     return requestNumber(request.seq);
   }
 
@@ -180,7 +225,7 @@ export class AssetService {
   }
 
   /** "Renewed" / "Paid": rolls a recurring date forward by its interval, and finishes its open renewal requests. */
-  async advance(principal: Principal, id: string, fieldKey: string, opts: { store?: RegistryStore; skipRequestId?: string } = {}): Promise<Asset> {
+  async advance(principal: Principal, id: string, fieldKey: string, opts: { store?: RegistryStore; skipRequestId?: string; until?: string } = {}): Promise<Asset> {
     const run = async (tx: RegistryStore) => {
       const current = await tx.getAsset(id, { forUpdate: true });
       if (!current) throw AppError.notFound('Asset');
@@ -188,7 +233,7 @@ export class AssetService {
       authorize(principal, 'renew', scope);
       const sch = await this.schemaOf(tx, current);
       const kinds = await this.kinds(tx);
-      const { values, from, to } = advanceRecurringDate(sch.schema, current.values, fieldKey, kinds);
+      const { values, from, to } = advanceRecurringDate(sch.schema, current.values, fieldKey, kinds, opts.until);
       const draft: AssetDraft = { ...current, typeVersion: sch.type.version, values };
       const saved = await tx.saveAsset(id, draft, principal.userId, await this.searchText(tx, sch, draft, current.refNo));
       await tx.addActivity({ assetId: id, actorId: principal.userId, actorName: principal.displayName, action: 'advanced', changes: diff(sch.schema, current, draft) });
@@ -287,8 +332,12 @@ export class AssetService {
     if (!(await this.resolver.catalogPermissions(principal, catalog)).permissions.has('edit')) throw AppError.forbidden(`Changing what is in “${catalog.name}” needs “Edit items” on it`);
   }
 
-  private present(principal: Principal, asset: AssetState, sch: ItemSchema, shared?: readonly Permission[]): Asset {
+  private present(principal: Principal, asset: AssetState, sch: ItemSchema, shared?: readonly Permission[], canAct: (unitId: string) => boolean = () => false): Asset {
     const perms = effectivePermissions(principal, scopeOf(asset, shared));
+    const workflows = workflowsOf(sch.type, sch.variant, 'item').map((def) => {
+      const unitId = asset.workflowStates[def.key]?.unitId ?? def.responsibleUnitId ?? asset.unitId;
+      return workflowView(def, asset.workflowStates[def.key], { ownUnitId: asset.unitId, canAct: canAct(unitId), isRequester: asset.ownerId === principal.userId, open: true });
+    });
     return {
       id: asset.id,
       reference: referenceOf(sch.type, asset.refNo),
@@ -303,6 +352,7 @@ export class AssetService {
       attributes: redactAttributes(sch.schema.fields, asset.values, perms.has('restricted')),
       reminderOverrides: asset.reminderOverrides,
       permissions: permissionList(perms),
+      workflows,
       createdAt: asset.createdAt.toISOString(),
       updatedAt: asset.updatedAt.toISOString(),
     };
