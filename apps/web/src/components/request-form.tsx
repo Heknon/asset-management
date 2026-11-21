@@ -7,7 +7,7 @@ import { api, ApiError } from '@/lib/api';
 import { t, tMaybe } from '@/lib/i18n';
 import { useMyOrg } from '@/lib/org';
 import { keys, useAssetTypes } from '@/lib/queries';
-import { AssetTypeSelect, UnitPicker } from './pickers';
+import { AssetTypeSelect, CurrencySelect, UnitPicker } from './pickers';
 import { Button } from './ui/button';
 import { Field, Input, Textarea } from './ui/form';
 import { Sheet } from './ui/overlay';
@@ -174,9 +174,9 @@ export function RequestFormSheet({ open, onOpenChange, request }: { open: boolea
           </Field>
           <Field label={t('Rough budget')} error={errors.estimatedCost} hint={t('If you know it.')}>
             {(id) => (
-              <div className="flex gap-1.5">
+              <div className="space-y-1.5">
                 <Input id={id} type="number" min={0} step="0.01" value={d.amount} onChange={(e) => setD({ ...d, amount: e.target.value })} />
-                <Input aria-label={t('Currency')} className="w-16 uppercase" maxLength={3} value={d.currency} onChange={(e) => setD({ ...d, currency: e.target.value })} />
+                <CurrencySelect value={d.currency} onChange={(currency) => setD({ ...d, currency })} />
               </div>
             )}
           </Field>

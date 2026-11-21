@@ -55,7 +55,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { AttributeInput } from '@/components/attribute';
 import { DurationInput, DurationListEditor } from '@/components/duration-editor';
-import { ColorPicker, IconPicker, AssetTypeSelect, UnitPath, UnitPicker } from '@/components/pickers';
+import { ColorPicker, CurrencySelect, IconPicker, AssetTypeSelect, UnitPath, UnitPicker } from '@/components/pickers';
 import { guessIcon, TypeIcon } from '@/components/type-icon';
 import { Button } from '@/components/ui/button';
 import { Badge, Card, EmptyState, PageHeader, SectionTitle, Spinner, Tabs } from '@/components/ui/display';
@@ -1042,7 +1042,7 @@ function FieldInspector({
       <Field label={t('Name on the form')}>
         {(id) => <Input id={id} value={field.label} autoFocus={!plain && !field.label} onChange={(e) => set({ label: e.target.value, ...(autoKey && { key: slugKey(e.target.value) }) })} />}
       </Field>
-      {!kindIsAdvanced && <KindConfig field={field} fields={fields} kinds={kinds} setConfig={setConfig} />}
+      {!kindIsAdvanced && <KindConfig field={field} fields={fields} kinds={kinds} setConfig={setConfig} replace={keyLocked ? undefined : onChange} />}
       <div className="space-y-2.5 rounded-lg bg-surface-2/60 p-3">
         <Switch checked={field.required} onChange={(required) => set({ required })} label={t('Required')} description={t('Items cannot be saved without it')} />
         <Switch checked={field.showInTable} onChange={(showInTable) => set({ showInTable })} label={t('Show as a table column')} description={t('People can still add or hide columns themselves')} />
@@ -1077,7 +1077,7 @@ function FieldInspector({
             label={t('Restricted')}
             description={t('Only people with the “See secrets” permission can see or change it; never searchable')}
           />
-          {kindIsAdvanced && <KindConfig field={field} fields={fields} kinds={kinds} setConfig={setConfig} />}
+          {kindIsAdvanced && <KindConfig field={field} fields={fields} kinds={kinds} setConfig={setConfig} replace={keyLocked ? undefined : onChange} />}
           <Field label={t('Key')} hint={keyLocked ? t('Items already use it, so it cannot change') : t('Used in imports, exports and integrations')}>
             {(id) => (
               <Input
@@ -1114,7 +1114,64 @@ const listPresets = [
   { key: 'email', label: t('Email address'), pattern: '^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$', placeholder: 'name@example.com' },
 ];
 
-function KindConfig({ field, fields, kinds, setConfig }: { field: FieldDefinition; fields: FieldDefinition[]; kinds: DateKind[]; setConfig: (p: Record<string, unknown>) => void }) {
+function NumberUnit({ value, onChange }: { value: string | undefined; onChange: (unit: string | undefined) => void }) {
+  const groups = numberUnits();
+  const known = !value || groups.some((g) => g.units.some((u) => u.value === value));
+  const [custom, setCustom] = useState(!known);
+  return (
+    <Field label={t('Unit')} className="col-span-2">
+      {(id) => (
+        <div className="space-y-1.5">
+          <Select
+            id={id}
+            value={custom ? '__custom' : (value ?? '')}
+            onChange={(e) => {
+              const v = e.target.value;
+              setCustom(v === '__custom');
+              if (v !== '__custom') onChange(v || undefined);
+            }}
+          >
+            <option value="">{t('None')}</option>
+            {groups.map((g) => (
+              <optgroup key={g.group} label={g.group}>
+                {g.units.map((u) => (
+                  <option key={u.value} value={u.value}>
+                    {u.label}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+            <option value="__custom">{t('Other…')}</option>
+          </Select>
+          {custom && <Input aria-label={t('Unit')} maxLength={16} value={value ?? ''} placeholder={t('e.g. cores')} onChange={(e) => onChange(e.target.value || undefined)} />}
+        </div>
+      )}
+    </Field>
+  );
+}
+
+/** Common units for a number; anything else is typed in. */
+const numberUnits = (): Array<{ group: string; units: Array<{ value: string; label: string }> }> => [
+  { group: t('Time'), units: [{ value: 'h', label: t('Hours (h)') }, { value: 'd', label: t('Days (d)') }, { value: 'wk', label: t('Weeks (wk)') }, { value: 'mo', label: t('Months (mo)') }, { value: 'yr', label: t('Years (yr)') }] },
+  { group: t('Count'), units: [{ value: 'seats', label: t('Seats') }, { value: 'users', label: t('Users') }, { value: 'devices', label: t('Devices') }, { value: 'licenses', label: t('Licenses') }, { value: 'pcs', label: t('Pieces (pcs)') }] },
+  { group: t('Size'), units: [{ value: 'MB', label: 'MB' }, { value: 'GB', label: 'GB' }, { value: 'TB', label: 'TB' }] },
+  { group: t('Other'), units: [{ value: '%', label: t('Percent (%)') }] },
+];
+
+function KindConfig({
+  field,
+  fields,
+  kinds,
+  setConfig,
+  replace,
+}: {
+  field: FieldDefinition;
+  fields: FieldDefinition[];
+  kinds: DateKind[];
+  setConfig: (p: Record<string, unknown>) => void;
+  /** Turns a new field into another kind (a list of linked items); absent once items use the field. */
+  replace?: (next: FieldDefinition) => void;
+}) {
   switch (field.kind) {
     case 'text':
       return (
@@ -1128,11 +1185,11 @@ function KindConfig({ field, fields, kinds, setConfig }: { field: FieldDefinitio
       );
     case 'number':
       return (
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 gap-3">
           <Field label={t('Min')}>{(id) => <Input id={id} type="number" value={field.config.min ?? ''} onChange={(e) => setConfig({ min: e.target.value === '' ? undefined : Number(e.target.value) })} />}</Field>
           <Field label={t('Max')}>{(id) => <Input id={id} type="number" value={field.config.max ?? ''} onChange={(e) => setConfig({ max: e.target.value === '' ? undefined : Number(e.target.value) })} />}</Field>
-          <Field label={t('Unit')}>{(id) => <Input id={id} value={field.config.unit ?? ''} placeholder={t('mo')} onChange={(e) => setConfig({ unit: e.target.value || undefined })} />}</Field>
-          <div className="col-span-3">
+          <NumberUnit value={field.config.unit} onChange={(unit) => setConfig({ unit })} />
+          <div className="col-span-2">
             <Checkbox checked={field.config.integer} onChange={(integer) => setConfig({ integer })} label={t('Whole numbers only')} />
           </div>
         </div>
@@ -1140,7 +1197,11 @@ function KindConfig({ field, fields, kinds, setConfig }: { field: FieldDefinitio
     case 'currency':
       return (
         <div className="space-y-3">
-          <Field label={t('Currency')}>{(id) => <Input id={id} className="w-24 uppercase" maxLength={3} value={field.config.currency} onChange={(e) => setConfig({ currency: e.target.value.toUpperCase() })} />}</Field>
+          <Field label={t('Currency')}>
+            {(id) => (
+              <CurrencySelect id={id} value={field.config.currency} onChange={(currency) => setConfig({ currency })} />
+            )}
+          </Field>
           <Switch checked={field.config.countsTowardSpend} onChange={(countsTowardSpend) => setConfig({ countsTowardSpend })} label={t('Counts toward spend')} description={t('Included in “renewing in 90 days” totals')} />
         </div>
       );
@@ -1161,15 +1222,28 @@ function KindConfig({ field, fields, kinds, setConfig }: { field: FieldDefinitio
           <Field label={t('Each entry is')} hint={t('Checked on every entry, also on import')}>
             {(id) => (
               <Select id={id} value={preset} onChange={(e) => {
+                // A list of linked items is a Linked item field that takes several.
+                if (e.target.value === 'assetRef' && replace) {
+                  const { config: _c, kind: _k, ...rest } = field;
+                  replace({ ...rest, kind: 'assetRef', config: { multiple: true } } as FieldDefinition);
+                  return;
+                }
                 const x = listPresets.find((p) => p.key === e.target.value);
                 setConfig({ pattern: e.target.value === 'custom' ? (field.config.pattern ?? '') : x?.pattern, placeholder: x?.placeholder });
               }}>
-                {listPresets.map((x) => (
-                  <option key={x.key} value={x.key}>
-                    {x.label}
+                <optgroup label={t('Text')}>
+                  {listPresets.map((x) => (
+                    <option key={x.key} value={x.key}>
+                      {x.label}
+                    </option>
+                  ))}
+                  <option value="custom">{t('Custom format (regex)…')}</option>
+                </optgroup>
+                <optgroup label={t('Other items')}>
+                  <option value="assetRef" disabled={!replace}>
+                    {replace ? t('A linked item (machines, devices, licenses…)') : t('A linked item — add a new Linked item field instead')}
                   </option>
-                ))}
-                <option value="custom">{t('Custom format (regex)…')}</option>
+                </optgroup>
               </Select>
             )}
           </Field>
@@ -1249,10 +1323,10 @@ function DateMeaning({ field, fields, kinds, onChange }: { field: Extract<FieldD
                   });
                 }}
               >
-                <option value="schedule">{t('Renewed on a schedule (every year, every term…)')}</option>
-                <option value="manual">{t('Renewed to a date you set each time')}</option>
+                <option value="schedule">{t('Repeats on a schedule')}</option>
+                <option value="manual">{t('Renewed to a date you set')}</option>
                 <option value="once">{t('Once, then done')}</option>
-                <option value="none">{t('For reference only (no reminders)')}</option>
+                <option value="none">{t('For reference, no reminders')}</option>
               </Select>
             )}
           </Field>

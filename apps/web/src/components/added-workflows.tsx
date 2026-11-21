@@ -7,7 +7,7 @@ import { Card } from './ui/display';
 import { Field, Input, Segmented } from './ui/form';
 import { Menu, MenuItem, MenuSeparator } from './ui/overlay';
 import { WorkflowEditor } from './workflow-editor';
-import { t, tMaybe } from '@/lib/i18n';
+import { isRtl, t, tMaybe } from '@/lib/i18n';
 import { slugKey } from '@/lib/utils';
 
 /**
@@ -64,12 +64,12 @@ export function AddedWorkflowsEditor({
 
   return (
     <Card padded={false}>
-      <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
+      <div className="flex flex-col gap-2 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
         <div className="min-w-0">
-          <h2 className="text-[13px] font-semibold">{t('Workflows')}</h2>
+          <h2 className="text-[13px] font-semibold">{t('More workflows')}</h2>
           <p className="text-xs text-muted">{t('Besides the purchase: e.g. a machine status on the item, or steps after a renewal. Each has a unit responsible for it; everyone sees where it stands.')}</p>
         </div>
-        <Menu trigger={<Button size="sm" icon={<Plus className="size-3.5" />}>{t('Add workflow')}</Button>}>
+        <Menu trigger={<Button size="sm" className="self-start sm:self-auto" icon={<Plus className="size-3.5" />}>{t('Add workflow')}</Button>}>
           <MenuItem icon={<Boxes />} onSelect={() => add(workflowPresets.machines)}>
             {t('Machine status (on the item)')}
           </MenuItem>
@@ -102,7 +102,7 @@ export function AddedWorkflowsEditor({
               <span className="min-w-0 flex-1">
                 <span className="block truncate font-medium">{w.name}</span>
                 <span className="block text-xs text-muted">
-                  {w.appliesTo === 'item' ? t('On the item') : w.startsWhen === 'purchase_done' ? t('After the purchase') : t('With the purchase')} · {w.statuses.map((s) => tMaybe(s.label)).join(' → ')}
+                  {w.appliesTo === 'item' ? t('On the item') : w.startsWhen === 'purchase_done' ? t('After the purchase') : t('With the purchase')} · {w.statuses.map((s) => tMaybe(s.label)).join(isRtl() ? ' ← ' : ' → ')}
                 </span>
               </span>
             </button>

@@ -2,19 +2,20 @@ import { unitPermissions, type Catalog, type CatalogShare, type Permission, type
 import { AccessEditor, accessLabel, SubjectIcon } from './access';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { Share2 } from 'lucide-react';
+import { Command } from 'cmdk';
+import { Check, ChevronsUpDown, Share2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { api, ApiError } from '@/lib/api';
 import { keys, useCatalogs, useLookups, useMe } from '@/lib/queries';
 import { plural, t } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
-import { ColorPicker, IconPicker, UnitPath, UnitPicker } from './pickers';
+import { ColorPicker, IconPicker, triggerClass, UnitPath, UnitPicker } from './pickers';
 import { TypeIcon } from './type-icon';
 import { Button } from './ui/button';
 import { Badge, Card } from './ui/display';
 import { Field, Input, Select, Textarea } from './ui/form';
-import { Dialog } from './ui/overlay';
+import { Dialog, Popover } from './ui/overlay';
 
 
 const onError = (e: unknown) => toast.error(e instanceof ApiError ? e.message : t('Something went wrong'));
@@ -170,19 +171,74 @@ export function ShareDialog({ catalog, open, onOpenChange }: { catalog: Catalog;
 }
 
 /** Catalogs an asset in `unitPath` can be filed in (those I can edit). */
+/**
+ * Which catalog an item is filed in. Searchable (there can be many): by the
+ * catalog's name or its team's path. Phones get a sheet with the search on top.
+ */
 export function CatalogSelect({ id, value, unitPath, onChange }: { id?: string; value: string | null; unitPath: string[]; onChange: (v: string | null) => void }) {
   const catalogs = useCatalogs();
+  const { unitPathNames } = useLookups();
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
   const options = (catalogs.data ?? []).filter((c) => unitPath.includes(c.unitId) && (c.permissions.includes('edit') || c.id === value));
   if (!options.length && !value) return <p className="text-xs text-muted">{t('No catalogs for this team yet.')}</p>;
+  const selected = (catalogs.data ?? []).find((c) => c.id === value);
+  const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const shown = options.filter((c) => {
+    const text = `${c.name} ${c.description ?? ''} ${unitPathNames(c.unitId).join(' ')}`.toLowerCase();
+    return words.every((w) => text.includes(w));
+  });
+  const select = (v: string | null) => {
+    onChange(v);
+    setOpen(false);
+    setQ('');
+  };
+  const item = 'flex min-h-9 cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-[13px] data-[selected=true]:bg-surface-2';
   return (
-    <Select id={id} value={value ?? ''} onChange={(e) => onChange(e.target.value || null)} className={cn(!value && 'text-muted')}>
-      <option value="">{t('Not in a catalog')}</option>
-      {options.map((c) => (
-        <option key={c.id} value={c.id}>
-          {c.name}
-          {c.shares.length ? ` · ${t('shared with {count}', { count: c.shares.length })}` : ''}
-        </option>
-      ))}
-    </Select>
+    <Popover
+      open={open}
+      onOpenChange={setOpen}
+      className="w-[var(--radix-popover-trigger-width)] min-w-72"
+      phoneTitle={t('Choose a catalog')}
+      trigger={
+        <button id={id} type="button" className={triggerClass}>
+          {selected ? (
+            <>
+              <TypeIcon icon={selected.icon} color={selected.color} size={18} />
+              <span className="truncate">{selected.name}</span>
+            </>
+          ) : (
+            <span className="text-subtle">{t('Not in a catalog')}</span>
+          )}
+          <ChevronsUpDown className="ms-auto size-3.5 shrink-0 text-subtle" />
+        </button>
+      }
+    >
+      <Command shouldFilter={false} className="flex flex-col">
+        <Command.Input value={q} onValueChange={setQ} placeholder={t('Search catalogs…')} className="h-9 border-b border-border bg-transparent px-3 text-[13px] outline-none placeholder:text-subtle" />
+        <Command.List className="max-h-72 overflow-y-auto p-1">
+          <Command.Empty className="px-3 py-6 text-center text-xs text-muted">{t('No matching catalogs')}</Command.Empty>
+          {!words.length && (
+            <Command.Item value="__none" onSelect={() => select(null)} className={item}>
+              <span className="text-muted">{t('Not in a catalog')}</span>
+              {!value && <Check className="ms-auto size-3.5 text-accent-fg" />}
+            </Command.Item>
+          )}
+          {shown.map((c) => (
+            <Command.Item key={c.id} value={c.id} onSelect={() => select(c.id)} className={item}>
+              <TypeIcon icon={c.icon} color={c.color} size={20} />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate">{c.name}</span>
+                <span className="block truncate text-xs text-muted">
+                  {unitPathNames(c.unitId).join(' › ')}
+                  {c.shares.length ? ` · ${t('shared with {count}', { count: c.shares.length })}` : ''}
+                </span>
+              </span>
+              {c.id === value && <Check className="size-3.5 shrink-0 text-accent-fg" />}
+            </Command.Item>
+          ))}
+        </Command.List>
+      </Command>
+    </Popover>
   );
 }

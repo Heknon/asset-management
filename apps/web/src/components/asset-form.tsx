@@ -28,6 +28,10 @@ interface Draft {
   reminderOverrides: Record<string, Duration[]>;
 }
 
+/** What a team variant adds: its fields and its own workflows. */
+const variantHint = (fields: number, workflows: number) =>
+  [fields || !workflows ? plural(fields, 'Adds {n} field this team tracks', 'Adds {n} fields this team tracks') : null, workflows ? plural(workflows, '{n} workflow of its own', '{n} workflows of its own') : null].filter(Boolean).join(' · ');
+
 const fromAsset = (type: AssetType, a: Asset | null, me: string | undefined, defaultUnit: string | null, request?: PurchaseRequest | null, catalog?: Catalog | null): Draft => ({
   name: a?.name ?? request?.title ?? '',
   status: a?.status ?? type.statuses[0]!.value,
@@ -168,7 +172,7 @@ export function AssetFormSheet({
             )}
           </Field>
           {(variantOptions.length > 0 || draft.variantId) && (
-            <Field label={t('Kind')} className="col-span-2" hint={draft.variantId ? schemaOf(type.id, draft.variantId)?.name && plural(schema.fields.length - type.fields.length, 'Adds {n} field this team tracks', 'Adds {n} fields this team tracks') : t('Your team has its own versions of this template')}>
+            <Field label={t('Kind')} className="col-span-2" hint={draft.variantId ? variantHint(schema.fields.length - type.fields.length, variantOptions.find((v) => v.id === draft.variantId)?.workflows?.length ?? 0) : t('Your team has its own versions of this template')}>
               {(id) => (
                 <Select id={id} value={draft.variantId ?? ''} onChange={(e) => setDraft({ ...draft, variantId: e.target.value || null })}>
                   <option value="">{t('Standard {type}', { type: inSentence(type.name) })}</option>
