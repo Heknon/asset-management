@@ -156,6 +156,26 @@ describe('added workflows', () => {
     expect((await requests.act(avi, next.id, { action: 'status', status: 'approved' })).statusInfo.key).toBe('approved');
   });
 
+  it('lets only the purchase unit renew an item once there is one; others ask for it', async () => {
+    const labEditor = person(5, 'Lia', [U.lab], [{ unitId: U.lab, assetTypeId: null, permissions: ['view', 'comment', 'create', 'edit', 'renew'] }]);
+    await expect(assets.advance(labEditor, item.id, 'renewal_date')).rejects.toThrow(/responsible for purchases/);
+    // Not by asking and then finishing the renewal request either: with a purchase unit, it handles renewals.
+    const open = (await requests.list(admin, { scope: 'all', status: 'open', kind: 'renewal', renewalAssetId: item.id, limit: 50, offset: 0 })).items;
+    for (const r of open) await requests.act(admin, r.id, { action: 'status', status: 'cancelled' }).catch(() => undefined);
+    const asked = await requests.requestRenewal(labEditor, item.id, { fieldKey: 'renewal_date', obligationId: null, note: '' });
+    expect(asked.moves.filter((m) => m.category === 'done')).toEqual([]);
+    await expect(requests.update(labEditor, asked.id, { unitId: U.procurement })).rejects.toThrow(/stays with its item/);
+    // Moving the date later by hand while it is being asked for is the renewal: Procurement's, and it closes the request.
+    const due = (await assets.get(dana, item.id)).attributes.renewal_date as string;
+    const later = `${Number(due.slice(0, 4)) + 1}${due.slice(4)}`;
+    await expect(assets.update(labEditor, item.id, { attributes: { renewal_date: later } })).rejects.toThrow(/responsible for purchases/);
+    await assets.update(dana, item.id, { attributes: { renewal_date: later } });
+    expect((await requests.get(dana, asked.id)).statusInfo.category).toBe('done');
+    // Avi buys (Procurement), even with only "view" on the item.
+    const renewed = await assets.advance(avi, item.id, 'renewal_date');
+    expect(renewed.attributes.renewal_date).not.toBe(item.attributes.renewal_date);
+  });
+
   it('keeps a template’s workflows when an older client saves it without them', async () => {
     const [type] = await store.listTypes(false);
     const withOne = await types.updateType(type!.id, { ...type!, workflows: [{ ...workflowPresets.machines, key: 'bench', responsibleUnitId: null }] }, type!.version);
@@ -213,7 +233,7 @@ describe('team fields', () => {
     const requests = new RequestService(store, assets);
     const license = await types.createFromTemplate('software_license');
     const text = (key: string, required = false) => ({ id: crypto.randomUUID(), key, label: key, kind: 'text' as const, required, restricted: false, showInTable: false, config: {} });
-    const avi = await new VariantService(store).create(admin, license.id, { unitId: U.lab, name: 'AVI license', description: null, sections: [], fields: [text('workstation', true), text('mac')] });
+    const avi = await new VariantService(store).create(admin, license.id, { unitId: U.lab, name: 'AVI license', description: null, sections: [], fields: [text('workstation', true), text('mac'), { ...text('bench_password'), kind: 'secret' as const }] });
 
     // Tom asks for a license: "for us, this is an AVI license".
     const asked = await requests.create(tom, { title: 'Keysight for the lab', description: '', unitId: U.lab, assetTypeId: license.id, quantity: 1, estimatedCost: null, neededBy: null, link: null, variantId: avi.id });
@@ -230,6 +250,12 @@ describe('team fields', () => {
     expect(asTom.teamFields).toEqual({ choices: [{ id: avi.id, name: 'AVI license', unitId: U.lab }], canFill: true });
     const filled = await assets.setTeamFields(tom, item.id, { attributes: { workstation: 'WS-12', mac: 'aa:bb' } });
     expect(filled.attributes).toMatchObject({ vendor: 'Keysight', workstation: 'WS-12', mac: 'aa:bb' });
+    // A team's secret is kept with the secrets, out of the open values that filters read.
+    await assets.setTeamFields(admin, item.id, { attributes: { bench_password: 'Hunter2-bench' } });
+    const row = await (store as unknown as { db: { selectFrom: (t: string) => { select: (c: string[]) => { where: (a: string, b: string, c: string) => { executeTakeFirstOrThrow: () => Promise<{ attributes: unknown; restricted_attributes: unknown }> } } } } }).db
+      .selectFrom('assets').select(['attributes', 'restricted_attributes']).where('id', '=', item.id).executeTakeFirstOrThrow();
+    expect(JSON.stringify(row.attributes)).not.toContain('Hunter2');
+    expect(JSON.stringify(row.restricted_attributes)).toContain('Hunter2');
     await expect(assets.setTeamFields(tom, item.id, { attributes: { vendor: 'Other' } })).rejects.toThrow(/team’s own fields/);
     await expect(assets.update(tom, item.id, { name: 'x' })).rejects.toThrow();
     // Someone outside the team may not.
@@ -244,5 +270,33 @@ describe('team fields', () => {
     const removed = await assets.setTeamFields(tom, plain.id, { variantId: null, attributes: {} });
     expect(removed.variantId).toBeNull();
     expect(removed.attributes.mac).toBeUndefined();
+  });
+});
+
+describe('data kept safe across template changes', () => {
+  it('keeps values of a removed field out of sight, and brings them back when the field returns', async () => {
+    const store = new PgRegistryStore(await database(), false);
+    await store.upsertUnitRef({ id: U.company, key: 'company', name: 'Company', kind: 'team', parentId: null, path: [U.company], archived: false });
+    for (const p of [dana, noa]) await store.upsertUserRef({ id: p.userId, displayName: p.displayName, active: true });
+    const types = new TypeService(store);
+    const assets = new AssetService(store, new AccessResolver(store));
+    const text = (key: string, extra: object = {}) => ({ id: crypto.randomUUID(), key, label: key, kind: 'text' as const, required: false, restricted: false, showInTable: false, config: {}, ...extra });
+    const size = { id: crypto.randomUUID(), key: 'size', label: 'Size', kind: 'select' as const, required: false, restricted: false, showInTable: false, config: { options: [{ value: 's', label: 'S' }, { value: 'm', label: 'M' }] } };
+    const base = { key: 'thing', name: 'Thing', icon: 'box', color: '#6366f1', statuses: [{ value: 'active', label: 'Active', color: '#10b981', active: true }], sections: [] };
+    let type = await types.createType({ ...base, fields: [text('note'), text('pin', { restricted: true }), size] });
+    const item = await assets.create(admin, { assetTypeId: type.id, name: 'Box', ownerId: null, unitId: U.company, variantId: null, catalogId: null, reminderOverrides: {}, attributes: { note: 'hello', pin: '4321', size: 's' } });
+
+    // The pin field is removed, and S is no longer an option.
+    type = await types.updateType(type.id, { ...base, fields: [text('note'), { ...size, config: { options: [{ value: 'm', label: 'M' }] } }] }, type.version);
+    // Editing something else still works (the old size stays), the removed value stays stored, and nobody sees it.
+    const edited = await assets.update(dana, item.id, { attributes: { note: 'changed' } });
+    expect(edited.attributes).toEqual({ note: 'changed', size: 's' });
+    expect((await assets.get(noa, item.id)).attributes.pin).toBeUndefined();
+    await expect(assets.update(dana, item.id, { attributes: { size: 'x' } })).rejects.toThrow(/invalid/);
+
+    // The field comes back: so does its value.
+    type = await types.updateType(type.id, { ...base, fields: [text('note'), text('pin', { restricted: true }), size] }, type.version);
+    expect((await assets.get(admin, item.id)).attributes.pin).toBe('4321');
+    expect((await assets.get(noa, item.id)).attributes.pin).toBeUndefined();
   });
 });

@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import { api, ApiError } from '@/lib/api';
 import { t, tMaybe } from '@/lib/i18n';
 import { useMyOrg } from '@/lib/org';
-import { keys, useAssetTypes, useLookups } from '@/lib/queries';
+import { keys, useAssetTypes, useLookups, useEmailSending } from '@/lib/queries';
 import { AssetTypeSelect, CurrencySelect, UnitPicker } from './pickers';
 import { Button } from './ui/button';
 import { Field, Input, Select, Textarea } from './ui/form';
@@ -34,6 +34,7 @@ const empty = (unitId: string | null): Draft => ({ title: '', description: '', u
  * matter (what, for whom, why); the rest is optional and helps Procurement.
  */
 export function RequestFormSheet({ open, onOpenChange, request }: { open: boolean; onOpenChange: (o: boolean) => void; request?: PurchaseRequest }) {
+  const email = useEmailSending();
   const { requestTargets } = useMyOrg();
   const types = useAssetTypes();
   const { variantsFor, unitById } = useLookups();
@@ -82,7 +83,7 @@ export function RequestFormSheet({ open, onOpenChange, request }: { open: boolea
     onSuccess: (r) => {
       void qc.invalidateQueries({ queryKey: keys.requests });
       onOpenChange(false);
-      toast.success(request ? t('Request updated') : t('Request {number} sent', { number: r.number }), { description: request ? undefined : t('You’ll get an email as it moves along.') });
+      toast.success(request ? t('Request updated') : t('Request {number} sent', { number: r.number }), { description: request || !email ? undefined : t('You’ll get an email as it moves along.') });
       if (!request) void navigate({ to: '/requests/$requestId', params: { requestId: r.id } });
     },
     onError: (e) => {

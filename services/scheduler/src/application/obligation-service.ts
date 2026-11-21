@@ -2,6 +2,7 @@ import {
   AppError,
   isValidIsoDate,
   ownerPermissions,
+  effectivePermissions,
   SubjectKeyResolver,
   visibilityFor,
   type Permission,
@@ -60,7 +61,7 @@ export class ObligationService {
         spend: e.spend,
       };
       if (!(await tx.upsertAsset(ref, e.version))) return; // stale or duplicate delivery
-      for (const action of reconcile(await tx.activeObligations(e.assetId, { forUpdate: true }), e)) {
+      for (const action of reconcile(await tx.activeObligations(e.assetId, { forUpdate: true }), e, await tx.closedDates(e.assetId))) {
         if (action.kind === 'create') await tx.createObligation(e.assetId, action.tracked);
         else if (action.kind === 'update') await tx.updateObligation(action.id, action.tracked, action.dateChanged);
         else await tx.resolveObligation(action.id, action.state, action.by);
@@ -93,7 +94,13 @@ export class ObligationService {
   async list(principal: Principal, q: ObligationQuery): Promise<Page<Obligation>> {
     const { items, total } = await this.store.query(q, await this.visibility(principal, 'view'), principal.userId);
     const today = this.clock.today();
-    return { items: items.map((i) => present(i.obligation, i.asset, today)), total, limit: q.limit, offset: q.offset };
+    // Whether this person handles each date (snooze, dismiss, ask the owner): org grants, the owner's, and catalog shares.
+    const keys = principal.isAdmin ? [] : await this.shareKeys.of(principal);
+    const shares = new Map<string, Permission[]>();
+    for (const c of new Set(items.map((i) => i.asset.catalogId).filter((c): c is string => !!c))) shares.set(c, principal.isAdmin ? [] : await this.store.catalogSharePermissions(c, keys));
+    const canHandle = (a: AssetRef) =>
+      effectivePermissions(principal, { unitPath: a.unitPath, assetTypeId: a.assetTypeId, shared: [...(a.ownerId === principal.userId ? ownerPermissions : []), ...(a.catalogId ? (shares.get(a.catalogId) ?? []) : [])] }).has('renew');
+    return { items: items.map((i) => ({ ...present(i.obligation, i.asset, today), canHandle: canHandle(i.asset) })), total, limit: q.limit, offset: q.offset };
   }
 
   async summary(principal: Principal, q: { unitId?: string; mine: boolean }): Promise<ObligationSummary> {
@@ -126,14 +133,17 @@ export class ObligationService {
     const shared = principal.isAdmin
       ? undefined
       : [...(found.asset.ownerId === principal.userId ? ownerPermissions : []), ...(await this.store.catalogSharePermissions(found.asset.catalogId, await this.shareKeys.of(principal)))];
-    // Anyone who can see it may answer "still needed?" (owners usually only see); the rest is "Handle renewals".
-    authorize(principal, action.action === 'answer' ? 'view' : 'renew', { unitPath: found.asset.unitPath, assetTypeId: found.asset.assetTypeId, shared });
+    // The owner answers "still needed?" (owners usually only see); answering for them, and the rest, is "Handle renewals".
+    const isOwner = !!found.asset.ownerId && found.asset.ownerId === principal.userId;
+    authorize(principal, action.action === 'answer' && isOwner ? 'view' : 'renew', { unitPath: found.asset.unitPath, assetTypeId: found.asset.assetTypeId, shared });
     const o = found.obligation;
     const today = this.clock.today();
 
     switch (action.action) {
       case 'ask':
         assertActive(o);
+        if (!found.asset.ownerId) throw AppError.validation('This item has no owner to ask');
+        if (isOwner) throw AppError.validation('You own this item: answer it yourself');
         await this.recordCheck(found, {
           status: 'asked',
           askedAt: new Date(),
@@ -158,7 +168,8 @@ export class ObligationService {
         }, { id: principal.userId, name: principal.displayName });
         break;
       case 'complete':
-        if (o.recurring) throw AppError.validation(`Use "${o.dateKind.actionLabel}" on the asset to roll this date forward`);
+        // A renewal is done by renewing it on the item (a new date), not by ticking it off.
+        if (o.recurring || o.dateKind.behavior === 'recurring') throw AppError.validation(`Use "${o.dateKind.actionLabel}" on the asset to set its new date`);
         assertActive(o);
         await this.store.resolveObligation(id, 'done', principal.userId, action.note ?? null);
         break;
@@ -168,7 +179,10 @@ export class ObligationService {
         break;
       case 'snooze':
         assertActive(o);
-        if (!isValidIsoDate(action.until) || action.until <= today) throw AppError.validation('Snooze until a future date');
+        // "Tomorrow" in the browser can already be today where reminders are sent (another time zone): accept today too.
+        if (!isValidIsoDate(action.until) || action.until < today) throw AppError.validation('Snooze until a future date');
+        // Snoozing hides reminders until then; past the date itself it would hide that it is due.
+        if (action.until > o.dueDate && o.dueDate > today) throw AppError.validation('Snooze until the due date at the latest');
         await this.store.setSnooze(id, action.until);
         break;
       case 'reopen':

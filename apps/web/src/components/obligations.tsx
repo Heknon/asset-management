@@ -6,7 +6,8 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import { api, ApiError } from '@/lib/api';
 import { plural, t, tMaybe } from '@/lib/i18n';
-import { useInvalidateAssets, useLookups, useMe } from '@/lib/queries';
+import { useInvalidateAssets, useLookups, useMe, usePurchaseUnit } from '@/lib/queries';
+import { useMyOrg } from '@/lib/org';
 import { cn, formatDate, formatMoney, todayIso } from '@/lib/utils';
 import { DateKindBadge, DueBadge, RequestStatusBadge } from './badges';
 import { PersonName, UnitPath } from './pickers';
@@ -65,6 +66,18 @@ export function useObligationActions() {
   };
 }
 
+/** Who renews (rolls dates forward): the unit responsible for purchases, when there is one (and admins); otherwise whoever handles renewals. */
+export function useIsBuyer() {
+  const me = useMe().data;
+  const purchase = usePurchaseUnit().data;
+  const { mine, can } = useMyOrg();
+  // With a purchase unit, its people renew everything, whatever their access to the item.
+  if (!purchase?.unitId) return { buyer: true, everywhere: !!me?.isAdmin };
+  // As the server: its people (and those of teams beneath it), anyone who manages it, and admins.
+  const buyer = !!me?.isAdmin || mine.some((m) => m.unit.path.includes(purchase.unitId!)) || can(purchase.unitId, 'manage');
+  return { buyer, everywhere: buyer };
+}
+
 /** A renewal with no fixed term needs its new date; any renewal can be given one ("bought a year, got a year and 10 days"). */
 export const needsNewDate = (o: Pick<Obligation, 'recurring' | 'dateKind'>) => !o.recurring && o.dateKind.behavior === 'recurring';
 
@@ -99,12 +112,14 @@ function RenewUntilDialog({ obligation, onClose, onRenew }: { obligation: Obliga
 function SnoozeDialog({ obligation, onClose, onSnooze }: { obligation: Obligation | null; onClose: () => void; onSnooze: (until: string) => void }) {
   const today = todayIso();
   const [custom, setCustom] = useState(addDuration(today, { amount: 3, unit: 'day' }));
+  // Until the due date at the latest (while it is ahead): snoozing past it would hide that it is due.
+  const latest = obligation && obligation.dueDate > today ? obligation.dueDate : undefined;
   const presets = [
     { label: t('Tomorrow'), date: addDuration(today, { amount: 1, unit: 'day' }) },
     { label: plural(3, 'In {n} day', 'In {n} days'), date: addDuration(today, { amount: 3, unit: 'day' }) },
     { label: t('Next week'), date: addDuration(today, { amount: 7, unit: 'day' }) },
     { label: plural(2, 'In {n} week', 'In {n} weeks'), date: addDuration(today, { amount: 14, unit: 'day' }) },
-  ];
+  ].filter((p) => !latest || p.date <= latest);
   return (
     <Dialog open={!!obligation} onOpenChange={(o) => !o && onClose()} title={t('Snooze reminders')} description={obligation ? `${obligation.label} · ${obligation.assetName}` : undefined}>
       <div className="grid grid-cols-2 gap-2">
@@ -116,8 +131,8 @@ function SnoozeDialog({ obligation, onClose, onSnooze }: { obligation: Obligatio
         ))}
       </div>
       <div className="mt-4 flex items-center gap-2">
-        <Input type="date" min={addDuration(today, { amount: 1, unit: 'day' })} value={custom} onChange={(e) => setCustom(e.target.value)} />
-        <Button variant="primary" onClick={() => onSnooze(custom)}>
+        <Input type="date" min={addDuration(today, { amount: 1, unit: 'day' })} max={latest} value={latest && custom > latest ? latest : custom} onChange={(e) => setCustom(e.target.value)} />
+        <Button variant="primary" onClick={() => onSnooze(latest && custom > latest ? latest : custom)}>
           {t('Snooze')}
         </Button>
       </div>
@@ -143,6 +158,7 @@ export function ObligationList({
   const actions = useObligationActions();
   const { typeById } = useLookups();
   const me = useMe().data;
+  const { buyer, everywhere } = useIsBuyer();
   const [snoozing, setSnoozing] = useState<Obligation | null>(null);
   const [renewing, setRenewing] = useState<Obligation | null>(null);
   const [asking, setAsking] = useState<Obligation | null>(null);
@@ -156,6 +172,9 @@ export function ObligationList({
         {items.map((o) => {
           const type = typeById.get(o.assetTypeId);
           const active = o.state === 'open' || o.state === 'snoozed';
+          const mine = !!o.ownerId && o.ownerId === me?.userId;
+          // Renewing buys it again: the purchase unit does it; others ask for it.
+          const renews = o.recurring || needsNewDate(o);
           const editable = canEdit(o);
           return (
             <li key={o.id} className="group flex items-center gap-3 px-4 py-3 transition-colors hover:bg-surface-2/50">
@@ -176,7 +195,7 @@ export function ObligationList({
                   )}
                 </div>
                 {/* Phones: a wrapping line with the essentials; wider screens: one line with everything. */}
-                <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted sm:flex-nowrap sm:whitespace-nowrap">
+                <div className={cn('mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted', showAsset && 'sm:flex-nowrap sm:whitespace-nowrap')}>
                   {showAsset && (
                     <span className="sm:hidden">
                       <DueBadge obligation={o} />
@@ -204,7 +223,7 @@ export function ObligationList({
                   )}
                   {!showAsset && <DueBadge obligation={o} />}
                   {!showAsset && <DateKindBadge kind={o.dateKind} />}
-                  <CheckBadge check={o.check} />
+                  <CheckBadge check={o.check} mine={mine} />
                   {o.renewalRequest && (
                     <Link to="/requests/$requestId" params={{ requestId: o.renewalRequest.id }} className="inline-flex items-center gap-1 hover:opacity-80" title={t('Renewal request {number}', { number: o.renewalRequest.number })}>
                       <RequestStatusBadge status={{ label: `${o.renewalRequest.number} · ${tMaybe(o.renewalRequest.label)}`, color: o.renewalRequest.color }} />
@@ -222,7 +241,20 @@ export function ObligationList({
                   {t('Still needed?')}
                 </Button>
               )}
-              {editable && active && (
+              {/* Asked "still needed?": answering "Renew" asks for the renewal, one button is enough. */}
+              {(editable || mine) && active && renews && !buyer && !o.renewalRequest && !(mine && o.check?.status === 'asked') && (
+                <Button
+                  size="sm"
+                  variant={o.urgency === 'overdue' || o.urgency === 'due_soon' ? 'primary' : 'secondary'}
+                  className={cn(o.urgency === 'later' && 'opacity-0 group-hover:opacity-100 focus:opacity-100 touch:opacity-100')}
+                  icon={<ShoppingCart className="size-3.5" />}
+                  title={t('Renewals are done by the unit responsible for purchases')}
+                  onClick={() => actions.requestRenewal(o)}
+                >
+                  {t('Ask to renew')}
+                </Button>
+              )}
+              {active && (renews ? buyer && (editable || everywhere) : editable) && (
                 <Button
                   size="sm"
                   variant={o.urgency === 'overdue' || o.urgency === 'due_soon' ? 'primary' : 'secondary'}
@@ -238,13 +270,24 @@ export function ObligationList({
                 <Menu trigger={<Button size="icon" variant="ghost" aria-label={t('More actions')} icon={<MoreHorizontal className="size-4" />} />}>
                   {active ? (
                     <>
-                      <MenuItem icon={<MessageCircleQuestion />} onSelect={() => setAsking(o)}>
-                        {o.check?.status === 'asked' ? t('Ask the owner again…') : t('Ask the owner if still needed…')}
-                      </MenuItem>
-                      <MenuItem icon={<CircleHelp />} onSelect={() => setAnswer(o)}>
-                        {o.check && o.check.status !== 'asked' ? t('Change the answer…') : t('Answer for the owner…')}
-                      </MenuItem>
-                      {o.recurring && (
+                      {mine ? (
+                        // You own it: nobody to ask; answer it yourself.
+                        <MenuItem icon={<CircleHelp />} onSelect={() => setAnswer(o)}>
+                          {o.check && o.check.status !== 'asked' ? t('Change your answer…') : t('Still needed? Answer…')}
+                        </MenuItem>
+                      ) : (
+                        <>
+                          {o.ownerId && (
+                            <MenuItem icon={<MessageCircleQuestion />} onSelect={() => setAsking(o)}>
+                              {o.check?.status === 'asked' ? t('Ask the owner again…') : t('Ask the owner if still needed…')}
+                            </MenuItem>
+                          )}
+                          <MenuItem icon={<CircleHelp />} onSelect={() => setAnswer(o)}>
+                            {o.check && o.check.status !== 'asked' ? t('Change the answer…') : t('Answer for the owner…')}
+                          </MenuItem>
+                        </>
+                      )}
+                      {o.recurring && buyer && (
                         <MenuItem icon={<RefreshCcw />} onSelect={() => setRenewing(o)}>
                           {t('{action} until a date…', { action: tMaybe(o.dateKind.actionLabel) })}
                         </MenuItem>

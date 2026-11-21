@@ -24,7 +24,7 @@ import {
   workflowsOf,
 } from '@am/core';
 import { authorize } from '@am/platform';
-import { assertFitsVariant, assetChangedEvent, diff, resolveStatus, scopeOf, validatedOverrides, validatedValues, type AssetDraft, type AssetState } from '../domain/asset.js';
+import { assertFitsVariant, assetChangedEvent, diff, keptValues, resolveStatus, scopeOf, validatedOverrides, validatedValues, type AssetDraft, type AssetState } from '../domain/asset.js';
 import { assertFitsCatalog } from '../domain/catalog.js';
 import { requestNumber } from '../domain/request.js';
 import type { AccessResolver } from './access.js';
@@ -121,7 +121,7 @@ export class AssetService {
         catalogId: current.catalogId,
         variantId: sch.variant?.id ?? null,
         // Only the team's fields are being touched: nothing else is held to "required" here.
-        values: validatedValues(sch.schema, merged, new Set(sch.schema.fields.map((f) => f.key))),
+        values: { ...keptValues(sch.schema, current.values, before.variant && before.variant.id !== sch.variant?.id ? before.variant.fields : []), ...validatedValues(sch.schema, merged, new Set(sch.schema.fields.map((f) => f.key)), current.values) },
         reminderOverrides: current.reminderOverrides,
       };
       // Removed or switched team fields show up in the history too.
@@ -166,6 +166,26 @@ export class AssetService {
     return this.get(principal, id);
   }
 
+  /**
+   * Renewing an item (rolling its date forward) is buying it again: with a
+   * unit responsible for purchases, that unit does it (others open a renewal
+   * request); without one, whoever handles renewals for the item.
+   */
+  private async isBuyer(store: RegistryStore, principal: Principal) {
+    const unit = await purchaseUnit(store);
+    return !!unit && (await new Responsibility(store, principal).canAct(unit));
+  }
+
+  private async assertCanRenew(tx: RegistryStore, principal: Principal, asset: AssetState) {
+    const buyingUnit = await purchaseUnit(tx);
+    if (buyingUnit) {
+      authorize(principal, 'view', await this.resolver.assetScope(principal, asset, tx));
+      if (!(await new Responsibility(tx, principal).canAct(buyingUnit))) throw AppError.forbidden('Renewals are done by the unit responsible for purchases; open a renewal request instead');
+      return;
+    }
+    authorize(principal, 'renew', await this.resolver.assetScope(principal, asset, tx));
+  }
+
   /** For other application services (conversations): the asset and the caller's permissions, or not found / forbidden. */
   async reach(principal: Principal, id: string, required: Permission): Promise<{ asset: AssetState; permissions: Set<Permission> }> {
     const asset = await this.store.getAsset(id);
@@ -196,7 +216,9 @@ export class AssetService {
     const sch = await this.resolveVariant(store, type.id, variantId, unitPath);
     // Someone a catalog is shared with (with "Add items") may add to it, inside its unit.
     const scope = await this.resolver.assetScope(principal, { unitPath, assetTypeId: type.id, catalogId: input.catalogId }, store);
-    const perms = authorize(principal, 'create', scope);
+    // The unit responsible for purchases creates what it bought for any team (fulfil checks the request).
+    const buying = !!input.requestId && (await this.isBuyer(store, principal));
+    const perms = buying ? effectivePermissions(principal, scope) : authorize(principal, 'create', scope);
     await this.assertCatalog(store, principal, input.catalogId, unitPath);
     await this.assertPeople(sch, input.ownerId, input.attributes, store);
     const { merged, blocked } = mergeAttributes(sch.schema.fields, {}, input.attributes, perms.has('restricted'));
@@ -238,6 +260,7 @@ export class AssetService {
       throw AppError.forbidden('You cannot fulfil this request');
     }
     if (request.statusCategory === 'done' || request.statusCategory === 'closed') throw AppError.conflict('The request is already closed');
+    if (request.kind !== 'purchase') throw AppError.validation('A renewal is finished on the request, not by creating an item');
     const wf = await workflowFor(tx, request.assetTypeId);
     // The new item's team variant decides which workflows follow the purchase ("Swap the new license").
     await finishPurchase(tx, request, wf, firstOfCategory(wf, 'done')!, { id: principal.userId, name: principal.displayName }, { body: null, note: null, assetId, variantId });
@@ -279,13 +302,25 @@ export class AssetService {
         unitId: patch.unitId ?? current.unitId,
         catalogId,
         variantId: sch.variant?.id ?? null,
-        values: validatedValues(sch.schema, merged, teamKeys(sch)),
+        values: { ...keptValues(sch.schema, current.values, current.variantId !== (sch.variant?.id ?? null) ? ((await this.schemaOf(tx, current)).variant?.fields ?? []) : []), ...validatedValues(sch.schema, merged, teamKeys(sch), current.values) },
         reminderOverrides: patch.reminderOverrides ? validatedOverrides(sch.schema, patch.reminderOverrides) : current.reminderOverrides,
       };
-      const changes = diff(sch.schema, current, draft);
+      // A renewal date moved later while its renewal is being asked for: that is the renewal (by whoever may renew).
+      const renewed: string[] = [];
+      for (const f of sch.schema.fields) {
+        if (f.kind !== 'date' || !f.config.tracking) continue;
+        const before = current.values[f.key];
+        const after = draft.values[f.key];
+        if (typeof before === 'string' && typeof after === 'string' && after > before && (await tx.openRenewals(id, f.key)).length) renewed.push(f.key);
+      }
+      if (renewed.length) await this.assertCanRenew(tx, principal, current);
+      // Switching or removing team fields drops their values: the history keeps what they were.
+      const was = current.variantId && current.variantId !== draft.variantId ? await tx.getVariant(current.variantId) : null;
+      const changes = diff({ fields: [...sch.schema.fields, ...(was?.fields ?? [])] }, current, draft);
       if (!Object.keys(changes).length) return this.present(principal, current, sch, (await this.resolver.assetScope(principal, current, tx)).shared);
       const saved = await tx.saveAsset(id, draft, principal.userId, await this.searchText(tx, sch, draft, current.refNo));
       await tx.addActivity({ assetId: id, actorId: principal.userId, actorName: principal.displayName, action: 'updated', changes });
+      for (const fieldKey of renewed) await completeRenewals(tx, id, fieldKey, { id: principal.userId, name: principal.displayName });
       await tx.publish('asset.changed', assetChangedEvent(saved, sch.schema, await this.kinds(tx)));
       return this.present(principal, saved, sch, (await this.resolver.assetScope(principal, saved, tx)).shared);
     };
@@ -297,8 +332,8 @@ export class AssetService {
     const run = async (tx: RegistryStore) => {
       const current = await tx.getAsset(id, { forUpdate: true });
       if (!current) throw AppError.notFound('Asset');
-      const scope = await this.resolver.assetScope(principal, current, tx);
-      authorize(principal, 'renew', scope);
+      // Also when finishing a renewal request: its unit may have been changed to one the person handles.
+      await this.assertCanRenew(tx, principal, current);
       const sch = await this.schemaOf(tx, current);
       const kinds = await this.kinds(tx);
       const { values, from, to } = advanceRecurringDate(sch.schema, current.values, fieldKey, kinds, opts.until);
@@ -308,7 +343,7 @@ export class AssetService {
       const affected = sch.schema.fields.filter((f) => f.kind === 'date' && current.values[f.key] !== values[f.key]).map((f) => f.key);
       await tx.publish('asset.changed', assetChangedEvent(saved, sch.schema, kinds, { fieldKey, from, to, by: principal.userId, affected }));
       await completeRenewals(tx, id, fieldKey, { id: principal.userId, name: principal.displayName }, opts.skipRequestId);
-      return this.present(principal, saved, sch, scope.shared);
+      return this.present(principal, saved, sch, (await this.resolver.assetScope(principal, saved, tx)).shared);
     };
     return opts.store ? run(opts.store) : this.store.transaction(run);
   }

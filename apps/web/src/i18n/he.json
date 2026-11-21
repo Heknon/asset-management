@@ -1799,5 +1799,14 @@
   "Remove team fields": "הסרת שדות הצוות",
   "Fill in for {items}": "מילוי עבור {items}",
   "Every selected item gets this value; leave it empty to clear it.": "כל הפריטים שנבחרו יקבלו את הערך הזה; השאירו ריק כדי לנקות.",
-  "Any team fields": "כל שדות הצוות"
+  "Any team fields": "כל שדות הצוות",
+  "Ask to renew": "בקשה לחידוש",
+  "Renewals are done by the unit responsible for purchases": "חידושים מתבצעים על ידי היחידה האחראית על רכש",
+  "Change your answer…": "שינוי התשובה שלך…",
+  "Still needed? Answer…": "עדיין צריך? לענות…",
+  "Only if these items should carry a team’s own fields. They can be filled in later.": "רק אם הפריטים צריכים לשאת שדות של צוות. אפשר למלא אותם אחר כך.",
+  "Ask the owner a question, note a vendor update, or record a decision. Type @ to mention someone.": "שאלו את הבעלים, רשמו עדכון מהספק או תעדו החלטה. הקלידו @ כדי לאזכר מישהו.",
+  "Ask a question or post an update for the requester.": "שאלו שאלה או פרסמו עדכון למבקש.",
+  "Add a comment for the people handling this.": "הוסיפו הערה לאנשים שמטפלים בזה.",
+  "Three steps and renewals start showing up here.": "שלושה צעדים והחידושים יתחילו להופיע כאן."
 }

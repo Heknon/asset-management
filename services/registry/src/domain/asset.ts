@@ -46,11 +46,29 @@ export type AssetDraft = Omit<AssetState, 'id' | 'version' | 'createdAt' | 'upda
 export const scopeOf = (a: Pick<AssetState, 'unitPath' | 'assetTypeId'>, shared?: readonly Permission[]): AccessScope => ({ unitPath: a.unitPath, assetTypeId: a.assetTypeId, ...(shared?.length && { shared }) });
 
 /** Validates attribute values against the type, or throws a field-addressed validation error. */
-export function validatedValues(type: AssetType, raw: Record<string, unknown>, optional?: ReadonlySet<string>): Attributes {
+/**
+ * Values the item has for fields its schema no longer has (a field removed
+ * from the template): kept as they are, so re-adding the field brings them back.
+ * `dropped`: fields being removed on purpose (team fields switched off).
+ */
+export function keptValues(type: Pick<AssetType, 'fields'>, stored: Attributes, dropped: readonly { key: string }[] = []): Attributes {
+  const known = new Set([...type.fields, ...dropped].map((f) => f.key));
+  return Object.fromEntries(Object.entries(stored).filter(([k]) => !known.has(k)));
+}
+
+/**
+ * `stored`: the item's current values. A value nobody touched that no longer
+ * fits the template (an option since removed) is kept as it is, so editing
+ * something else still works; only changed values must be valid.
+ */
+export function validatedValues(type: AssetType, raw: Record<string, unknown>, optional?: ReadonlySet<string>, stored?: Attributes): Attributes {
   const { values, issues } = validateAttributes(type, raw, { optional });
-  if (issues.length) {
-    throw AppError.validation('Some fields are invalid', { fields: Object.fromEntries(issues.map((i) => [i.field, i.message])) });
+  const same = (k: string) => !!stored && k in stored && JSON.stringify(stored[k]) === JSON.stringify(raw[k]);
+  const real = issues.filter((i) => !same(i.field));
+  if (real.length) {
+    throw AppError.validation('Some fields are invalid', { fields: Object.fromEntries(real.map((i) => [i.field, i.message])) });
   }
+  for (const i of issues) if (same(i.field)) values[i.field] = stored![i.field]!;
   return values;
 }
 
@@ -73,6 +91,7 @@ export function validatedOverrides(type: AssetType, overrides: Record<string, Du
 export function splitRestricted(type: Pick<AssetType, 'fields'>, values: Attributes): { open: Attributes; restricted: Attributes } {
   const restrictedKeys = new Set(type.fields.filter(isRestricted).map((f) => f.key));
   const logins = new Set(type.fields.filter((f) => f.kind === 'login').map((f) => f.key));
+  const known = new Set(type.fields.map((f) => f.key));
   const open: Attributes = {};
   const restricted: Attributes = {};
   for (const [k, v] of Object.entries(values)) {
@@ -83,7 +102,8 @@ export function splitRestricted(type: Pick<AssetType, 'fields'>, values: Attribu
       if (secret !== undefined) restricted[k] = { secret };
       continue;
     }
-    (restrictedKeys.has(k) ? restricted : open)[k] = v;
+    // Values of fields the template no longer has are kept, out of sight: they may have been secret.
+    (restrictedKeys.has(k) || !known.has(k) ? restricted : open)[k] = v;
   }
   return { open, restricted };
 }

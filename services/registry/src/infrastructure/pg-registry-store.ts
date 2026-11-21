@@ -30,6 +30,7 @@ import {
   type SavedViewInput,
   type Scope,
   type StatusCategory,
+  withVariant,
 } from '@am/core';
 import { catalogSharePermissions, enqueue, inSubtree, scopeFilter, visibleFilter } from '@am/platform';
 import { sql, type Kysely, type Selectable, type SqlBool } from 'kysely';
@@ -499,8 +500,10 @@ export class PgRegistryStore implements RegistryStore {
   }
 
   private async assetValues(draft: AssetDraft, searchText: string) {
+    // The template plus the item's team fields: a team's secrets go with the secrets too.
     const type = await this.getType(draft.assetTypeId);
-    const { open, restricted } = splitRestricted(type!, draft.values);
+    const variant = draft.variantId ? await this.getVariant(draft.variantId) : null;
+    const { open, restricted } = splitRestricted(withVariant(type!, variant), draft.values);
     return {
       asset_type_id: draft.assetTypeId,
       type_version: draft.typeVersion,
@@ -543,6 +546,21 @@ export class PgRegistryStore implements RegistryStore {
     return (await this.getAsset(id))!;
   }
 
+  /**
+   * After a template or team-fields change: store each value where the schema
+   * now says (a field made secret moves to the secrets), and mark the item
+   * for re-indexing, so search stops finding what is now secret.
+   */
+  async resplitAsset(id: string) {
+    // Locked: a save at the same moment is not overwritten with the values read here.
+    const asset = await this.getAsset(id, { forUpdate: true });
+    if (!asset) return;
+    const type = await this.getType(asset.assetTypeId);
+    const variant = asset.variantId ? await this.getVariant(asset.variantId) : null;
+    const { open, restricted } = splitRestricted(withVariant(type!, variant), asset.values);
+    await this.db.updateTable('assets').set({ attributes: json(open), restricted_attributes: json(restricted), search_text: '', search_key: '' }).where('id', '=', id).execute();
+  }
+
   async setSearchText(id: string, searchText: string) {
     await this.db.updateTable('assets').set({ search_text: searchText, search_key: foldText(searchText) }).where('id', '=', id).execute();
   }
@@ -553,6 +571,10 @@ export class PgRegistryStore implements RegistryStore {
 
   async assetIdsOfTypes(typeIds: string[]) {
     return (await this.db.selectFrom('assets').select('id').where('asset_type_id', 'in', typeIds).execute()).map((r) => r.id);
+  }
+
+  async allAssetIds() {
+    return (await this.db.selectFrom('assets').select('id').execute()).map((r) => r.id);
   }
 
   async assetIdsToReindex(where: { unitIds?: string[]; userIds?: string[]; unindexed?: boolean }) {
@@ -733,6 +755,14 @@ export class PgRegistryStore implements RegistryStore {
 
   async setRequestWorkflowVariant(id: string, variantId: string | null) {
     await this.db.updateTable('requests').set({ workflow_variant_id: variantId }).where('id', '=', id).execute();
+  }
+
+  async keepRequestWorkflows(id: string, keys: string[]) {
+    await this.db
+      .updateTable('requests')
+      .set({ workflow_states: sql`coalesce((select jsonb_object_agg(k, v) from jsonb_each(workflow_states) as e(k, v) where k = any(${sql.val(keys)}::text[])), '{}'::jsonb)` })
+      .where('id', '=', id)
+      .execute();
   }
 
   async setAssetWorkflow(id: string, key: string, state: WorkflowStateValue) {

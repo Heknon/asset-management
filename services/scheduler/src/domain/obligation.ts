@@ -64,7 +64,7 @@ export type ReconcileAction =
  * Pure reconciliation of the active obligations of one asset against the
  * asset's current tracked dates. The adapter applies the resulting actions.
  */
-export function reconcile(active: readonly ObligationRecord[], event: AssetChanged): ReconcileAction[] {
+export function reconcile(active: readonly ObligationRecord[], event: AssetChanged, closed: ReadonlyArray<{ fieldKey: string; dueDate: string }> = []): ReconcileAction[] {
   const actions: ReconcileAction[] = [];
   const actionable = event.active ? event.trackedDates.filter((t) => t.dateKind.behavior !== 'informational') : [];
   const byField = new Map(actionable.map((t) => [t.fieldKey, t]));
@@ -85,7 +85,11 @@ export function reconcile(active: readonly ObligationRecord[], event: AssetChang
       actions.push({ kind: 'update', id: o.id, tracked, dateChanged: o.dueDate !== tracked.date });
     }
   }
-  for (const tracked of byField.values()) actions.push({ kind: 'create', tracked });
+  for (const tracked of byField.values()) {
+    // Completed or dismissed, and the date has not changed: it stays closed (an edit elsewhere does not reopen it).
+    if (closed.some((c) => c.fieldKey === tracked.fieldKey && c.dueDate === tracked.date)) continue;
+    actions.push({ kind: 'create', tracked });
+  }
   return actions;
 }
 
@@ -114,25 +118,29 @@ export function urgencyOf(dueDate: IsoDate, today: IsoDate): Urgency {
  * the end of a snooze, and a weekly nudge while overdue.
  */
 export function dueReminderSlot(o: Pick<ObligationRecord, 'dueDate' | 'reminders' | 'state' | 'snoozedUntil'>, today: IsoDate): string | null {
+  // Once a snooze has ended it behaves as open again, with nothing from before its end.
+  let after: IsoDate | null = null;
   if (o.state === 'snoozed') {
     if (o.snoozedUntil && o.snoozedUntil > today) return null;
-    if (o.snoozedUntil) return `snooze:${o.snoozedUntil}`;
+    if (o.snoozedUntil === today) return `snooze:${o.snoozedUntil}`;
+    after = o.snoozedUntil;
   }
   if (o.state !== 'open' && o.state !== 'snoozed') return null;
   if (!o.reminders.length) return null;
   if (today > o.dueDate) {
     const weeks = Math.floor(daysBetween(o.dueDate, today) / 7);
-    return `overdue:${addDuration(o.dueDate, { amount: weeks * 7, unit: 'day' })}`;
+    const slot = addDuration(o.dueDate, { amount: weeks * 7, unit: 'day' });
+    return after && slot <= after ? null : `overdue:${slot}`;
   }
   if (today === o.dueDate) return `due:${o.dueDate}`;
   // Only the most recent passed offset fires, so a late start never sends a burst of stale reminders.
-  const passed = reminderDates({ date: o.dueDate, reminders: o.reminders }).filter((d) => d <= today);
+  const passed = reminderDates({ date: o.dueDate, reminders: o.reminders }).filter((d) => d <= today && (!after || d > after));
   return passed.length ? `before:${passed[passed.length - 1]}` : null;
 }
 
 export function nextReminderDate(o: Pick<ObligationRecord, 'dueDate' | 'reminders' | 'state' | 'snoozedUntil'>, today: IsoDate): IsoDate | null {
   if (o.state === 'snoozed' && o.snoozedUntil && o.snoozedUntil > today) return o.snoozedUntil;
-  if (o.state !== 'open' || !o.reminders.length) return null;
+  if ((o.state !== 'open' && o.state !== 'snoozed') || !o.reminders.length) return null;
   const upcoming = [...reminderDates({ date: o.dueDate, reminders: o.reminders }), o.dueDate].filter((d) => d > today).sort();
   return upcoming[0] ?? null;
 }

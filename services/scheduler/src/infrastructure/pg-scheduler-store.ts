@@ -101,10 +101,11 @@ export class PgSchedulerStore implements SchedulerStore {
     };
     // Version-guarded upsert: out-of-order or repeated events are ignored... except
     // re-publications at the same version (type/kind changes), which must re-apply.
+    // A deleted asset stays deleted: a late or retried change must not bring it (and its reminders) back.
     const r = await this.db
       .insertInto('assets_ref')
       .values({ asset_id: ref.assetId, ...values })
-      .onConflict((oc) => oc.column('asset_id').doUpdateSet({ ...values, deleted: false }).where('assets_ref.version', '<=', version))
+      .onConflict((oc) => oc.column('asset_id').doUpdateSet(values).where('assets_ref.version', '<=', version).where('assets_ref.deleted', '=', false))
       .returning('asset_id')
       .executeTakeFirst();
     return !!r;
@@ -118,6 +119,14 @@ export class PgSchedulerStore implements SchedulerStore {
     let q = this.joined().where('obligations.asset_id', '=', assetId).where('obligations.state', 'in', ACTIVE);
     if (opts.forUpdate) q = q.forUpdate('obligations');
     return (await q.execute()).map((r) => toObligation(r as Row));
+  }
+
+  /** Dates of an asset someone completed or dismissed: they stay closed while the date is the same. */
+  async closedDates(assetId: string) {
+    return (await this.db.selectFrom('obligations').select(['field_key', 'due_date']).where('asset_id', '=', assetId).where('state', 'in', ['done', 'dismissed']).execute()).map((r) => ({
+      fieldKey: r.field_key,
+      dueDate: String(r.due_date).slice(0, 10),
+    }));
   }
 
   private trackedValues(t: TrackedDate) {
@@ -149,7 +158,20 @@ export class PgSchedulerStore implements SchedulerStore {
         ...this.trackedValues(t),
         sequence: sql`sequence + 1`,
         updated_at: sql`now()`,
-        ...(dateChanged && { state: 'open', snoozed_until: null }),
+        // A new date is a new question: the old "still needed?" answer was about the old one.
+        ...(dateChanged && {
+          state: 'open',
+          snoozed_until: null,
+          check_status: null,
+          check_asked_at: null,
+          check_asked_by: null,
+          check_asked_by_name: null,
+          check_message: null,
+          check_answered_at: null,
+          check_answered_by: null,
+          check_answered_by_name: null,
+          check_note: null,
+        }),
       })
       .where('id', '=', id)
       .execute();
@@ -322,6 +344,14 @@ export class PgSchedulerStore implements SchedulerStore {
       .where('obligations.due_date', '<=', addDuration(today, { amount: 2, unit: 'year' }))
       .execute();
     return rows.map((r) => toPair(r as Row));
+  }
+
+  async notificationSent(key: string) {
+    return !!(await this.db.selectFrom('sent_notifications').select('key').where('key', '=', key).executeTakeFirst());
+  }
+
+  async markNotificationSent(key: string) {
+    await this.db.insertInto('sent_notifications').values({ key }).onConflict((oc) => oc.column('key').doNothing()).execute();
   }
 
   async wasDelivered(obligationId: string, recipient: string, slot: string) {

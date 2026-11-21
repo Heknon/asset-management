@@ -16,7 +16,7 @@ import { Avatar, Badge, Card, CompactSteps, EmptyState, PageHeader, Skeleton, Sp
 import { Field, Input, Segmented, Textarea } from '@/components/ui/form';
 import { Dialog } from '@/components/ui/overlay';
 import { api, ApiError } from '@/lib/api';
-import { keys, useLookups, useMe, usePeople, useRequest, useRequestCounts, useRequestEvents, useRequests } from '@/lib/queries';
+import { keys, useLookups, useMe, usePeople, useRequest, useRequestCounts, useRequestEvents, useRequests, useEmailSending } from '@/lib/queries';
 import { cn, formatDate, formatDateTime, formatMoney, relativeDays } from '@/lib/utils';
 import { useRemember } from '@/lib/recent';
 import { plural, t, tMaybe } from '@/lib/i18n';
@@ -296,17 +296,22 @@ function useAct(requestId: string) {
 }
 
 export function RequestDetailPage() {
+  const email = useEmailSending();
   const { requestId } = useParams({ strict: false }) as { requestId: string };
   const request = useRequest(requestId);
   const events = useRequestEvents(requestId);
   const me = useMe().data!;
-  const { typeById, variantById, unitById } = useLookups();
+  const { typeById, variantById, unitById, schemaOf, kindById } = useLookups();
   const act = useAct(requestId);
   useRemember(request.data ? { kind: 'request', id: request.data.id, title: request.data.title, subtitle: t('Request') } : null);
   const [comment, setComment] = useState('');
   const [closing, setClosing] = useState<RequestStatusInfo | null>(null);
   const [renewing, setRenewing] = useState<RequestStatusInfo | null>(null);
   const [renewedUntil, setRenewedUntil] = useState('');
+  // A renewed date with no fixed term needs its new date (it cannot roll forward by itself).
+  const renewalField = request.data?.renewal ? schemaOf(request.data.assetTypeId ?? '', request.data.variantId)?.fields.find((f) => f.key === request.data!.renewal!.fieldKey) : undefined;
+  const tracking = renewalField?.kind === 'date' ? renewalField.config.tracking : undefined;
+  const needsUntil = !!tracking && (tracking.recurrence?.mode === 'manual' || (tracking.recurrence === undefined && !kindById.get(tracking.dateKindId)?.defaultRecurrence));
   const [reason, setReason] = useState('');
   const [editing, setEditing] = useState(false);
   const [fulfilType, setFulfilType] = useState<string | null>(null);
@@ -414,7 +419,7 @@ export function RequestDetailPage() {
                 if (comment.trim()) act.mutate({ action: 'comment', body: comment.trim() }, { onSuccess: () => setComment('') });
               }}
             >
-              <Textarea rows={3} placeholder={handler ? t('Ask a question or post an update — the requester gets an email.') : t('Add a comment — the people handling this get an email.')} value={comment} onChange={(e) => setComment(e.target.value)} />
+              <Textarea rows={3} placeholder={email ? (handler ? t('Ask a question or post an update — the requester gets an email.') : t('Add a comment — the people handling this get an email.')) : handler ? t('Ask a question or post an update for the requester.') : t('Add a comment for the people handling this.')} value={comment} onChange={(e) => setComment(e.target.value)} />
               <div className="flex justify-end">
                 <Button type="submit" variant="primary" disabled={!comment.trim()} loading={act.isPending && act.variables?.action === 'comment'}>
                   {t('Comment')}
@@ -477,12 +482,17 @@ export function RequestDetailPage() {
         open={!!renewing}
         onOpenChange={(o) => !o && (setRenewing(null), setRenewedUntil(''))}
         title={renewing ? t('{status} — renewed until?', { status: tMaybe(renewing.label) }) : ''}
-        description={t('Leave empty to roll the date forward by its usual term. Set it when you got something else, e.g. a year and 10 days, or when the date has no fixed term.')}
+        description={
+          needsUntil
+            ? t('This date has no fixed term: set the new one. Reminders and the next renewal follow it.')
+            : t('Leave empty to roll the date forward by its usual term. Set it when you got something else, e.g. a year and 10 days, or when the date has no fixed term.')
+        }
         footer={
           <>
             <Button onClick={() => (setRenewing(null), setRenewedUntil(''))}>{t('Cancel')}</Button>
             <Button
               variant="primary"
+              disabled={needsUntil && !renewedUntil}
               onClick={() => {
                 act.mutate({ action: 'status', status: renewing!.key, ...(renewedUntil && { renewedUntil }) });
                 setRenewing(null);

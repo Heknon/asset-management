@@ -22,6 +22,7 @@ export interface SchedulerStore {
   upsertAsset(ref: AssetRef, version: number): Promise<boolean>;
   markAssetDeleted(assetId: string): Promise<void>;
   activeObligations(assetId: string, opts?: { forUpdate?: boolean }): Promise<ObligationRecord[]>;
+  closedDates(assetId: string): Promise<Array<{ fieldKey: string; dueDate: string }>>;
   createObligation(assetId: string, tracked: TrackedDate): Promise<ObligationRecord>;
   updateObligation(id: string, tracked: TrackedDate, dateChanged: boolean): Promise<void>;
   resolveObligation(id: string, state: ObligationRecord['state'], by: string | null, note?: string | null): Promise<void>;
@@ -40,6 +41,9 @@ export interface SchedulerStore {
   /** Active obligations of active assets that may need a reminder today. */
   remindable(today: IsoDate): Promise<ObligationWithAsset[]>;
   wasDelivered(obligationId: string, recipient: string, slot: string): Promise<boolean>;
+  /** Emails sent for an event (by a key of the event and recipient), so a retried event skips them. */
+  notificationSent(key: string): Promise<boolean>;
+  markNotificationSent(key: string): Promise<void>;
   recordDelivery(obligationId: string, recipient: string, slot: string): Promise<void>;
 
   /** Obligations whose calendar entry changed since it was last sent (including cancellations). */

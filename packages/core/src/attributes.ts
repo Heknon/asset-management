@@ -210,7 +210,9 @@ export function redactAttributes(fields: readonly FieldDefinition[], values: Att
   if (canSeeRestricted) return values;
   const who = { canSeeRestricted, isOwner };
   const hidden = new Set(fields.filter((f) => !canSeeField(f, who)).map((f) => f.key));
-  const out = Object.fromEntries(Object.entries(values).filter(([k]) => !hidden.has(k)));
+  const known = new Set(fields.map((f) => f.key));
+  // Values of removed fields are not shown: they may have been secret.
+  const out = Object.fromEntries(Object.entries(values).filter(([k]) => known.has(k) && !hidden.has(k)));
   // Logins stay visible without their password, unless this person may see it.
   for (const f of fields) {
     const v = out[f.key];
@@ -226,7 +228,8 @@ export function spendOf(fields: readonly FieldDefinition[], values: Attributes):
   let total = 0;
   let currency: string | null = null;
   for (const f of fields) {
-    if (f.kind !== 'currency' || !f.config.countsTowardSpend) continue;
+    // A restricted cost stays with the secrets: it is not shown as spend to everyone.
+    if (f.kind !== 'currency' || !f.config.countsTowardSpend || isRestricted(f)) continue;
     const v = values[f.key];
     if (typeof v !== 'number') continue;
     total += v;

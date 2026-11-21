@@ -100,13 +100,23 @@ export async function finishPurchase(
 ): Promise<void> {
   await tx.setRequestStatus(r.id, done, event.assetId);
   if (event.variantId !== undefined && event.variantId !== r.workflowVariantId) {
-    await tx.setRequestWorkflowVariant(r.id, event.variantId);
-    r.workflowVariantId = event.variantId;
+    await switchRequestVariant(tx, r, event.variantId);
+    // The new team's workflows that run alongside the purchase start too (they never had the chance).
+    await startRequestWorkflows(tx, r, 'created', actor);
   }
   await tx.addRequestEvent({ requestId: r.id, actorId: actor.id, actorName: actor.name, kind: 'fulfilled', body: event.body, fromStatus: r.status, toStatus: done.key });
   const next = { ...r, status: done.key, statusCategory: done.category };
   await startRequestWorkflows(tx, next, 'purchase_done', actor);
   await publishRequestChange(tx, next, wf, actor, 'fulfilled', r.status, event.note);
+}
+
+/** A request now follows another team's fields: their workflows, without the old team's. */
+export async function switchRequestVariant(tx: RegistryStore, r: RequestState, variantId: string | null): Promise<void> {
+  await tx.setRequestWorkflowVariant(r.id, variantId);
+  r.workflowVariantId = variantId;
+  const keys = (await requestWorkflowDefs(tx, r)).map((d) => d.key);
+  await tx.keepRequestWorkflows(r.id, keys);
+  r.workflowStates = Object.fromEntries(Object.entries(r.workflowStates).filter(([k]) => keys.includes(k)));
 }
 
 /**

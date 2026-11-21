@@ -97,6 +97,9 @@ export interface RegistryStore {
   insertAsset(draft: AssetDraft, actorId: string, searchText: string): Promise<AssetState>;
   saveAsset(id: string, draft: AssetDraft, actorId: string, searchText: string): Promise<AssetState>;
   setSearchText(id: string, searchText: string): Promise<void>;
+  /** Re-stores an item's values by its current schema (secrets with the secrets) and marks it for re-indexing. */
+  resplitAsset(id: string): Promise<void>;
+  allAssetIds(): Promise<string[]>;
   deleteAsset(id: string): Promise<void>;
   assetIdsOfTypes(typeIds: string[]): Promise<string[]>;
   /** Assets whose search text must be rebuilt: in these units or beneath them, owned by / referencing these people, or never indexed. */
@@ -124,6 +127,8 @@ export interface RegistryStore {
   setRequestWorkflow(id: string, key: string, state: WorkflowStateValue): Promise<void>;
   /** The team variant whose workflows a request follows. */
   setRequestWorkflowVariant(id: string, variantId: string | null): Promise<void>;
+  /** Drops the states of workflows a request no longer has (its team fields changed). */
+  keepRequestWorkflows(id: string, keys: string[]): Promise<void>;
   /** Moves one added workflow of an item. */
   setAssetWorkflow(id: string, key: string, state: WorkflowStateValue): Promise<void>;
   /** Open renewal requests of one item's date. */

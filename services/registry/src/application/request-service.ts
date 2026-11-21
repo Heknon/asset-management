@@ -27,7 +27,7 @@ import { metrics } from '@am/platform';
 import { assertFitsVariant } from '../domain/asset.js';
 import { accessOf, assertMove, isOpen, requestNumber, requestSearchText, type RequestState } from '../domain/request.js';
 import type { AssetService } from './asset-service.js';
-import { finishPurchase, publishRequestChange, purchaseUnit, requestWorkflowDefs, Responsibility, startRequestWorkflows, workflowFor, workflowView } from './workflows.js';
+import { finishPurchase, switchRequestVariant, publishRequestChange, purchaseUnit, requestWorkflowDefs, Responsibility, startRequestWorkflows, workflowFor, workflowView } from './workflows.js';
 import type { RegistryStore, RequestRow } from './ports.js';
 
 const requestEvents = metrics.counter({ name: 'am_request_events_total', help: 'Request workflow events (created, status changes, comments, assignments)', labelNames: ['kind', 'status'] });
@@ -51,10 +51,12 @@ export class RequestService {
   }
 
   /** Handles the purchase: may renew there, or belongs to the unit responsible for purchases. */
-  private async isHandler(p: Principal, r: Pick<RequestState, 'unitPath' | 'assetTypeId'>, store = this.store) {
-    if (effectivePermissions(p, { unitPath: r.unitPath, assetTypeId: r.assetTypeId ?? '' }).has('renew')) return true;
+  private async isHandler(p: Principal, r: Pick<RequestState, 'unitPath' | 'assetTypeId'> & { kind?: RequestState['kind'] }, store = this.store) {
     const unit = await purchaseUnit(store);
-    return !!unit && (await new Responsibility(store, p).canAct(unit));
+    if (unit && (await new Responsibility(store, p).canAct(unit))) return true;
+    // With a purchase unit, renewing is its job alone: others ask, they do not finish renewals.
+    if (unit && r.kind === 'renewal') return false;
+    return effectivePermissions(p, { unitPath: r.unitPath, assetTypeId: r.assetTypeId ?? '' }).has('renew');
   }
 
   private async presentAll(p: Principal, rows: Array<RequestState & { snippet?: string }>, store = this.store): Promise<PurchaseRequest[]> {
@@ -80,7 +82,7 @@ export class RequestService {
         const u = r.workflowStates[d.key]?.unitId ?? d.responsibleUnitId ?? r.unitId;
         units.set(u, await canAct(u));
       }
-      const handler = buyer || effectivePermissions(p, { unitPath: r.unitPath, assetTypeId: r.assetTypeId ?? '' }).has('renew');
+      const handler = buyer || (!(buyingUnit && r.kind === 'renewal') && effectivePermissions(p, { unitPath: r.unitPath, assetTypeId: r.assetTypeId ?? '' }).has('renew'));
       out.push(this.present(p, r, workflows.get(k)!, handler, buyingUnit, defs, (u) => units.get(u) ?? false));
     }
     return out;
@@ -143,9 +145,23 @@ export class RequestService {
 
   private async load(p: Principal, id: string, opts?: { forUpdate?: boolean }, store = this.store) {
     const r = await store.getRequest(id, opts);
-    const visible = r && (r.requesterId === p.userId || effectivePermissions(p, { unitPath: r.unitPath, assetTypeId: r.assetTypeId ?? '' }).has('view'));
-    if (!r || !visible) throw AppError.notFound('Request');
+    if (!r || !(await this.canSee(p, r, store))) throw AppError.notFound('Request');
     return r;
+  }
+
+  /**
+   * Who sees a request: its requester, people who see its team, the purchase
+   * unit (it handles them all), units responsible for one of its workflows,
+   * and the owner of the item being renewed. The same people as its lists.
+   */
+  private async canSee(p: Principal, r: RequestState, store: RegistryStore) {
+    if (r.requesterId === p.userId || effectivePermissions(p, { unitPath: r.unitPath, assetTypeId: r.assetTypeId ?? '' }).has('view')) return true;
+    const resp = new Responsibility(store, p);
+    const unit = await purchaseUnit(store);
+    if (unit && (await resp.canAct(unit))) return true;
+    for (const s of Object.values(r.workflowStates)) if (await resp.canAct(s.unitId)) return true;
+    if (r.renewal) return (await store.getAsset(r.renewal.assetId))?.ownerId === p.userId;
+    return false;
   }
 
   private async searchText(store: RegistryStore, r: Pick<RequestState, 'seq' | 'title' | 'description' | 'requesterName' | 'link' | 'unitId' | 'assetTypeId'>) {
@@ -240,11 +256,26 @@ export class RequestService {
 
   /** The owner answered "renew" (or "renew with changes"): open the renewal request for whoever buys it. */
   async onRenewalCheck(e: RenewalCheckChanged): Promise<void> {
-    if (e.kind !== 'answered' || (e.status !== 'renew' && e.status !== 'change') || !e.actorId) return;
+    if (e.kind !== 'answered' || !e.actorId) return;
+    const actor = { id: e.actorId, name: e.actorName };
+    const said = [{ renew: 'Renew as is.', change: 'Renew with changes.', cancel: 'Don’t renew.' }[e.status as 'renew' | 'change' | 'cancel'] ?? '', e.text].filter(Boolean).join(' ');
     try {
-      await this.store.transaction((tx) =>
-        this.renewalFor(tx, e.assetId, null, e.obligationId, [e.status === 'change' ? 'Renew with changes.' : 'Renew as is.', e.text].filter(Boolean).join(' '), { id: e.actorId!, name: e.actorName }, e.label),
-      );
+      await this.store.transaction(async (tx) => {
+        // A renewal is already being handled: the new answer ("don't renew after all") goes to it, for whoever buys.
+        const asset = await tx.getAsset(e.assetId);
+        if (!asset) return;
+        const schema = withVariant((await tx.getType(asset.assetTypeId))!, asset.variantId ? await tx.getVariant(asset.variantId) : null);
+        const field = schema.fields.find((f) => f.kind === 'date' && f.label === e.label) ?? schema.fields.find((f) => f.kind === 'date' && f.config.tracking);
+        const open = field ? await tx.openRenewals(asset.id, field.key) : [];
+        // (One opened by this very answer, on a redelivery, is not told again.)
+        for (const r of open.filter((x) => x.createdAt.getTime() < new Date(e.at).getTime())) {
+          const body = `${e.actorName} answered again: ${said}`;
+          await tx.addRequestEvent({ requestId: r.id, actorId: actor.id, actorName: actor.name, kind: 'comment', body, fromStatus: null, toStatus: null });
+          await this.publish(tx, r, await workflowFor(tx, r.assetTypeId), actor, 'comment', null, body);
+        }
+        if (open.length || (e.status !== 'renew' && e.status !== 'change')) return;
+        await this.renewalFor(tx, e.assetId, null, e.obligationId, said, actor, e.label);
+      });
     } catch (err) {
       // Already open for this occurrence (redelivery, or someone opened one by hand), or the item is gone.
       if (err instanceof AppError && (err.code === 'conflict' || err.code === 'not_found')) return;
@@ -259,7 +290,8 @@ export class RequestService {
     const variant = asset.variantId ? await tx.getVariant(asset.variantId) : null;
     const schema = withVariant(type, variant);
     // From the renewal check we know the date's label; find its field.
-    const field = schema.fields.find((f) => f.kind === 'date' && (fieldKey ? f.key === fieldKey : f.label === label)) ?? schema.fields.find((f) => f.kind === 'date' && f.config.tracking);
+    // Only dates that are tracked (renewals, expiries) can be renewed; an untracked date would finish without moving.
+    const field = schema.fields.find((f) => f.kind === 'date' && !!f.config.tracking && (fieldKey ? f.key === fieldKey : f.label === label)) ?? (fieldKey ? undefined : schema.fields.find((f) => f.kind === 'date' && f.config.tracking));
     if (!field) throw AppError.validation('This item has no date to renew');
     if (fieldKey && field.key !== fieldKey) throw AppError.validation('Unknown date');
     const open = await tx.openRenewals(asset.id, field.key);
@@ -292,6 +324,10 @@ export class RequestService {
       const requesterCanEdit = r.requesterId === p.userId && r.statusCategory === 'todo';
       if (!handler && !requesterCanEdit) throw AppError.forbidden('This request can no longer be edited');
       if (!isOpen(r)) throw AppError.validation('Closed requests cannot be edited');
+      // A renewal is about one item: its team and template are the item's.
+      if (r.kind === 'renewal' && ((patch.unitId && patch.unitId !== r.unitId) || (patch.assetTypeId !== undefined && patch.assetTypeId !== r.assetTypeId))) {
+        throw AppError.validation('A renewal stays with its item’s team and template');
+      }
       if (patch.unitId && patch.unitId !== r.unitId) await this.assertCanRequestFor(p, patch.unitId);
       const row = {
         title: patch.title ?? r.title,
@@ -303,16 +339,24 @@ export class RequestService {
         neededBy: patch.neededBy !== undefined ? patch.neededBy : r.neededBy,
         link: patch.link !== undefined ? patch.link : r.link,
       };
-      const variantId = patch.variantId !== undefined ? patch.variantId : row.assetTypeId === r.assetTypeId && row.unitId === r.unitId ? r.workflowVariantId : null;
-      if (variantId !== r.workflowVariantId) {
-        if (r.kind === 'renewal') throw AppError.validation('A renewal follows the item’s team fields');
-        await this.assertTeamFields(variantId, row.assetTypeId, row.unitId, tx);
-      }
+      // A renewal follows its item's team fields: whatever the form sends, they stay.
+      const variantId = r.kind === 'renewal' ? r.workflowVariantId : patch.variantId !== undefined ? patch.variantId : row.assetTypeId === r.assetTypeId && row.unitId === r.unitId ? r.workflowVariantId : null;
+      if (variantId !== r.workflowVariantId) await this.assertTeamFields(variantId, row.assetTypeId, row.unitId, tx);
       const saved = await tx.updateRequest(id, row, await this.searchText(tx, { ...row, seq: r.seq, requesterName: r.requesterName }));
-      if (variantId !== r.workflowVariantId) {
-        await tx.setRequestWorkflowVariant(id, variantId);
-        saved.workflowVariantId = variantId;
-        // The new team's workflows that run alongside the purchase start now.
+      // Another template can follow another workflow: keep the status if it has it, else start it over.
+      if (row.assetTypeId !== r.assetTypeId) {
+        const next = await workflowFor(tx, row.assetTypeId);
+        const same = next.statuses.find((x) => x.key === r.status);
+        const status = same ?? initialStatus(next);
+        if (!same || same.category !== r.statusCategory) {
+          await tx.setRequestStatus(id, { key: status.key, category: status.category });
+          saved.status = status.key;
+          saved.statusCategory = status.category;
+        }
+      }
+      // Another template or team fields: their workflows replace the old ones; those running alongside the purchase start now.
+      if (row.assetTypeId !== r.assetTypeId || variantId !== r.workflowVariantId) {
+        await switchRequestVariant(tx, saved, variantId);
         await startRequestWorkflows(tx, saved, 'created', { id: p.userId, name: p.displayName });
       }
       await tx.addRequestEvent({ requestId: id, actorId: p.userId, actorName: p.displayName, kind: 'edited', body: null, fromStatus: null, toStatus: null });
@@ -322,6 +366,9 @@ export class RequestService {
 
   async act(p: Principal, id: string, action: RequestAction): Promise<PurchaseRequest> {
     return this.store.transaction(async (tx) => {
+      // Renewing on the item locks the item, then its renewal requests: lock in that order here too (no deadlock).
+      const peek = await tx.getRequest(id);
+      if (peek?.renewal) await tx.getAsset(peek.renewal.assetId, { forUpdate: true });
       const r = await this.load(p, id, { forUpdate: true }, tx);
       const handler = await this.isHandler(p, r, tx);
       const wf = await workflowFor(tx, r.assetTypeId);
@@ -341,17 +388,32 @@ export class RequestService {
           assertMove(wf, r.status, to.key, { isHandler: handler, isRequester: r.requesterId === p.userId });
           if (to.category === 'done' && r.kind === 'purchase' && r.assetTypeId) throw AppError.validation('Finish a purchase by creating the item it asked for (“Create item”)');
           // Finishing a renewal rolls the item's date forward: one term (repeating dates), or to the date given.
+          // Reopening a renewal: only one may be open per date.
+          if (r.renewal && !isOpen(r) && (to.category === 'todo' || to.category === 'active')) {
+            const others = (await tx.openRenewals(r.renewal.assetId, r.renewal.fieldKey)).filter((x) => x.id !== id);
+            if (others.length) throw AppError.conflict(`Another renewal of this date is open: ${requestNumber(others[0]!.seq)}`);
+          }
           if (to.category === 'done' && r.renewal) {
             const asset = await tx.getAsset(r.renewal.assetId);
             const sch = asset ? await this.assets.schemaOf(tx, asset) : null;
             const field = sch?.schema.fields.find((f) => f.key === r.renewal!.fieldKey);
-            if (asset && field?.kind === 'date' && field.config.tracking && action.renewedUntil) await this.assets.advance(p, asset.id, field.key, { store: tx, skipRequestId: id, until: action.renewedUntil });
-            else if (asset && field?.kind === 'date' && field.config.tracking?.recurrence !== undefined) await this.assets.advance(p, asset.id, field.key, { store: tx, skipRequestId: id });
-            else if (asset && field?.kind === 'date' && field.config.tracking) {
+            let moved = false;
+            if (asset && field?.kind === 'date' && field.config.tracking && action.renewedUntil) {
+              await this.assets.advance(p, asset.id, field.key, { store: tx, skipRequestId: id, until: action.renewedUntil });
+              moved = true;
+            } else if (asset && field?.kind === 'date' && field.config.tracking?.recurrence !== undefined) {
+              await this.assets.advance(p, asset.id, field.key, { store: tx, skipRequestId: id });
+              moved = true;
+            } else if (asset && field?.kind === 'date' && field.config.tracking) {
               const kinds = await tx.listDateKinds();
               const kind = kinds.find((k) => k.id === field.config.tracking!.dateKindId);
-              if (kind && behaviorOf(field, kind) === 'recurring') await this.assets.advance(p, asset.id, field.key, { store: tx, skipRequestId: id });
+              if (kind && behaviorOf(field, kind) === 'recurring') {
+                await this.assets.advance(p, asset.id, field.key, { store: tx, skipRequestId: id });
+                moved = true;
+              }
             }
+            // Renewed, but to when? A date with no fixed term needs the new one (the item would still say the old date).
+            if (!moved && asset && field?.kind === 'date' && field.config.tracking) throw AppError.validation(`Give the new ${field.label.toLowerCase()} (“Renewed until …”)`);
           }
           // Picking up a request assigns it, so the requester knows who is on it.
           if (handler && !r.assigneeId && r.statusCategory === 'todo' && to.category === 'active') await tx.setRequestAssignee(id, p.userId);
