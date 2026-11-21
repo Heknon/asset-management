@@ -31,6 +31,7 @@ export const fieldPresets: FieldPreset[] = [
   { key: 'contact', label: t('Contact'), kind: 'user', hint: t('A person to ask') },
   { key: 'website', label: t('Website'), kind: 'url', hint: t('Portal or product page') },
   { key: 'license_key', label: t('License key'), kind: 'secret', hint: t('Always restricted') },
+  { key: 'admin_login', label: t('Admin login'), kind: 'login', hint: t('Address, user, password') },
   { key: 'notes', label: t('Notes'), kind: 'longText', hint: t('Anything else') },
 ];
 
@@ -45,7 +46,9 @@ const defaults = (kind: FieldKind): Record<string, unknown> =>
           ? { maxItems: 200 }
           : kind === 'assetRef'
             ? { multiple: false }
-            : {};
+            : kind === 'login'
+              ? { secretLabel: 'password' }
+              : {};
 
 export function uniqueKey(label: string, existing: ReadonlySet<string>): string {
   const base = slugKey(label) || 'field';

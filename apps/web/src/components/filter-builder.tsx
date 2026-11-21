@@ -97,7 +97,7 @@ export function filterFields(type: AssetType | undefined): FilterField[] {
     { key: 'updatedAt', label: t('Last updated'), kind: 'date' },
   ];
   const own = (type?.fields ?? [])
-    .filter((f) => !isRestricted(f) && f.kind !== 'longText' && f.kind !== 'assetRef')
+    .filter((f) => !isRestricted(f) && f.kind !== 'longText' && f.kind !== 'assetRef' && f.kind !== 'login')
     .map((f): FilterField => ({ key: `attributes.${f.key}`, label: f.label, kind: kindOf(f), definition: f }));
   return [...own, ...system];
 }
